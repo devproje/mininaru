@@ -9,6 +9,7 @@ import (
 	"git.wh64.net/naru-studio/mininaru/config"
 	"git.wh64.net/naru-studio/mininaru/core"
 	"git.wh64.net/naru-studio/mininaru/handler"
+	"git.wh64.net/naru-studio/mininaru/modules/llm"
 	"github.com/gin-gonic/gin"
 )
 
@@ -21,17 +22,20 @@ var (
 )
 
 func main() {
+	var app *gin.Engine
 	var quit chan os.Signal
 	core.NaruCore = core.NewMiniNaru()
-	core.NaruCore.Modules = make(map[string]core.NaruModule, 0)
 
-	config.Load(&config.VersionInfo{
+	var err = config.Load(&config.VersionInfo{
 		Version:   version,
 		Branch:    branch,
 		GitHash:   hash,
 		BuildTime: buildTime,
 		GoVersion: goVersion,
 	})
+	if err != nil {
+		goto cleanup
+	}
 
 	gin.SetMode(gin.ReleaseMode)
 	for _, arg := range os.Args {
@@ -40,8 +44,10 @@ func main() {
 		}
 	}
 
-	var err = core.NaruCore.Init()
-	var app = core.NaruCore.Engine
+	core.NaruCore.Insmod(llm.LLM)
+
+	err = core.NaruCore.Init()
+	app = core.NaruCore.Engine
 	if err != nil {
 		goto cleanup
 	}
