@@ -1,0 +1,11 @@
+.idea/
+.vscode/
+
+# data directory
+.narudata/
+
+# binaries
+mininaru
+
+# macOS file cache
+.DS_Store
