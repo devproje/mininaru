@@ -19,7 +19,7 @@ type ConfigData struct {
 	Port int    `toml:"port"`
 	SSL  bool   `toml:"ssl"`
 
-	Ver *VersionInfo
+	Ver *VersionInfo `toml:"-"`
 }
 
 var (

@@ -8,8 +8,8 @@ import (
 
 	"git.wh64.net/naru-studio/mininaru/config"
 	"git.wh64.net/naru-studio/mininaru/core"
-	"git.wh64.net/naru-studio/mininaru/handler"
 	"git.wh64.net/naru-studio/mininaru/modules/llm"
+	"git.wh64.net/naru-studio/mininaru/modules/webserver"
 	"github.com/gin-gonic/gin"
 )
 
@@ -22,7 +22,6 @@ var (
 )
 
 func main() {
-	var app *gin.Engine
 	var quit chan os.Signal
 	core.NaruCore = core.NewMiniNaru()
 
@@ -44,15 +43,13 @@ func main() {
 		}
 	}
 
+	core.NaruCore.Insmod(webserver.WebServer)
 	core.NaruCore.Insmod(llm.LLM)
 
 	err = core.NaruCore.Init()
-	app = core.NaruCore.Engine
 	if err != nil {
 		goto cleanup
 	}
-
-	app.GET("/", handler.Index)
 
 	quit = make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
@@ -65,7 +62,7 @@ cleanup:
 		_, _ = fmt.Fprintf(os.Stderr, "%v\n", err)
 	}
 
-	if !core.NaruCore.Initialzed {
+	if !core.NaruCore.Initialized {
 		return
 	}
 

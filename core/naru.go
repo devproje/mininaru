@@ -1,26 +1,29 @@
 package core
 
 import (
-	"context"
 	"fmt"
-	"net/http"
 	"os"
 	"slices"
-	"time"
+	"sync"
 
 	"git.wh64.net/naru-studio/mininaru/config"
-	"github.com/gin-gonic/gin"
 )
 
 var NaruCore *MiniNaru
 
-type MiniNaru struct {
-	webserver *http.Server
-	orders    []string
-	modules   map[string]NaruModule
+type NaruModule interface {
+	Name() string
 
-	Initialzed bool
-	Engine     *gin.Engine
+	Load() error
+	Unload() error
+}
+
+type MiniNaru struct {
+	sync.RWMutex
+	orders  []string
+	modules map[string]NaruModule
+
+	Initialized bool
 }
 
 func NewMiniNaru() *MiniNaru {
@@ -28,25 +31,27 @@ func NewMiniNaru() *MiniNaru {
 }
 
 func (n *MiniNaru) Insmod(module NaruModule) {
-	if n.Initialzed {
+	n.Lock()
+	defer n.Unlock()
+
+	if n.Initialized {
 		_, _ = fmt.Fprintf(os.Stderr, "your module is ignored by this system, because service already loaded.\n")
 		return
+	}
+
+	if n.modules == nil {
+		n.modules = make(map[string]NaruModule, 0)
 	}
 
 	n.modules[module.Name()] = module
 }
 
 func (n *MiniNaru) Init() error {
-	if n.Initialzed {
+	if n.Initialized {
 		return fmt.Errorf("mininaru core is already loaded")
 	}
 
 	var err error
-	var proto = "http"
-	if config.Get.SSL {
-		proto = "https"
-	}
-
 	var ver = config.Get.Ver
 
 	fmt.Println()
@@ -60,6 +65,9 @@ func (n *MiniNaru) Init() error {
 
 	fmt.Printf("starting mininaru v%s-%s (%s)\n", ver.Version, ver.Branch, ver.GitHash)
 
+	n.Lock()
+	defer n.Unlock()
+
 	for name, module := range n.modules {
 		fmt.Printf("loading naru module: %s\n", name)
 		err = module.Load()
@@ -70,49 +78,22 @@ func (n *MiniNaru) Init() error {
 		n.orders = append(n.orders, name)
 	}
 
-	n.Engine = gin.Default()
-	n.webserver = &http.Server{
-		Addr:    fmt.Sprintf("%s:%d", config.Get.Host, config.Get.Port),
-		Handler: n.Engine,
-	}
-	n.Initialzed = true
+	n.Initialized = true
 
-	fmt.Printf("http webserver served at: %s://%s:%d\n", proto, config.Get.Host, config.Get.Port)
-	go func() {
-		if config.Get.SSL {
-			// TODO: load ssl file
-			var err = n.webserver.ListenAndServeTLS("", "")
-			if err != nil {
-				_, _ = fmt.Fprintf(os.Stderr, "failed load webserver with tls: %v\n", err)
-			}
-
-			return
-		}
-
-		var err = n.webserver.ListenAndServe()
-		if err != nil {
-			_, _ = fmt.Fprintf(os.Stderr, "failed load webserver: %v\n", err)
-		}
-	}()
-
+	fmt.Printf("mininaru core is ready.\n")
 	return nil
 }
 
 func (n *MiniNaru) Destroy() error {
-	if !n.Initialzed {
+	var err error
+	if !n.Initialized {
 		return fmt.Errorf("mininaru core's state is already dead")
 	}
 
-	fmt.Printf("shutting down web server...\n")
-	var ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	var err = n.webserver.Shutdown(ctx)
-	if err != nil {
-		_, _ = fmt.Fprintf(os.Stderr, "webserver forced to shutdown %v\n", err)
-	}
-
 	slices.Reverse(n.orders)
+
+	n.Lock()
+	defer n.Unlock()
 	for _, order := range n.orders {
 		fmt.Printf("unloading naru module: %s\n", order)
 		var module, ok = n.modules[order]
@@ -126,7 +107,7 @@ func (n *MiniNaru) Destroy() error {
 		}
 	}
 
-	n.Initialzed = false
+	n.Initialized = false
 	n.orders = nil
 
 	return nil
