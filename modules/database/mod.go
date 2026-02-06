@@ -43,26 +43,31 @@ func (m *DatabaseModule) queryMigrations() ([]string, error) {
 
 	rows, err = m.DB.Query("SELECT version FROM migrations;")
 	if err != nil {
-		goto cleanup
+		goto handle_err
 	}
+	defer rows.Close()
 
 	for rows.Next() {
 		var version string
 		err = rows.Scan(&version)
 		if err != nil {
-			goto cleanup
+			goto handle_err
 		}
 
 		versions = append(versions, version)
 	}
 
+	if err = rows.Err(); err != nil {
+		goto handle_err
+	}
+
 	return versions, nil
 
-cleanup:
+handle_err:
 	return nil, err
 }
 
-func (m *DatabaseModule) applyMigration(path, version string) error {
+func (m *DatabaseModule) applyMigration(tx *sql.Tx, path, version string) error {
 	var buf []byte
 	var err error
 
@@ -71,12 +76,12 @@ func (m *DatabaseModule) applyMigration(path, version string) error {
 		goto handle_err
 	}
 
-	_, err = m.DB.Exec(string(buf))
+	_, err = tx.Exec(string(buf))
 	if err != nil {
 		goto handle_err
 	}
 
-	_, err = m.DB.Exec("INSERT INTO migrations (version) VALUES (?);", version)
+	_, err = tx.Exec("INSERT INTO migrations (version) VALUES (?);", version)
 	if err != nil {
 		goto handle_err
 	}
@@ -121,13 +126,16 @@ func (m *DatabaseModule) migrations() error {
 			continue
 		}
 
-		err = m.applyMigration(path, version)
+		err = m.applyMigration(tx, path, version)
 		if err != nil {
 			_ = tx.Rollback()
 			goto handle_err
 		}
 	}
-	_ = tx.Commit()
+	err = tx.Commit()
+	if err != nil {
+		goto handle_err
+	}
 
 	return nil
 
