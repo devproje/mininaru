@@ -15,9 +15,10 @@ type VersionInfo struct {
 }
 
 type ConfigData struct {
-	Host string `toml:"host"`
-	Port int    `toml:"port"`
-	SSL  bool   `toml:"ssl"`
+	Host    string `toml:"host"`
+	Port    int    `toml:"port"`
+	SSL     bool   `toml:"ssl"`
+	DataDir string `toml:"datadir"`
 
 	Ver *VersionInfo `toml:"-"`
 }
@@ -37,6 +38,16 @@ func Load(ver *VersionInfo) error {
 		return err
 	}
 
+	if Get.DataDir == "" {
+		Get.DataDir = ".narudata"
+	}
+
 	Get.Ver = ver
+
+	_, err = os.Stat(Get.DataDir)
+	if err != nil {
+		_ = os.Mkdir(Get.DataDir, 0700)
+	}
+
 	return nil
 }

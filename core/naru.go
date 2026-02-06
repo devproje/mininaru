@@ -44,6 +44,7 @@ func (n *MiniNaru) Insmod(module NaruModule) {
 	}
 
 	n.modules[module.Name()] = module
+	n.orders = append(n.orders, module.Name())
 }
 
 func (n *MiniNaru) Init() error {
@@ -68,14 +69,14 @@ func (n *MiniNaru) Init() error {
 	n.Lock()
 	defer n.Unlock()
 
-	for name, module := range n.modules {
+	for _, name := range n.orders {
+		var module = n.modules[name]
 		fmt.Printf("loading naru module: %s\n", name)
+
 		err = module.Load()
 		if err != nil {
 			return fmt.Errorf("failed to load module %s: %v", name, err)
 		}
-
-		n.orders = append(n.orders, name)
 	}
 
 	n.Initialized = true
