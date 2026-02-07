@@ -1,5 +1,11 @@
 package agent
 
+import (
+	"database/sql"
+	"fmt"
+	"os"
+)
+
 type AgentEngine struct {
 	Name        string `json:"name"`
 	ApiEndpoint string `json:"api_endpoint"`
@@ -8,7 +14,9 @@ type AgentEngine struct {
 }
 
 func (m *AgentModule) CreateEngine(payload *AgentEngine) error {
-	var _, err = m.DB.Exec(
+	var err error
+
+	_, err = m.DB.Exec(
 		"INSERT INTO agent_engine (`name`, api_endpoint, api_key, model) VALUES (?, ?, ?, ?)",
 		payload.Name,
 		payload.ApiEndpoint,
@@ -27,26 +35,22 @@ handle_err:
 
 func (m *AgentModule) ReadEngine(id string) (*AgentEngine, error) {
 	var engine AgentEngine
-	var rows, err = m.DB.Query("SELECT * FROM agent_engine WHERE name = ?", id)
+	var rows *sql.Rows
+	var err error
+
+	rows, err = m.DB.Query("SELECT `name`, api_endpoint, api_key, model FROM agent_engine WHERE name = ?", id)
 	if err != nil {
 		goto handle_err
 	}
 	defer rows.Close()
 
-	if rows.Next() {
-		var name, apiEndpoint, apiKey, model string
-		err = rows.Scan(&name, &apiEndpoint, &apiKey, &model)
-		if err != nil {
-			goto handle_err
-		}
-
-		engine.Name = name
-		engine.ApiEndpoint = apiEndpoint
-		engine.ApiKey = apiKey
-		engine.Model = model
+	if !rows.Next() {
+		err = fmt.Errorf("engine '%s' is not exists", id)
+		goto handle_err
 	}
 
-	if err = rows.Err(); err != nil {
+	err = rows.Scan(&engine.Name, &engine.ApiEndpoint, &engine.ApiKey, &engine.Model)
+	if err != nil {
 		goto handle_err
 	}
 
@@ -54,4 +58,92 @@ func (m *AgentModule) ReadEngine(id string) (*AgentEngine, error) {
 
 handle_err:
 	return nil, err
+}
+
+func (m *AgentModule) ExistEngine(id string) bool {
+	var rows *sql.Rows
+	var cnt int = 0
+	var err error
+
+	rows, err = m.DB.Query("SELECT COUNT(*) FROM agent_engine WHERE name = ?;", id)
+	if err != nil {
+		goto handle_err
+	}
+	defer rows.Close()
+
+	if !rows.Next() {
+		goto handle_err
+	}
+
+	err = rows.Scan(&cnt)
+	if err != nil {
+		goto handle_err
+	}
+
+	return cnt >= 1
+
+handle_err:
+	if err != nil {
+		_, _ = fmt.Fprintf(os.Stderr, "[Agent::Engine] error occurred while checking model is exists:\n%v\n", err)
+	}
+
+	return false
+}
+
+func (m *AgentModule) RenameEngine(id, newid string) error {
+	var err error
+
+	_, err = m.DB.Exec("UPDATE agent_engine SET name = ? WHERE name = ?;", newid, id)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *AgentModule) UpdateEndpointEngine(id, endpoint string) error {
+	var err error
+
+	_, err = m.DB.Exec("UPDATE agent_engine SET api_endpoint = ? WHERE name = ?", endpoint, id)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *AgentModule) UpdateKeyEngine(id, key string) error {
+	var err error
+
+	_, err = m.DB.Exec("UPDATE agent_engine SET api_key = ? WHERE name = ?;", key, id)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *AgentModule) UpdateModelEngine(id, model string) error {
+	var err error
+
+	_, err = m.DB.Exec("UPDATE agent_engine SET model = ? WHERE name = ?;", model, id)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *AgentModule) DeleteEngine(id string) error {
+	var err error
+
+	_, err = m.DB.Exec("DELETE FROM agent_engine WHERE name = ?;", id)
+	if err != nil {
+		goto handle_err
+	}
+
+	return nil
+
+handle_err:
+	return err
 }

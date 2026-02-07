@@ -30,12 +30,12 @@ var (
 func Load(ver *VersionInfo) error {
 	var buf, err = os.ReadFile("config.toml")
 	if err != nil {
-		return err
+		goto handle_err
 	}
 
 	err = toml.Unmarshal(buf, &Get)
 	if err != nil {
-		return err
+		goto handle_err
 	}
 
 	if Get.DataDir == "" {
@@ -46,8 +46,14 @@ func Load(ver *VersionInfo) error {
 
 	_, err = os.Stat(Get.DataDir)
 	if err != nil {
-		_ = os.Mkdir(Get.DataDir, 0700)
+		err = os.Mkdir(Get.DataDir, 0700)
+		if err != nil {
+			goto handle_err
+		}
 	}
 
 	return nil
+
+handle_err:
+	return err
 }

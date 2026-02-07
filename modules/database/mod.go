@@ -118,7 +118,11 @@ func (m *DatabaseModule) migrations() error {
 		return nil
 	}
 
-	tx, _ = m.DB.Begin()
+	tx, err = m.DB.Begin()
+	if err != nil {
+		goto handle_err
+	}
+
 	for _, path := range glob {
 		var version = strings.ReplaceAll(path, "migrations/", "")
 		if slices.Contains(versions, version) {

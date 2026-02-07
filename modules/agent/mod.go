@@ -2,6 +2,8 @@ package agent
 
 import (
 	"database/sql"
+	"fmt"
+	"os"
 
 	"git.wh64.net/naru-studio/mininaru/modules/database"
 )
@@ -42,30 +44,235 @@ func (m *AgentModule) Unload() error {
 }
 
 func (m *AgentModule) Create(engineId string, payload *AgentData) error {
+	var exists bool = false
+	var defaults = false
+	var rows *sql.Rows
+	var cnt int = 0
+	var tx *sql.Tx
+	var err error
+
+	exists = m.ExistEngine(engineId)
+	if !exists {
+		err = fmt.Errorf("engine '%s' is not exists", engineId)
+		goto handle_err
+	}
+
+	tx, err = m.DB.Begin()
+	if err != nil {
+		goto handle_err
+	}
+
+	rows, err = tx.Query("SELECT COUNT(*) FROM agents;")
+	if err != nil {
+		goto handle_err
+	}
+	defer rows.Close()
+
+	if rows.Next() {
+		err = rows.Scan(&cnt)
+		if err != nil {
+			goto handle_err
+		}
+	}
+
+	defaults = cnt == 0
+
+	_, err = tx.Exec(
+		"INSERT INTO agents (id, `name`, engine, `default`) VALUES (?, ?, ?, ?)",
+		payload.Id,
+		payload.Name,
+		engineId,
+		defaults,
+	)
+	if err != nil {
+		goto handle_err
+	}
+
+	err = tx.Commit()
+	if err != nil {
+		goto handle_err
+	}
+
 	return nil
+
+handle_err:
+	if tx != nil {
+		_ = tx.Rollback()
+	}
+
+	return err
 }
 
 func (m *AgentModule) Read(id string) (*AgentData, error) {
-	return nil, nil
+	var engineId string
+	var data AgentData
+	var rows *sql.Rows
+	var err error
+
+	rows, err = m.DB.Query("SELECT id, `name`, engine, `default` FROM agents WHERE id = ?;", id)
+	if err != nil {
+		goto handle_err
+	}
+	defer rows.Close()
+
+	if !rows.Next() {
+		err = fmt.Errorf("agent '%s' is not exists", id)
+		goto handle_err
+	}
+
+	err = rows.Scan(&data.Id, &data.Name, &engineId, &data.Default)
+	if err != nil {
+		goto handle_err
+	}
+
+	data.Engine, err = m.ReadEngine(engineId)
+	if err != nil {
+		goto handle_err
+	}
+
+	return &data, nil
+
+handle_err:
+	return nil, err
 }
 
 func (m *AgentModule) GetDefault() (*AgentData, error) {
-	return nil, nil
+	var engineId string
+	var data AgentData
+	var rows *sql.Rows
+	var err error
+
+	rows, err = m.DB.Query("SELECT * FROM agents WHERE `default` = 1;")
+	if err != nil {
+		goto handle_err
+	}
+	defer rows.Close()
+
+	if !rows.Next() {
+		err = fmt.Errorf("default agent is not exists")
+		goto handle_err
+	}
+
+	err = rows.Scan(&data.Id, &data.Name, &engineId, &data.Default)
+	if err != nil {
+		goto handle_err
+	}
+
+	data.Engine, err = m.ReadEngine(engineId)
+	if err != nil {
+		goto handle_err
+	}
+
+	return &data, nil
+
+handle_err:
+	return nil, err
+}
+
+func (m *AgentModule) Exist(id string) bool {
+	var rows *sql.Rows
+	var cnt int = 0
+	var err error
+
+	rows, err = m.DB.Query("SELECT COUNT(*) FROM agents WHERE id = ?;", id)
+	if err != nil {
+		goto handle_err
+	}
+	defer rows.Close()
+
+	if !rows.Next() {
+		goto handle_err
+	}
+
+	err = rows.Scan(&cnt)
+	if err != nil {
+		goto handle_err
+	}
+
+	return cnt >= 1
+
+handle_err:
+	if err != nil {
+		_, _ = fmt.Fprintf(os.Stderr, "[Agent] error occurred while checking agent is exists:\n%v\n", err)
+	}
+
+	return false
 }
 
 func (m *AgentModule) SetName(id string, newname string) error {
+	var err error
+
+	_, err = m.DB.Exec("UPDATE agents SET name = ? WHERE id = ?;", newname, id)
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
 func (m *AgentModule) SetEngine(id string, engineId string) error {
+	var exists bool = false
+	var err error
+
+	exists = m.ExistEngine(engineId)
+	if !exists {
+		err = fmt.Errorf("engine '%s' is not exists", engineId)
+		goto handle_err
+	}
+
+	_, err = m.DB.Exec("UPDATE agents SET engine = ? WHERE id = ?;", engineId, id)
+	if err != nil {
+		goto handle_err
+	}
+
 	return nil
+
+handle_err:
+	return err
 }
 
 func (m *AgentModule) SetDefault(id string) error {
+	var tx *sql.Tx
+	var err error
+
+	tx, err = m.DB.Begin()
+	if err != nil {
+		goto handle_err
+	}
+
+	_, err = tx.Exec("UPDATE agents SET `default` = 0;")
+	if err != nil {
+		goto handle_err
+	}
+
+	_, err = tx.Exec("UPDATE agents SET `default` = 1 WHERE id = ?;", id)
+	if err != nil {
+		goto handle_err
+	}
+
+	err = tx.Commit()
+	if err != nil {
+		goto handle_err
+	}
+
 	return nil
+
+handle_err:
+	if tx != nil {
+		_ = tx.Rollback()
+	}
+
+	return err
 }
 
 func (m *AgentModule) Delete(id string) error {
+	var err error
+
+	_, err = m.DB.Exec("DELETE FROM agents WHERE id = ?;", id)
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 

@@ -52,7 +52,7 @@ func (m *WebServerModule) Load() error {
 	select {
 	case err = <-errChannel:
 		return err
-	case <-time.After(100 * time.Millisecond):
+	case <-time.After(500 * time.Millisecond):
 		break
 	}
 
