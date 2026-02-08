@@ -1,3 +1,14 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+/*
+ * MiniNaru
+ * Copyright (C) 2022-2026 Project_IO
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ */
+
 package database
 
 import (
@@ -162,7 +173,7 @@ func (m *DatabaseModule) Load() error {
 		_ = os.WriteFile(dbpath, nil, 0700)
 	}
 
-	m.DB, err = sql.Open("sqlite3", dbpath)
+	m.DB, err = sql.Open("sqlite3", fmt.Sprintf("%s?_journal_mode=WAL&_busy_timeout=5000", dbpath))
 	if err != nil {
 		goto handle_err
 	}
