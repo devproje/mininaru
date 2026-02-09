@@ -28,7 +28,6 @@ type AgentData struct {
 	Name         string             `json:"name"`
 	Engine       *AgentEngine       `json:"engine"`
 	Default      bool               `json:"default"`
-	Workspaces   []AgentWorkspace   `json:"workspaces"`
 	Instructions []AgentInstruction `json:"instructions"`
 }
 

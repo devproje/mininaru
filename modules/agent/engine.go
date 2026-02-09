@@ -18,7 +18,7 @@ import (
 )
 
 type AgentEngine struct {
-	Name        string `json:"name"`
+	Id          string `json:"id"`
 	ApiEndpoint string `json:"api_endpoint"`
 	ApiKey      string `json:"api_key"`
 	Model       string `json:"model"`
@@ -28,8 +28,8 @@ func (m *AgentModule) CreateEngine(payload *AgentEngine) error {
 	var err error
 
 	_, err = m.DB.Exec(
-		"INSERT INTO agent_engine (`name`, api_endpoint, api_key, model) VALUES (?, ?, ?, ?)",
-		payload.Name,
+		"INSERT INTO agent_engine (id, api_endpoint, api_key, model) VALUES (?, ?, ?, ?)",
+		payload.Id,
 		payload.ApiEndpoint,
 		payload.ApiKey,
 		payload.Model,
@@ -60,7 +60,7 @@ func (m *AgentModule) ReadEngine(id string) (*AgentEngine, error) {
 		goto handle_err
 	}
 
-	err = rows.Scan(&engine.Name, &engine.ApiEndpoint, &engine.ApiKey, &engine.Model)
+	err = rows.Scan(&engine.Id, &engine.ApiEndpoint, &engine.ApiKey, &engine.Model)
 	if err != nil {
 		goto handle_err
 	}
@@ -76,7 +76,7 @@ func (m *AgentModule) ExistEngine(id string) bool {
 	var cnt int = 0
 	var err error
 
-	rows, err = m.DB.Query("SELECT COUNT(*) FROM agent_engine WHERE name = ?;", id)
+	rows, err = m.DB.Query("SELECT COUNT(*) FROM agent_engine WHERE id = ?;", id)
 	if err != nil {
 		goto handle_err
 	}
