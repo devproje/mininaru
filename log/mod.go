@@ -93,7 +93,7 @@ func Logf(level LoggingLevel, format string, args ...any) (int, error) {
 	case LOG_ERR:
 		prefix = "ERROR"
 	case LOG_WARNING:
-		prefix = "WRAN"
+		prefix = "WARN"
 	case LOG_NOTICE:
 		prefix = "NOTICE"
 	case LOG_INFO:
