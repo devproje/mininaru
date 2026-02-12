@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"git.wh64.net/naru-studio/mininaru/config"
+	"git.wh64.net/naru-studio/mininaru/log"
 	"git.wh64.net/naru-studio/mininaru/modules/webserver/handler"
 	"github.com/gin-gonic/gin"
 )
@@ -47,7 +48,7 @@ func (m *WebServerModule) Load() error {
 
 	m.Engine.GET("/", handler.Index)
 
-	fmt.Printf("[WebServer] http webserver served at: %s://%s:%d\n", proto, config.Get.Host, config.Get.Port)
+	log.Printf("[webserver]: http webserver served at: %s://%s:%d\n", proto, config.Get.Host, config.Get.Port)
 	var errChannel = make(chan error, 1)
 
 	go func() {

@@ -35,9 +35,9 @@ var (
 
 func main() {
 	var quit chan os.Signal
-	core.NaruCore = core.NewMiniNaru()
+	var err error
 
-	var err = config.Load(&config.VersionInfo{
+	err = config.Load(&config.VersionInfo{
 		Version:   version,
 		Branch:    branch,
 		GitHash:   hash,
@@ -45,8 +45,10 @@ func main() {
 		GoVersion: goVersion,
 	})
 	if err != nil {
-		goto cleanup
+		goto err_cleanup_io
 	}
+
+	core.NaruCore = core.NewMiniNaru()
 
 	gin.SetMode(gin.ReleaseMode)
 	for _, arg := range os.Args {
@@ -71,14 +73,22 @@ func main() {
 
 	goto cleanup
 
+err_cleanup_io:
+	_, _ = fmt.Fprintf(os.Stderr, "%v\n", err)
+	return
+
 cleanup:
 	if err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "%v\n", err)
+	}
+
+	if core.NaruCore == nil {
+		return
 	}
 
 	if !core.NaruCore.Initialized {
 		return
 	}
 
-	core.NaruCore.Destroy()
+	_ = core.NaruCore.Destroy()
 }

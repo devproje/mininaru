@@ -22,6 +22,7 @@ import (
 	"strings"
 
 	"git.wh64.net/naru-studio/mininaru/config"
+	"git.wh64.net/naru-studio/mininaru/log"
 	_ "github.com/mattn/go-sqlite3"
 )
 
@@ -39,6 +40,7 @@ var schema = `CREATE TABLE IF NOT EXISTS migrations (
 );`
 
 func (m *DatabaseModule) initializeMigrate() error {
+	log.Debugf("[database]: creating migrations schema table...\n")
 	var _, err = m.DB.Exec(schema)
 	if err != nil {
 		return err
@@ -52,6 +54,7 @@ func (m *DatabaseModule) queryMigrations() ([]string, error) {
 	var rows *sql.Rows
 	var versions []string = make([]string, 0)
 
+	log.Debugf("[database]: get migrations from database file...\n")
 	rows, err = m.DB.Query("SELECT version FROM migrations;")
 	if err != nil {
 		goto handle_err
@@ -64,6 +67,8 @@ func (m *DatabaseModule) queryMigrations() ([]string, error) {
 		if err != nil {
 			goto handle_err
 		}
+
+		log.Debugf("[database]: loaded migration version data: %s\n", version)
 
 		versions = append(versions, version)
 	}
@@ -82,22 +87,25 @@ func (m *DatabaseModule) applyMigration(tx *sql.Tx, path, version string) error 
 	var buf []byte
 	var err error
 
+	log.Debugf("[database]: loading embedded migration file: %s\n", path)
 	buf, err = fs.ReadFile(migrations, path)
 	if err != nil {
 		goto handle_err
 	}
 
+	log.Debugf("[database]: executing migration:\n%s\n", string(buf))
 	_, err = tx.Exec(string(buf))
 	if err != nil {
 		goto handle_err
 	}
 
+	log.Debugf("[database]: upload version data to migration table: %s\n", version)
 	_, err = tx.Exec("INSERT INTO migrations (version) VALUES (?);", version)
 	if err != nil {
 		goto handle_err
 	}
 
-	fmt.Printf("[Database] applied migration: %s\n", version)
+	log.Printf("[database]: applied migration: %s\n", version)
 	return nil
 
 handle_err:
@@ -137,7 +145,7 @@ func (m *DatabaseModule) migrations() error {
 	for _, path := range glob {
 		var version = strings.ReplaceAll(path, "migrations/", "")
 		if slices.Contains(versions, version) {
-			fmt.Printf("[Database] Already applied migration: %s\n", version)
+			log.Printf("[database]: already applied migration: %s\n", version)
 			continue
 		}
 
@@ -169,8 +177,9 @@ func (m *DatabaseModule) Load() error {
 
 	_, err = os.Stat(dbpath)
 	if err != nil {
-		fmt.Printf("[Database] WARN: DATABASE FILE IS NOT EXISTS... CREATE NEW ONE...")
+		log.Warnf("[database]: database file not exists... create new one...\n")
 		_ = os.WriteFile(dbpath, nil, 0700)
+		log.Debugf("[database]: created database file: %s\n", dbpath)
 	}
 
 	m.DB, err = sql.Open("sqlite3", fmt.Sprintf("%s?_journal_mode=WAL&_busy_timeout=5000", dbpath))
@@ -178,7 +187,7 @@ func (m *DatabaseModule) Load() error {
 		goto handle_err
 	}
 
-	fmt.Printf("[Database] Connected database to %s\n", dbpath)
+	log.Printf("[database]: connected database to %s\n", dbpath)
 
 	err = m.migrations()
 	if err != nil {

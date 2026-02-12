@@ -18,6 +18,7 @@ import (
 	"sync"
 
 	"git.wh64.net/naru-studio/mininaru/config"
+	"git.wh64.net/naru-studio/mininaru/log"
 )
 
 var NaruCore *MiniNaru
@@ -60,11 +61,16 @@ func (n *MiniNaru) Insmod(module NaruModule) {
 
 func (n *MiniNaru) Init() error {
 	if n.Initialized {
-		return fmt.Errorf("mininaru core is already loaded")
+		return fmt.Errorf("[mininaru] mininaru core is already loaded")
 	}
 
 	var err error
 	var ver = config.Get.Ver
+
+	err = log.Init()
+	if err != nil {
+		return err
+	}
 
 	fmt.Println()
 	fmt.Println("███╗   ██╗ █████╗ ██████╗ ██╗   ██╗")
@@ -75,31 +81,31 @@ func (n *MiniNaru) Init() error {
 	fmt.Println("╚═╝  ╚═══╝╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝")
 	fmt.Println()
 
-	fmt.Printf("starting mininaru v%s-%s (%s)\n", ver.Version, ver.Branch, ver.GitHash)
+	log.Printf("[mininaru]: starting mininaru %s-%s (%s)\n", ver.Version, ver.Branch, ver.GitHash)
 
 	n.Lock()
 	defer n.Unlock()
 
 	for _, name := range n.orders {
 		var module = n.modules[name]
-		fmt.Printf("loading naru module: %s\n", name)
+		log.Printf("[mininaru]: loading naru module: %s\n", name)
 
 		err = module.Load()
 		if err != nil {
-			return fmt.Errorf("failed to load module %s: %v", name, err)
+			return fmt.Errorf("[mininaru]: failed to load module %s: %v", name, err)
 		}
 	}
 
 	n.Initialized = true
 
-	fmt.Printf("mininaru core is ready.\n")
+	log.Printf("[mininaru]: mininaru core is ready.\n")
 	return nil
 }
 
 func (n *MiniNaru) Destroy() error {
 	var err error
 	if !n.Initialized {
-		return fmt.Errorf("mininaru core's state is already dead")
+		return fmt.Errorf("[mininaru]: mininaru core's state is already dead")
 	}
 
 	slices.Reverse(n.orders)
@@ -107,7 +113,7 @@ func (n *MiniNaru) Destroy() error {
 	n.Lock()
 	defer n.Unlock()
 	for _, order := range n.orders {
-		fmt.Printf("unloading naru module: %s\n", order)
+		log.Printf("[mininaru]: unloading naru module: %s\n", order)
 		var module, ok = n.modules[order]
 		if !ok {
 			continue
@@ -115,9 +121,11 @@ func (n *MiniNaru) Destroy() error {
 
 		err = module.Unload()
 		if err != nil {
-			_, _ = fmt.Fprintf(os.Stderr, "failed to unload module %s: %v\n", order, err)
+			_, _ = log.Errorf("[mininaru]: failed to unload module %s: %v\n", order, err)
 		}
 	}
+
+	_ = log.Destroy()
 
 	n.Initialized = false
 	n.orders = nil
