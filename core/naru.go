@@ -44,10 +44,11 @@ func NewMiniNaru() *MiniNaru {
 
 func (n *MiniNaru) Insmod(module NaruModule) {
 	n.Lock()
-	defer n.Unlock()
 
 	if n.Initialized {
 		_, _ = fmt.Fprintf(os.Stderr, "your module is ignored by this system, because service already loaded.\n")
+		n.Unlock()
+
 		return
 	}
 
@@ -57,15 +58,18 @@ func (n *MiniNaru) Insmod(module NaruModule) {
 
 	n.modules[module.Name()] = module
 	n.orders = append(n.orders, module.Name())
+
+	n.Unlock()
 }
 
 func (n *MiniNaru) Init() error {
-	if n.Initialized {
-		return fmt.Errorf("[mininaru] mininaru core is already loaded")
-	}
-
 	var err error
 	var ver = config.Get.Ver
+
+	if n.Initialized {
+		err = fmt.Errorf("[mininaru] mininaru core is already loaded")
+		goto err_cleanup
+	}
 
 	err = log.Init()
 	if err != nil {
@@ -84,7 +88,6 @@ func (n *MiniNaru) Init() error {
 	log.Printf("[mininaru]: starting mininaru %s-%s (%s)\n", ver.Version, ver.Branch, ver.GitHash)
 
 	n.Lock()
-	defer n.Unlock()
 
 	for _, name := range n.orders {
 		var module = n.modules[name]
@@ -92,14 +95,21 @@ func (n *MiniNaru) Init() error {
 
 		err = module.Load()
 		if err != nil {
-			return fmt.Errorf("[mininaru]: failed to load module %s: %v", name, err)
+			err = fmt.Errorf("[mininaru]: failed to load module %s: %v", name, err)
+			goto err_module_cleanup
 		}
 	}
 
+	n.Unlock()
 	n.Initialized = true
 
 	log.Printf("[mininaru]: mininaru core is ready.\n")
 	return nil
+
+err_module_cleanup:
+	n.Unlock()
+err_cleanup:
+	return err
 }
 
 func (n *MiniNaru) Destroy() error {
@@ -109,9 +119,8 @@ func (n *MiniNaru) Destroy() error {
 	}
 
 	slices.Reverse(n.orders)
-
 	n.Lock()
-	defer n.Unlock()
+
 	for _, order := range n.orders {
 		log.Printf("[mininaru]: unloading naru module: %s\n", order)
 		var module, ok = n.modules[order]
@@ -125,10 +134,11 @@ func (n *MiniNaru) Destroy() error {
 		}
 	}
 
-	_ = log.Destroy()
-
-	n.Initialized = false
+	n.Unlock()
 	n.orders = nil
+
+	_ = log.Destroy()
+	n.Initialized = false
 
 	return nil
 }

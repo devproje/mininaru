@@ -29,7 +29,7 @@ func (m *AgentModule) CreateInstruction(agentId string, payload *AgentInstructio
 
 	if !m.Exist(agentId) {
 		err = fmt.Errorf("agent '%s' is not exists", agentId)
-		goto handle_err
+		goto err_cleanup
 	}
 
 	_, err = m.DB.Exec(
@@ -39,12 +39,12 @@ func (m *AgentModule) CreateInstruction(agentId string, payload *AgentInstructio
 		payload.Content,
 	)
 	if err != nil {
-		goto handle_err
+		goto err_cleanup
 	}
 
 	return nil
 
-handle_err:
+err_cleanup:
 	return err
 }
 
@@ -56,27 +56,30 @@ func (m *AgentModule) ReadInstructions(agentId string) ([]AgentInstruction, erro
 
 	if !m.Exist(agentId) {
 		err = fmt.Errorf("agent '%s' is not exists", agentId)
-		goto handle_err
+		goto err_cleanup
 	}
 
 	rows, err = m.DB.Query("SELECT `name`, content, created_at, updated_at FROM agent_instructions WHERE agent_id = ?", agentId)
 	if err != nil {
-		goto handle_err
+		goto err_cleanup
 	}
-	defer rows.Close()
 
 	for rows.Next() {
 		err = rows.Scan(&instruction.Filename, &instruction.Content, &instruction.CreatedAt, &instruction.UpdatedAt)
 		if err != nil {
-			goto handle_err
+			goto err_query_cleanup
 		}
 
 		instructions = append(instructions, instruction)
 	}
 
+	rows.Close()
+
 	return instructions, nil
 
-handle_err:
+err_query_cleanup:
+	rows.Close()
+err_cleanup:
 	return nil, err
 }
 
@@ -87,28 +90,31 @@ func (m *AgentModule) ReadInstruction(agentId, filename string) (*AgentInstructi
 
 	if !m.Exist(agentId) {
 		err = fmt.Errorf("agent '%s' is not exists", agentId)
-		goto handle_err
+		goto err_cleanup
 	}
 
 	rows, err = m.DB.Query("SELECT `name`, content, created_at, updated_at FROM agent_instructions WHERE agent_id = ? AND `name` = ?", agentId, filename)
 	if err != nil {
-		goto handle_err
+		goto err_cleanup
 	}
-	defer rows.Close()
 
 	if !rows.Next() {
 		err = fmt.Errorf("%s agent instruction name '%s' is not exists", agentId, filename)
-		goto handle_err
+		goto err_query_cleanup
 	}
 
 	err = rows.Scan(&instruction.Filename, &instruction.Content, &instruction.CreatedAt, &instruction.UpdatedAt)
 	if err != nil {
-		goto handle_err
+		goto err_query_cleanup
 	}
+
+	rows.Close()
 
 	return &instruction, nil
 
-handle_err:
+err_query_cleanup:
+	rows.Close()
+err_cleanup:
 	return nil, err
 }
 
@@ -117,17 +123,17 @@ func (m *AgentModule) RenameInstruction(agentId, filename, newname string) error
 
 	if !m.Exist(agentId) {
 		err = fmt.Errorf("agent '%s' is not exists", agentId)
-		goto handle_err
+		goto err_cleanup
 	}
 
 	_, err = m.DB.Exec("UPDATE agent_instructions SET `name` = ? WHERE agent_id = ? AND `name` = ?;", newname, agentId, filename)
 	if err != nil {
-		goto handle_err
+		goto err_cleanup
 	}
 
 	return nil
 
-handle_err:
+err_cleanup:
 	return err
 }
 
@@ -136,17 +142,17 @@ func (m *AgentModule) UpdateInstruction(agentId, filename, content string) error
 
 	if !m.Exist(agentId) {
 		err = fmt.Errorf("agent '%s' is not exists", agentId)
-		goto handle_err
+		goto err_cleanup
 	}
 
 	_, err = m.DB.Exec("UPDATE agent_instructions SET content = ? WHERE agent_id = ? AND `name` = ?;", content, agentId, filename)
 	if err != nil {
-		goto handle_err
+		goto err_cleanup
 	}
 
 	return nil
 
-handle_err:
+err_cleanup:
 	return err
 }
 
@@ -155,16 +161,16 @@ func (m *AgentModule) DeleteInstruction(agentId string, filename string) error {
 
 	if !m.Exist(agentId) {
 		err = fmt.Errorf("agent '%s' is not exists", agentId)
-		goto handle_err
+		goto err_cleanup
 	}
 
 	_, err = m.DB.Exec("DELETE FROM agent_instructions WHERE agent_id = ? AND `name` = ?;", agentId, filename)
 	if err != nil {
-		goto handle_err
+		goto err_cleanup
 	}
 
 	return nil
 
-handle_err:
+err_cleanup:
 	return err
 }

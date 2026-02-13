@@ -50,7 +50,7 @@ func Init() error {
 	if _, err = os.Stat(path); err != nil {
 		err = os.WriteFile(path, nil, 0644)
 		if err != nil {
-			goto err_log_handle
+			goto err_cleanup
 		}
 
 		err = nil
@@ -58,14 +58,14 @@ func Init() error {
 
 	file, err = os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
-		goto err_log_handle
+		goto err_cleanup
 	}
 
 	module.writer = io.MultiWriter(os.Stdout, file)
 
 	return nil
 
-err_log_handle:
+err_cleanup:
 	return err
 }
 

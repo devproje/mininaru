@@ -35,13 +35,10 @@ func (m *AgentModule) CreateEngine(payload *AgentEngine) error {
 		payload.Model,
 	)
 	if err != nil {
-		goto handle_err
+		return err
 	}
 
 	return nil
-
-handle_err:
-	return err
 }
 
 func (m *AgentModule) ReadEngine(id string) (*AgentEngine, error) {
@@ -51,23 +48,25 @@ func (m *AgentModule) ReadEngine(id string) (*AgentEngine, error) {
 
 	rows, err = m.DB.Query("SELECT `name`, api_endpoint, api_key, model FROM agent_engine WHERE name = ?", id)
 	if err != nil {
-		goto handle_err
+		goto err_cleanup
 	}
-	defer rows.Close()
 
 	if !rows.Next() {
 		err = fmt.Errorf("engine '%s' is not exists", id)
-		goto handle_err
+		goto err_cleanup
 	}
 
 	err = rows.Scan(&engine.Id, &engine.ApiEndpoint, &engine.ApiKey, &engine.Model)
 	if err != nil {
-		goto handle_err
+		goto err_cleanup
 	}
+
+	rows.Close()
 
 	return &engine, nil
 
-handle_err:
+err_cleanup:
+	rows.Close()
 	return nil, err
 }
 
@@ -78,24 +77,26 @@ func (m *AgentModule) ExistEngine(id string) bool {
 
 	rows, err = m.DB.Query("SELECT COUNT(*) FROM agent_engine WHERE id = ?;", id)
 	if err != nil {
-		goto handle_err
+		goto err_cleanup
 	}
-	defer rows.Close()
 
 	if !rows.Next() {
-		goto handle_err
+		goto err_cleanup
 	}
 
 	err = rows.Scan(&cnt)
 	if err != nil {
-		goto handle_err
+		goto err_cleanup
 	}
+
+	rows.Close()
 
 	return cnt >= 1
 
-handle_err:
+err_cleanup:
+	rows.Close()
 	if err != nil {
-		_, _ = fmt.Fprintf(os.Stderr, "[Agent::Engine] error occurred while checking model is exists:\n%v\n", err)
+		_, _ = fmt.Fprintf(os.Stderr, "[agent]: error occurred while checking model is exists:\n%v\n", err)
 	}
 
 	return false
@@ -150,11 +151,8 @@ func (m *AgentModule) DeleteEngine(id string) error {
 
 	_, err = m.DB.Exec("DELETE FROM agent_engine WHERE name = ?;", id)
 	if err != nil {
-		goto handle_err
+		return err
 	}
 
 	return nil
-
-handle_err:
-	return err
 }

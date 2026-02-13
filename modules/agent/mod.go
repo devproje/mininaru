@@ -64,24 +64,23 @@ func (m *AgentModule) Create(engineId string, payload *AgentData) error {
 	exists = m.ExistEngine(engineId)
 	if !exists {
 		err = fmt.Errorf("engine '%s' is not exists", engineId)
-		goto handle_err
+		goto err_cleanup
 	}
 
 	tx, err = m.DB.Begin()
 	if err != nil {
-		goto handle_err
+		goto err_cleanup
 	}
 
 	rows, err = tx.Query("SELECT COUNT(*) FROM agents;")
 	if err != nil {
-		goto handle_err
+		goto err_tx_failed
 	}
-	defer rows.Close()
 
 	if rows.Next() {
 		err = rows.Scan(&cnt)
 		if err != nil {
-			goto handle_err
+			goto err_query_failed
 		}
 	}
 
@@ -95,21 +94,23 @@ func (m *AgentModule) Create(engineId string, payload *AgentData) error {
 		defaults,
 	)
 	if err != nil {
-		goto handle_err
+		goto err_query_failed
 	}
 
 	err = tx.Commit()
 	if err != nil {
-		goto handle_err
+		goto err_query_failed
 	}
+
+	rows.Close()
 
 	return nil
 
-handle_err:
-	if tx != nil {
-		_ = tx.Rollback()
-	}
-
+err_query_failed:
+	rows.Close()
+err_tx_failed:
+	_ = tx.Rollback()
+err_cleanup:
 	return err
 }
 
