@@ -12,10 +12,15 @@
 package config
 
 import (
+	_ "embed"
 	"os"
 
 	"github.com/pelletier/go-toml/v2"
 )
+
+type LogConfig struct {
+	LogLevel int `toml:"log_level"`
+}
 
 type VersionInfo struct {
 	Version   string
@@ -26,29 +31,34 @@ type VersionInfo struct {
 }
 
 type ConfigData struct {
-	Host    string `toml:"host"`
-	Port    int    `toml:"port"`
-	SSL     bool   `toml:"ssl"`
-	DataDir string `toml:"datadir"`
+	Host    string    `toml:"host"`
+	Port    int       `toml:"port"`
+	SSL     bool      `toml:"ssl"`
+	DataDir string    `toml:"datadir"`
+	Log     LogConfig `toml:"log"`
 
 	Ver *VersionInfo `toml:"-"`
 }
 
-var (
-	Get *ConfigData
-)
+var Get *ConfigData
+
+//go:embed config.sample.toml
+var defaults []byte
 
 func Load(ver *VersionInfo) error {
 	var buf, err = os.ReadFile("config.toml")
 	if err != nil {
-		goto handle_err
+		err = os.WriteFile("config.toml", defaults, 0644)
+		if err != nil {
+			goto err_io_handle
+		}
 	}
 
 	Get = &ConfigData{}
 
 	err = toml.Unmarshal(buf, &Get)
 	if err != nil {
-		goto handle_err
+		goto err_io_handle
 	}
 
 	if Get.DataDir == "" {
@@ -61,12 +71,12 @@ func Load(ver *VersionInfo) error {
 	if err != nil {
 		err = os.Mkdir(Get.DataDir, 0700)
 		if err != nil {
-			goto handle_err
+			goto err_io_handle
 		}
 	}
 
 	return nil
 
-handle_err:
+err_io_handle:
 	return err
 }
