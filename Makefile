@@ -3,7 +3,7 @@
 
 CC = go
 MAIN = main.go
-SRCS = *.go **/*.go
+SRCS = $(shell find . -name '*.go')
 TARGET = mininaru
 
 VERSION ?= $(shell git describe --tags --always 2>/dev/null || echo "0.0.0")
@@ -13,16 +13,21 @@ HASH ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 BUILD_TIME := $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
 GO_VERSION := $(shell go version | cut -d' ' -f3)
 
-LD_FLAGS := -X main.version=$(VERSION)		\
-            -X main.branch=$(BRANCH)		\
-            -X main.hash=$(HASH)			\
-            -X main.buildTime=$(BUILD_TIME)	\
-            -X main.goVersion=$(GO_VERSION)
+LD_FLAGS := -X 'main.version=$(VERSION)'		\
+            -X 'main.branch=$(BRANCH)'		    \
+            -X 'main.hash=$(HASH)'			    \
+            -X 'main.buildTime=$(BUILD_TIME)'	\
+            -X 'main.goVersion=$(GO_VERSION)'
 
-all: $(SRCS)
+all: copy build
+
+copy:
+	@cp config.sample.toml ./config
+
+build: $(SRCS)
 	$(CC) build -ldflags "$(LD_FLAGS)" -o $(TARGET) $(MAIN)
 
 clean:
-	rm -f $(TARGET)
+	@rm -f $(TARGET)
 
-.PHONY: all clean
+.PHONY: all copy build clean

@@ -1,5 +1,7 @@
 host = "0.0.0.0"
 port = 3000
 ssl = false
-
 datadir = ".narudata"
+
+[log]
+log_level = 6

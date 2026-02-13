@@ -82,6 +82,11 @@ func Logf(level LoggingLevel, format string, args ...any) (int, error) {
 	var err error
 	var prefix string = ""
 	var date = time.Now()
+	var set = config.Get.Log.LogLevel
+
+	if int(level) > set {
+		return 0, nil
+	}
 
 	switch level {
 	case LOG_EMERG:
@@ -102,7 +107,7 @@ func Logf(level LoggingLevel, format string, args ...any) (int, error) {
 		prefix = "DEBUG"
 	}
 
-	n, err = fmt.Fprintf(module.writer, "%s %-10s %s",
+	n, err = fmt.Fprintf(module.writer, "%s %-8s %s",
 		date.Format(time.RFC3339),
 		prefix,
 		fmt.Sprintf(format, args...))

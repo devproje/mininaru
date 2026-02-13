@@ -9,6 +9,7 @@
 
 config.toml
 !config.sample.toml
+config/config.sample.toml
 
 # binaries
 mininaru
