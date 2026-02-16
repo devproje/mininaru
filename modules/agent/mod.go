@@ -122,28 +122,31 @@ func (m *AgentModule) Read(id string) (*AgentData, error) {
 
 	rows, err = m.DB.Query("SELECT id, `name`, engine, `default` FROM agents WHERE id = ?;", id)
 	if err != nil {
-		goto handle_err
+		goto err_cleanup
 	}
-	defer rows.Close()
 
 	if !rows.Next() {
 		err = fmt.Errorf("agent '%s' is not exists", id)
-		goto handle_err
+		goto err_row_cleanup
 	}
 
 	err = rows.Scan(&data.Id, &data.Name, &engineId, &data.Default)
 	if err != nil {
-		goto handle_err
+		goto err_row_cleanup
 	}
 
 	data.Engine, err = m.ReadEngine(engineId)
 	if err != nil {
-		goto handle_err
+		goto err_row_cleanup
 	}
+
+	rows.Close()
 
 	return &data, nil
 
-handle_err:
+err_row_cleanup:
+	rows.Close()
+err_cleanup:
 	return nil, err
 }
 
@@ -155,28 +158,31 @@ func (m *AgentModule) GetDefault() (*AgentData, error) {
 
 	rows, err = m.DB.Query("SELECT * FROM agents WHERE `default` = 1;")
 	if err != nil {
-		goto handle_err
+		goto err_cleanup
 	}
-	defer rows.Close()
 
 	if !rows.Next() {
 		err = fmt.Errorf("default agent is not exists")
-		goto handle_err
+		goto err_row_cleanup
 	}
 
 	err = rows.Scan(&data.Id, &data.Name, &engineId, &data.Default)
 	if err != nil {
-		goto handle_err
+		goto err_row_cleanup
 	}
 
 	data.Engine, err = m.ReadEngine(engineId)
 	if err != nil {
-		goto handle_err
+		goto err_row_cleanup
 	}
+
+	rows.Close()
 
 	return &data, nil
 
-handle_err:
+err_row_cleanup:
+	rows.Close()
+err_cleanup:
 	return nil, err
 }
 
@@ -187,22 +193,25 @@ func (m *AgentModule) Exist(id string) bool {
 
 	rows, err = m.DB.Query("SELECT COUNT(*) FROM agents WHERE id = ?;", id)
 	if err != nil {
-		goto handle_err
+		goto err_cleanup
 	}
-	defer rows.Close()
 
 	if !rows.Next() {
-		goto handle_err
+		goto err_row_cleanup
 	}
 
 	err = rows.Scan(&cnt)
 	if err != nil {
-		goto handle_err
+		goto err_row_cleanup
 	}
+
+	rows.Close()
 
 	return cnt >= 1
 
-handle_err:
+err_row_cleanup:
+	rows.Close()
+err_cleanup:
 	if err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "[Agent] error occurred while checking agent is exists:\n%v\n", err)
 	}
@@ -228,17 +237,17 @@ func (m *AgentModule) SetEngine(id string, engineId string) error {
 	exists = m.ExistEngine(engineId)
 	if !exists {
 		err = fmt.Errorf("engine '%s' is not exists", engineId)
-		goto handle_err
+		goto err_cleanup
 	}
 
 	_, err = m.DB.Exec("UPDATE agents SET engine = ? WHERE id = ?;", engineId, id)
 	if err != nil {
-		goto handle_err
+		goto err_cleanup
 	}
 
 	return nil
 
-handle_err:
+err_cleanup:
 	return err
 }
 
@@ -248,31 +257,29 @@ func (m *AgentModule) SetDefault(id string) error {
 
 	tx, err = m.DB.Begin()
 	if err != nil {
-		goto handle_err
+		goto err_cleanup
 	}
 
 	_, err = tx.Exec("UPDATE agents SET `default` = 0;")
 	if err != nil {
-		goto handle_err
+		goto err_tx_failed
 	}
 
 	_, err = tx.Exec("UPDATE agents SET `default` = 1 WHERE id = ?;", id)
 	if err != nil {
-		goto handle_err
+		goto err_tx_failed
 	}
 
 	err = tx.Commit()
 	if err != nil {
-		goto handle_err
+		goto err_tx_failed
 	}
 
 	return nil
 
-handle_err:
-	if tx != nil {
-		_ = tx.Rollback()
-	}
-
+err_tx_failed:
+	_ = tx.Rollback()
+err_cleanup:
 	return err
 }
 

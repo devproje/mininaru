@@ -18,6 +18,12 @@ import (
 	"github.com/pelletier/go-toml/v2"
 )
 
+type SSLConfig struct {
+	Enable   bool   `toml:"enable"`
+	KeyFile  string `toml:"key_file"`
+	CertFile string `toml:"cert_file"`
+}
+
 type LogConfig struct {
 	LogLevel int `toml:"log_level"`
 }
@@ -33,8 +39,8 @@ type VersionInfo struct {
 type ConfigData struct {
 	Host    string    `toml:"host"`
 	Port    int       `toml:"port"`
-	SSL     bool      `toml:"ssl"`
 	DataDir string    `toml:"datadir"`
+	SSL     SSLConfig `toml:"ssl"`
 	Log     LogConfig `toml:"log"`
 
 	Ver *VersionInfo `toml:"-"`

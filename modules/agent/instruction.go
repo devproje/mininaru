@@ -67,7 +67,7 @@ func (m *AgentModule) ReadInstructions(agentId string) ([]AgentInstruction, erro
 	for rows.Next() {
 		err = rows.Scan(&instruction.Filename, &instruction.Content, &instruction.CreatedAt, &instruction.UpdatedAt)
 		if err != nil {
-			goto err_query_cleanup
+			goto err_row_cleanup
 		}
 
 		instructions = append(instructions, instruction)
@@ -77,7 +77,7 @@ func (m *AgentModule) ReadInstructions(agentId string) ([]AgentInstruction, erro
 
 	return instructions, nil
 
-err_query_cleanup:
+err_row_cleanup:
 	rows.Close()
 err_cleanup:
 	return nil, err
@@ -100,19 +100,19 @@ func (m *AgentModule) ReadInstruction(agentId, filename string) (*AgentInstructi
 
 	if !rows.Next() {
 		err = fmt.Errorf("%s agent instruction name '%s' is not exists", agentId, filename)
-		goto err_query_cleanup
+		goto err_row_cleanup
 	}
 
 	err = rows.Scan(&instruction.Filename, &instruction.Content, &instruction.CreatedAt, &instruction.UpdatedAt)
 	if err != nil {
-		goto err_query_cleanup
+		goto err_row_cleanup
 	}
 
 	rows.Close()
 
 	return &instruction, nil
 
-err_query_cleanup:
+err_row_cleanup:
 	rows.Close()
 err_cleanup:
 	return nil, err

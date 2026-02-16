@@ -57,15 +57,14 @@ func (m *DatabaseModule) queryMigrations() ([]string, error) {
 	log.Debugf("[database]: get migrations from database file...\n")
 	rows, err = m.DB.Query("SELECT version FROM migrations;")
 	if err != nil {
-		goto handle_err
+		goto err_cleanup
 	}
-	defer rows.Close()
 
 	for rows.Next() {
 		var version string
 		err = rows.Scan(&version)
 		if err != nil {
-			goto handle_err
+			goto err_row_cleanup
 		}
 
 		log.Debugf("[database]: loaded migration version data: %s\n", version)
@@ -73,13 +72,13 @@ func (m *DatabaseModule) queryMigrations() ([]string, error) {
 		versions = append(versions, version)
 	}
 
-	if err = rows.Err(); err != nil {
-		goto handle_err
-	}
+	rows.Close()
 
 	return versions, nil
 
-handle_err:
+err_row_cleanup:
+	rows.Close()
+err_cleanup:
 	return nil, err
 }
 
@@ -90,25 +89,25 @@ func (m *DatabaseModule) applyMigration(tx *sql.Tx, path, version string) error 
 	log.Debugf("[database]: loading embedded migration file: %s\n", path)
 	buf, err = fs.ReadFile(migrations, path)
 	if err != nil {
-		goto handle_err
+		goto err_cleanup
 	}
 
 	log.Debugf("[database]: executing migration:\n%s\n", string(buf))
 	_, err = tx.Exec(string(buf))
 	if err != nil {
-		goto handle_err
+		goto err_cleanup
 	}
 
 	log.Debugf("[database]: upload version data to migration table: %s\n", version)
 	_, err = tx.Exec("INSERT INTO migrations (version) VALUES (?);", version)
 	if err != nil {
-		goto handle_err
+		goto err_cleanup
 	}
 
 	log.Printf("[database]: applied migration: %s\n", version)
 	return nil
 
-handle_err:
+err_cleanup:
 	return err
 }
 
@@ -120,26 +119,25 @@ func (m *DatabaseModule) migrations() error {
 
 	err = m.initializeMigrate()
 	if err != nil {
-		goto handle_err
+		goto err_cleanup
 	}
 
 	versions, err = m.queryMigrations()
 	if err != nil {
-		goto handle_err
+		goto err_cleanup
 	}
 
 	glob, err = fs.Glob(migrations, "migrations/*.sql")
 	if err != nil {
-		goto handle_err
+		goto err_cleanup
 	}
-
 	if len(glob) == 0 {
 		return nil
 	}
 
 	tx, err = m.DB.Begin()
 	if err != nil {
-		goto handle_err
+		goto err_cleanup
 	}
 
 	for _, path := range glob {
@@ -151,18 +149,20 @@ func (m *DatabaseModule) migrations() error {
 
 		err = m.applyMigration(tx, path, version)
 		if err != nil {
-			_ = tx.Rollback()
-			goto handle_err
+			goto err_tx_failed
 		}
 	}
+
 	err = tx.Commit()
 	if err != nil {
-		goto handle_err
+		goto err_tx_failed
 	}
 
 	return nil
 
-handle_err:
+err_tx_failed:
+	_ = tx.Rollback()
+err_cleanup:
 	return err
 }
 
@@ -184,19 +184,19 @@ func (m *DatabaseModule) Load() error {
 
 	m.DB, err = sql.Open("sqlite3", fmt.Sprintf("%s?_journal_mode=WAL&_busy_timeout=5000", dbpath))
 	if err != nil {
-		goto handle_err
+		goto err_cleanup
 	}
 
 	log.Printf("[database]: connected database to %s\n", dbpath)
 
 	err = m.migrations()
 	if err != nil {
-		goto handle_err
+		goto err_cleanup
 	}
 
 	return nil
 
-handle_err:
+err_cleanup:
 	return err
 }
 
