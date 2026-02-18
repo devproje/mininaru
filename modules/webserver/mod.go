@@ -86,7 +86,7 @@ func (m *WebServerModule) Unload() error {
 
 	var err = m.webserver.Shutdown(ctx)
 	if err != nil {
-		_, _ = fmt.Fprintf(os.Stderr, "[WebServer] webserver forced to shutdown %v\n", err)
+		_, _ = fmt.Fprintf(os.Stderr, "[webserver]: webserver forced to shutdown\n%v\n", err)
 	}
 
 	if m.Agent != nil {

@@ -73,7 +73,7 @@ func (n *MiniNaru) Init() error {
 
 	err = log.Init()
 	if err != nil {
-		return err
+		goto err_cleanup
 	}
 
 	fmt.Println()
