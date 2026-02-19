@@ -46,18 +46,15 @@ func (m *AgentModule) CreateSession(agentId string, payload *AgentSession) error
 
 	if !m.Exist(agentId) {
 		err = fmt.Errorf("agent '%s' is not exists.", agentId)
-		goto err_cleanup
+		return err
 	}
 
 	_, err = m.DB.Exec("INSERT INTO agent_session (id, agent_id, name) VALUES (?, ?, ?);", payload.Id, agentId, "Untitled")
 	if err != nil {
-		goto err_cleanup
+		return err
 	}
 
 	return nil
-
-err_cleanup:
-	return err
 }
 
 func (m *AgentModule) ReadSession(id, agentId string) (*AgentSession, error) {
@@ -67,27 +64,21 @@ func (m *AgentModule) ReadSession(id, agentId string) (*AgentSession, error) {
 
 	rows, err = m.DB.Query("SELECT id, name, created_at, updated_at FROM agent_session WHERE id = ? AND agent_id = ?;", id, agentId)
 	if err != nil {
-		goto err_cleanup
+		return nil, err
 	}
+	defer rows.Close()
 
 	if !rows.Next() {
 		err = fmt.Errorf("session '%s' is not exists.", id)
-		goto err_query_cleanup
+		return nil, err
 	}
 
 	err = rows.Scan(&session.Id, &session.Name, &session.CreatedAt, &session.UpdatedAt)
 	if err != nil {
-		goto err_query_cleanup
+		return nil, err
 	}
 
-	rows.Close()
-
 	return &session, nil
-
-err_query_cleanup:
-	rows.Close()
-err_cleanup:
-	return nil, err
 }
 
 func (m *AgentModule) RenameSession(id, agentId, newname string) error {

@@ -45,7 +45,8 @@ func main() {
 		GoVersion: goVersion,
 	})
 	if err != nil {
-		goto err_cleanup_io
+		_, _ = fmt.Fprintf(os.Stderr, "%v\n", err)
+		return
 	}
 
 	core.NaruCore = core.NewMiniNaru()
@@ -64,31 +65,13 @@ func main() {
 
 	err = core.NaruCore.Init()
 	if err != nil {
-		goto cleanup
+		_, _ = fmt.Fprintf(os.Stderr, "%v\n", err)
+		return
 	}
 
 	quit = make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
-
-	goto cleanup
-
-err_cleanup_io:
-	_, _ = fmt.Fprintf(os.Stderr, "%v\n", err)
-	return
-
-cleanup:
-	if err != nil {
-		_, _ = fmt.Fprintf(os.Stderr, "%v\n", err)
-	}
-
-	if core.NaruCore == nil {
-		return
-	}
-
-	if !core.NaruCore.Initialized {
-		return
-	}
 
 	_ = core.NaruCore.Destroy()
 }

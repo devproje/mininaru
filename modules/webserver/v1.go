@@ -78,7 +78,7 @@ func createEngine(ctx *gin.Context) {
 
 err_cleanup:
 	if err != nil {
-		log.Errorf("[webserver] error occured: %v\n", err)
+		log.Errorf("[webserver] unknown error occured:\n%v\n", err)
 	}
 
 	ctx.JSON(status, gin.H{

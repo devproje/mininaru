@@ -64,23 +64,25 @@ func (m *AgentModule) Create(engineId string, payload *AgentData) error {
 	exists = m.ExistEngine(engineId)
 	if !exists {
 		err = fmt.Errorf("engine '%s' is not exists", engineId)
-		goto err_cleanup
+		return err
 	}
 
 	tx, err = m.DB.Begin()
 	if err != nil {
-		goto err_cleanup
+		return err
 	}
+	defer tx.Rollback()
 
 	rows, err = tx.Query("SELECT COUNT(*) FROM agents;")
 	if err != nil {
-		goto err_tx_failed
+		return err
 	}
+	defer rows.Close()
 
 	if rows.Next() {
 		err = rows.Scan(&cnt)
 		if err != nil {
-			goto err_query_failed
+			return err
 		}
 	}
 
@@ -94,24 +96,15 @@ func (m *AgentModule) Create(engineId string, payload *AgentData) error {
 		defaults,
 	)
 	if err != nil {
-		goto err_query_failed
+		return err
 	}
 
 	err = tx.Commit()
 	if err != nil {
-		goto err_query_failed
+		return err
 	}
 
-	rows.Close()
-
 	return nil
-
-err_query_failed:
-	rows.Close()
-err_tx_failed:
-	_ = tx.Rollback()
-err_cleanup:
-	return err
 }
 
 func (m *AgentModule) Read(id string) (*AgentData, error) {
@@ -122,32 +115,25 @@ func (m *AgentModule) Read(id string) (*AgentData, error) {
 
 	rows, err = m.DB.Query("SELECT id, `name`, engine, `default` FROM agents WHERE id = ?;", id)
 	if err != nil {
-		goto err_cleanup
+		return nil, err
 	}
 
 	if !rows.Next() {
 		err = fmt.Errorf("agent '%s' is not exists", id)
-		goto err_row_cleanup
+		return nil, err
 	}
 
 	err = rows.Scan(&data.Id, &data.Name, &engineId, &data.Default)
 	if err != nil {
-		goto err_row_cleanup
+		return nil, err
 	}
 
 	data.Engine, err = m.ReadEngine(engineId)
 	if err != nil {
-		goto err_row_cleanup
+		return nil, err
 	}
 
-	rows.Close()
-
 	return &data, nil
-
-err_row_cleanup:
-	rows.Close()
-err_cleanup:
-	return nil, err
 }
 
 func (m *AgentModule) GetDefault() (*AgentData, error) {
@@ -158,32 +144,26 @@ func (m *AgentModule) GetDefault() (*AgentData, error) {
 
 	rows, err = m.DB.Query("SELECT * FROM agents WHERE `default` = 1;")
 	if err != nil {
-		goto err_cleanup
+		return nil, err
 	}
+	defer rows.Close()
 
 	if !rows.Next() {
 		err = fmt.Errorf("default agent is not exists")
-		goto err_row_cleanup
+		return nil, err
 	}
 
 	err = rows.Scan(&data.Id, &data.Name, &engineId, &data.Default)
 	if err != nil {
-		goto err_row_cleanup
+		return nil, err
 	}
 
 	data.Engine, err = m.ReadEngine(engineId)
 	if err != nil {
-		goto err_row_cleanup
+		return nil, err
 	}
 
-	rows.Close()
-
 	return &data, nil
-
-err_row_cleanup:
-	rows.Close()
-err_cleanup:
-	return nil, err
 }
 
 func (m *AgentModule) Exist(id string) bool {
@@ -193,30 +173,24 @@ func (m *AgentModule) Exist(id string) bool {
 
 	rows, err = m.DB.Query("SELECT COUNT(*) FROM agents WHERE id = ?;", id)
 	if err != nil {
-		goto err_cleanup
+		_, _ = fmt.Fprintf(os.Stderr, "[Agent] error occurred while checking agent is exists:\n%v\n", err)
+
+		return false
 	}
+	defer rows.Close()
 
 	if !rows.Next() {
-		goto err_row_cleanup
+		return false
 	}
 
 	err = rows.Scan(&cnt)
 	if err != nil {
-		goto err_row_cleanup
-	}
+		_, _ = fmt.Fprintf(os.Stderr, "[Agent] error occurred while checking agent is exists:\n%v\n", err)
 
-	rows.Close()
+		return false
+	}
 
 	return cnt >= 1
-
-err_row_cleanup:
-	rows.Close()
-err_cleanup:
-	if err != nil {
-		_, _ = fmt.Fprintf(os.Stderr, "[Agent] error occurred while checking agent is exists:\n%v\n", err)
-	}
-
-	return false
 }
 
 func (m *AgentModule) SetName(id string, newname string) error {
@@ -237,18 +211,15 @@ func (m *AgentModule) SetEngine(id string, engineId string) error {
 	exists = m.ExistEngine(engineId)
 	if !exists {
 		err = fmt.Errorf("engine '%s' is not exists", engineId)
-		goto err_cleanup
+		return err
 	}
 
 	_, err = m.DB.Exec("UPDATE agents SET engine = ? WHERE id = ?;", engineId, id)
 	if err != nil {
-		goto err_cleanup
+		return err
 	}
 
 	return nil
-
-err_cleanup:
-	return err
 }
 
 func (m *AgentModule) SetDefault(id string) error {
@@ -257,30 +228,26 @@ func (m *AgentModule) SetDefault(id string) error {
 
 	tx, err = m.DB.Begin()
 	if err != nil {
-		goto err_cleanup
+		return err
 	}
+	defer tx.Rollback()
 
 	_, err = tx.Exec("UPDATE agents SET `default` = 0;")
 	if err != nil {
-		goto err_tx_failed
+		return err
 	}
 
 	_, err = tx.Exec("UPDATE agents SET `default` = 1 WHERE id = ?;", id)
 	if err != nil {
-		goto err_tx_failed
+		return err
 	}
 
 	err = tx.Commit()
 	if err != nil {
-		goto err_tx_failed
+		return err
 	}
 
 	return nil
-
-err_tx_failed:
-	_ = tx.Rollback()
-err_cleanup:
-	return err
 }
 
 func (m *AgentModule) Delete(id string) error {

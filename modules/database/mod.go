@@ -57,14 +57,15 @@ func (m *DatabaseModule) queryMigrations() ([]string, error) {
 	log.Debugf("[database]: get migrations from database file...\n")
 	rows, err = m.DB.Query("SELECT version FROM migrations;")
 	if err != nil {
-		goto err_cleanup
+		return nil, err
 	}
+	defer rows.Close()
 
 	for rows.Next() {
 		var version string
 		err = rows.Scan(&version)
 		if err != nil {
-			goto err_row_cleanup
+			return nil, err
 		}
 
 		log.Debugf("[database]: loaded migration version data: %s\n", version)
@@ -72,14 +73,7 @@ func (m *DatabaseModule) queryMigrations() ([]string, error) {
 		versions = append(versions, version)
 	}
 
-	rows.Close()
-
 	return versions, nil
-
-err_row_cleanup:
-	rows.Close()
-err_cleanup:
-	return nil, err
 }
 
 func (m *DatabaseModule) applyMigration(tx *sql.Tx, path, version string) error {
@@ -89,26 +83,23 @@ func (m *DatabaseModule) applyMigration(tx *sql.Tx, path, version string) error 
 	log.Debugf("[database]: loading embedded migration file: %s\n", path)
 	buf, err = fs.ReadFile(migrations, path)
 	if err != nil {
-		goto err_cleanup
+		return err
 	}
 
 	log.Debugf("[database]: executing migration:\n%s\n", string(buf))
 	_, err = tx.Exec(string(buf))
 	if err != nil {
-		goto err_cleanup
+		return err
 	}
 
 	log.Debugf("[database]: upload version data to migration table: %s\n", version)
 	_, err = tx.Exec("INSERT INTO migrations (version) VALUES (?);", version)
 	if err != nil {
-		goto err_cleanup
+		return err
 	}
 
 	log.Printf("[database]: applied migration: %s\n", version)
 	return nil
-
-err_cleanup:
-	return err
 }
 
 func (m *DatabaseModule) migrations() error {
@@ -119,17 +110,17 @@ func (m *DatabaseModule) migrations() error {
 
 	err = m.initializeMigrate()
 	if err != nil {
-		goto err_cleanup
+		return err
 	}
 
 	versions, err = m.queryMigrations()
 	if err != nil {
-		goto err_cleanup
+		return err
 	}
 
 	glob, err = fs.Glob(migrations, "migrations/*.sql")
 	if err != nil {
-		goto err_cleanup
+		return err
 	}
 	if len(glob) == 0 {
 		return nil
@@ -137,8 +128,9 @@ func (m *DatabaseModule) migrations() error {
 
 	tx, err = m.DB.Begin()
 	if err != nil {
-		goto err_cleanup
+		return err
 	}
+	defer tx.Rollback()
 
 	for _, path := range glob {
 		var version = strings.ReplaceAll(path, "migrations/", "")
@@ -149,21 +141,16 @@ func (m *DatabaseModule) migrations() error {
 
 		err = m.applyMigration(tx, path, version)
 		if err != nil {
-			goto err_tx_failed
+			return err
 		}
 	}
 
 	err = tx.Commit()
 	if err != nil {
-		goto err_tx_failed
+		return err
 	}
 
 	return nil
-
-err_tx_failed:
-	_ = tx.Rollback()
-err_cleanup:
-	return err
 }
 
 func (m *DatabaseModule) Name() string {
@@ -184,20 +171,17 @@ func (m *DatabaseModule) Load() error {
 
 	m.DB, err = sql.Open("sqlite3", fmt.Sprintf("%s?_journal_mode=WAL&_busy_timeout=5000", dbpath))
 	if err != nil {
-		goto err_cleanup
+		return err
 	}
 
 	log.Printf("[database]: connected database to %s\n", dbpath)
 
 	err = m.migrations()
 	if err != nil {
-		goto err_cleanup
+		return err
 	}
 
 	return nil
-
-err_cleanup:
-	return err
 }
 
 func (m *DatabaseModule) Unload() error {
