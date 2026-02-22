@@ -34,22 +34,43 @@ BEGIN
 	UPDATE agents SET updated_at = CURRENT_TIMESTAMP WHERE id = OLD.id;
 END;
 
--- agent session table
--- CREATE TABLE IF NOT EXISTS agent_session(
--- 	id VARCHAR(36) NOT NULL,
--- 	agent_id VARCHAR(50) NOT NULL,
--- 	`name` VARCHAR(255) NOT NULL,
--- 	created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
--- 	updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
--- 	PRIMARY KEY(agent_id, id),
--- 	FOREIGN KEY(agent_id) REFERENCES agents(id)
--- 		ON UPDATE CASCADE ON DELETE CASCADE
--- );
+-- chat channel table
+CREATE TABLE IF NOT EXISTS chat_channel(
+	id VARCHAR(36) NOT NULL,
+	`name` VARCHAR(255) NOT NULL,
+	agent_id VARCHAR(50) DEFAULT NULL,
+	created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	PRIMARY KEY(agent_id, id),
+	FOREIGN KEY(agent_id) REFERENCES agents(id)
+		ON UPDATE CASCADE ON DELETE SET NULL
+);
 
--- agent session context trigger
--- CREATE TRIGGER update_agent_session_updated_at UPDATE ON agent_session
--- FOR EACH ROW
--- WHEN NEW.updated_at = OLD.updated_at
--- BEGIN
--- 	UPDATE agent_session SET updated_at = CURRENT_TIMESTAMP	WHERE id = OLD.id;
--- END;
+-- chat channel trigger
+CREATE TRIGGER update_chat_channel_updated_at UPDATE ON chat_channel
+FOR EACH ROW
+WHEN NEW.updated_at = OLD.updated_at
+BEGIN
+	UPDATE chat_channel SET updated_at = CURRENT_TIMESTAMP WHERE id = OLD.id;
+END;
+
+-- chats table
+CREATE TABLE IF NOT EXISTS chats(
+	id VARCHAR(36) NOT NULL,
+	channel_id VARCHAR(36) NOT NULL,
+	`role` VARCHAR(20) NOT NULL,
+	content TEXT DEFAULT NULL,
+	created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	PRIMARY KEY(id),
+	FOREIGN KEY(channel_id) REFERENCES chat_channel(id)
+		ON UPDATE CASCADE ON DELETE CASCADE
+);
+
+-- chats trigger
+CREATE TRIGGER update_chats_updated_at UPDATE ON chats
+FOR EACH ROW
+WHEN NEW.updated_at = OLD.updated_at
+BEGIN
+	UPDATE chats SET updated_at = CURRENT_TIMESTAMP WHERE id = OLD.id;
+END;
