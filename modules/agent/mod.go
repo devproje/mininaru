@@ -15,6 +15,8 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
+	"strings"
+	"time"
 
 	"git.wh64.net/naru-studio/mininaru/modules/database"
 )
@@ -24,11 +26,17 @@ type AgentModule struct {
 }
 
 type AgentData struct {
-	Id           string             `json:"id"`
-	Name         string             `json:"name"`
-	Engine       *AgentEngine       `json:"engine"`
-	Default      bool               `json:"default"`
-	Instructions []AgentInstruction `json:"instructions"`
+	Id        string       `json:"id"`
+	Name      string       `json:"name"`
+	Engine    *AgentEngine `json:"engine"`
+	Default   bool         `json:"default"`
+	CreatedAt time.Time    `json:"created_at"`
+	UpdatedAt time.Time    `json:"updated_at"`
+}
+
+type AgentUpdatePayload struct {
+	Name   *string `json:"name"`
+	Engine *string `json:"engine"`
 }
 
 func (m *AgentModule) Name() string {
@@ -36,8 +44,11 @@ func (m *AgentModule) Name() string {
 }
 
 func (m *AgentModule) Load() error {
-	if m.DB != nil {
-		return nil
+	var err error
+
+	if database.Database == nil {
+		err = fmt.Errorf("database module not loaded")
+		return err
 	}
 
 	m.DB = database.Database.DB
@@ -45,11 +56,10 @@ func (m *AgentModule) Load() error {
 }
 
 func (m *AgentModule) Unload() error {
-	if m.DB == nil {
-		return nil
+	if m.DB != nil {
+		m.DB = nil
 	}
 
-	m.DB = nil
 	return nil
 }
 
@@ -73,7 +83,7 @@ func (m *AgentModule) Create(engineId string, payload *AgentData) error {
 	}
 	defer tx.Rollback()
 
-	rows, err = tx.Query("SELECT COUNT(*) FROM agents;")
+	rows, err = tx.Query("SELECT COUNT(id) FROM agents;")
 	if err != nil {
 		return err
 	}
@@ -113,17 +123,18 @@ func (m *AgentModule) Read(id string) (*AgentData, error) {
 	var rows *sql.Rows
 	var err error
 
-	rows, err = m.DB.Query("SELECT id, `name`, engine, `default` FROM agents WHERE id = ?;", id)
+	rows, err = m.DB.Query("SELECT id, `name`, engine, `default`, created_at, updated_at FROM agents WHERE id = ?;", id)
 	if err != nil {
 		return nil, err
 	}
+	defer rows.Close()
 
 	if !rows.Next() {
 		err = fmt.Errorf("agent '%s' is not exists", id)
 		return nil, err
 	}
 
-	err = rows.Scan(&data.Id, &data.Name, &engineId, &data.Default)
+	err = rows.Scan(&data.Id, &data.Name, &engineId, &data.Default, &data.CreatedAt, &data.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -142,7 +153,7 @@ func (m *AgentModule) GetDefault() (*AgentData, error) {
 	var rows *sql.Rows
 	var err error
 
-	rows, err = m.DB.Query("SELECT * FROM agents WHERE `default` = 1;")
+	rows, err = m.DB.Query("SELECT id, `name`, engine, `default`, created_at, updated_at FROM agents WHERE `default` = 1;")
 	if err != nil {
 		return nil, err
 	}
@@ -153,7 +164,7 @@ func (m *AgentModule) GetDefault() (*AgentData, error) {
 		return nil, err
 	}
 
-	err = rows.Scan(&data.Id, &data.Name, &engineId, &data.Default)
+	err = rows.Scan(&data.Id, &data.Name, &engineId, &data.Default, &data.CreatedAt, &data.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -171,7 +182,7 @@ func (m *AgentModule) Exist(id string) bool {
 	var cnt int = 0
 	var err error
 
-	rows, err = m.DB.Query("SELECT COUNT(*) FROM agents WHERE id = ?;", id)
+	rows, err = m.DB.Query("SELECT COUNT(id) FROM agents WHERE id = ?;", id)
 	if err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "[Agent] error occurred while checking agent is exists:\n%v\n", err)
 
@@ -193,28 +204,36 @@ func (m *AgentModule) Exist(id string) bool {
 	return cnt >= 1
 }
 
-func (m *AgentModule) SetName(id string, newname string) error {
+func (m *AgentModule) UpdateAgent(id string, payload *AgentUpdatePayload) error {
 	var err error
+	var query string
 
-	_, err = m.DB.Exec("UPDATE agents SET name = ? WHERE id = ?;", newname, id)
-	if err != nil {
-		return err
+	var sets []string = make([]string, 0)
+	var args []any = make([]any, 0)
+
+	if payload.Name != nil {
+		sets = append(sets, "`name` = ?")
+		args = append(args, *payload.Name)
 	}
 
-	return nil
-}
+	if payload.Engine != nil {
+		if !m.ExistEngine(*payload.Engine) {
+			err = fmt.Errorf("engine id '%s' is not exists", *payload.Engine)
+			return err
+		}
 
-func (m *AgentModule) SetEngine(id string, engineId string) error {
-	var exists bool = false
-	var err error
-
-	exists = m.ExistEngine(engineId)
-	if !exists {
-		err = fmt.Errorf("engine '%s' is not exists", engineId)
-		return err
+		sets = append(sets, "engine = ?")
+		args = append(args, *payload.Engine)
 	}
 
-	_, err = m.DB.Exec("UPDATE agents SET engine = ? WHERE id = ?;", engineId, id)
+	if len(sets) == 0 {
+		return nil
+	}
+
+	args = append(args, id)
+	query = fmt.Sprintf("UPDATE agents SET %s WHERE id = ?;", strings.Join(sets, ", "))
+
+	_, err = m.DB.Exec(query, args...)
 	if err != nil {
 		return err
 	}

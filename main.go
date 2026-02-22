@@ -20,6 +20,7 @@ import (
 	"git.wh64.net/naru-studio/mininaru/config"
 	"git.wh64.net/naru-studio/mininaru/core"
 	"git.wh64.net/naru-studio/mininaru/modules/agent"
+	"git.wh64.net/naru-studio/mininaru/modules/chat"
 	"git.wh64.net/naru-studio/mininaru/modules/database"
 	"git.wh64.net/naru-studio/mininaru/modules/webserver"
 	"github.com/gin-gonic/gin"
@@ -59,8 +60,9 @@ func main() {
 	}
 
 	core.NaruCore.Insmod(database.Database)
-
 	core.NaruCore.Insmod(agent.Agent)
+	core.NaruCore.Insmod(chat.Chat)
+
 	core.NaruCore.Insmod(webserver.WebServer)
 
 	err = core.NaruCore.Init()

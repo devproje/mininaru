@@ -15,6 +15,7 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
+	"strings"
 )
 
 type AgentEngine struct {
@@ -24,11 +25,17 @@ type AgentEngine struct {
 	Model       string `json:"model"`
 }
 
+type EngineUpdatePayload struct {
+	ApiEndpoint *string `json:"api_endpoint"`
+	ApiKey      *string `json:"api_key"`
+	Model       *string `json:"model"`
+}
+
 func (m *AgentModule) CreateEngine(payload *AgentEngine) error {
 	var err error
 
 	_, err = m.DB.Exec(
-		"INSERT INTO agent_engine (id, api_endpoint, api_key, model) VALUES (?, ?, ?, ?)",
+		"INSERT INTO agent_engine (id, api_endpoint, api_key, model) VALUES (?, ?, ?, ?);",
 		payload.Id,
 		payload.ApiEndpoint,
 		payload.ApiKey,
@@ -46,7 +53,7 @@ func (m *AgentModule) ReadEngine(id string) (*AgentEngine, error) {
 	var rows *sql.Rows
 	var err error
 
-	rows, err = m.DB.Query("SELECT `name`, api_endpoint, api_key, model FROM agent_engine WHERE name = ?", id)
+	rows, err = m.DB.Query("SELECT id, api_endpoint, api_key, model FROM agent_engine WHERE id = ?", id)
 	if err != nil {
 		return nil, err
 	}
@@ -70,7 +77,7 @@ func (m *AgentModule) ExistEngine(id string) bool {
 	var cnt int = 0
 	var err error
 
-	rows, err = m.DB.Query("SELECT COUNT(*) FROM agent_engine WHERE id = ?;", id)
+	rows, err = m.DB.Query("SELECT COUNT(id) FROM agent_engine WHERE id = ?;", id)
 	if err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "[agent]: error occurred while checking model is exists:\n%v\n", err)
 
@@ -92,43 +99,36 @@ func (m *AgentModule) ExistEngine(id string) bool {
 	return cnt >= 1
 }
 
-func (m *AgentModule) RenameEngine(id, newid string) error {
+func (m *AgentModule) UpdateEngine(id string, payload *EngineUpdatePayload) error {
 	var err error
+	var query string
 
-	_, err = m.DB.Exec("UPDATE agent_engine SET name = ? WHERE name = ?;", newid, id)
-	if err != nil {
-		return err
+	var sets []string = make([]string, 0)
+	var args []any = make([]any, 0)
+
+	if payload.ApiEndpoint != nil {
+		sets = append(sets, "api_endpoint = ?")
+		args = append(args, *payload.ApiEndpoint)
 	}
 
-	return nil
-}
-
-func (m *AgentModule) UpdateEndpointEngine(id, endpoint string) error {
-	var err error
-
-	_, err = m.DB.Exec("UPDATE agent_engine SET api_endpoint = ? WHERE name = ?", endpoint, id)
-	if err != nil {
-		return err
+	if payload.ApiKey != nil {
+		sets = append(sets, "api_key = ?")
+		args = append(args, *payload.ApiKey)
 	}
 
-	return nil
-}
-
-func (m *AgentModule) UpdateKeyEngine(id, key string) error {
-	var err error
-
-	_, err = m.DB.Exec("UPDATE agent_engine SET api_key = ? WHERE name = ?;", key, id)
-	if err != nil {
-		return err
+	if payload.Model != nil {
+		sets = append(sets, "model = ?")
+		args = append(args, *payload.Model)
 	}
 
-	return nil
-}
+	if len(sets) == 0 {
+		return nil
+	}
 
-func (m *AgentModule) UpdateModelEngine(id, model string) error {
-	var err error
+	args = append(args, id)
+	query = fmt.Sprintf("UPDATE agent_engine SET %s WHERE id = ?;", strings.Join(sets, ", "))
 
-	_, err = m.DB.Exec("UPDATE agent_engine SET model = ? WHERE name = ?;", model, id)
+	_, err = m.DB.Exec(query, args...)
 	if err != nil {
 		return err
 	}
@@ -139,7 +139,7 @@ func (m *AgentModule) UpdateModelEngine(id, model string) error {
 func (m *AgentModule) DeleteEngine(id string) error {
 	var err error
 
-	_, err = m.DB.Exec("DELETE FROM agent_engine WHERE name = ?;", id)
+	_, err = m.DB.Exec("DELETE FROM agent_engine WHERE id = ?;", id)
 	if err != nil {
 		return err
 	}
