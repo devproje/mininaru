@@ -99,7 +99,7 @@ func (m *AgentModule) Create(engineId string, payload *AgentData) error {
 	defaults = cnt == 0
 
 	_, err = tx.Exec(
-		"INSERT INTO agents (id, `name`, engine, `default`) VALUES (?, ?, ?, ?)",
+		"INSERT INTO agents (id, `name`, engine, `default`) VALUES (?, ?, ?, ?);",
 		payload.Id,
 		payload.Name,
 		engineId,
