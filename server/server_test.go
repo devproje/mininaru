@@ -1,0 +1,129 @@
+package server
+
+import (
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+
+	"github.com/devproje/mininaru/core"
+	"github.com/devproje/mininaru/util"
+)
+
+func streamChunk(delta, finish string) string {
+	return `data: {"id":"x","object":"chat.completion.chunk","created":1,"model":"m","choices":[{"index":0,"delta":` +
+		delta + `,"finish_reason":` + finish + `}]}` + "\n\n"
+}
+
+func containsAll(text string, wants ...string) bool {
+	var want string
+
+	for _, want = range wants {
+		if strings.Contains(text, want) {
+			continue
+		}
+
+		return false
+	}
+
+	return true
+}
+
+func setupAgent(t *testing.T, upstream string) *core.Registry {
+	var err error
+
+	t.Helper()
+
+	err = util.InitFS(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	core.Providers = nil
+	core.DefaultProvider = nil
+	core.Agents = nil
+	core.Global = nil
+
+	core.ProviderCreate(core.Provider{Name: "local", BaseURL: upstream, ApiKey: "k"})
+	core.Global = core.AgentNew("naru", "you are naru", "", "gemma", core.Providers[0])
+
+	return reloadRegistry(t, core.NewRegistry())
+}
+
+func reloadRegistry(t *testing.T, reg *core.Registry) *core.Registry {
+	var err error
+
+	t.Helper()
+
+	err = core.ProviderSave()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = core.AgentSave()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = reg.Reload()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return reg
+}
+
+func request(t *testing.T, handler http.Handler, method, path, key, body string) *httptest.ResponseRecorder {
+	var recorder *httptest.ResponseRecorder
+	var req *http.Request
+
+	t.Helper()
+
+	recorder = httptest.NewRecorder()
+	req = httptest.NewRequest(method, path, strings.NewReader(body))
+	if key != "" {
+		req.Header.Set("Authorization", "Bearer "+key)
+	}
+
+	handler.ServeHTTP(recorder, req)
+
+	return recorder
+}
+
+func TestAuthorizeRequiresMatchingBearerKey(t *testing.T) {
+	var reg *core.Registry
+	var handler http.Handler
+	var recorder *httptest.ResponseRecorder
+
+	reg = setupAgent(t, "http://127.0.0.1")
+	handler = routes("secret", reg)
+
+	recorder = request(t, handler, http.MethodGet, pathModels, "", "")
+	if recorder.Code != http.StatusUnauthorized {
+		t.Fatalf("missing key = %d, want 401", recorder.Code)
+	}
+
+	recorder = request(t, handler, http.MethodGet, pathModels, "wrong", "")
+	if recorder.Code != http.StatusUnauthorized {
+		t.Fatalf("wrong key = %d, want 401", recorder.Code)
+	}
+
+	recorder = request(t, handler, http.MethodGet, pathModels, "secret", "")
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("valid key = %d, want 200", recorder.Code)
+	}
+}
+
+func TestServeRejectsEmptyApiKey(t *testing.T) {
+	var err error
+
+	err = Serve(t.Context(), Config{Host: DefaultHost, Port: 0}, core.NewRegistry())
+	if err == nil {
+		t.Fatal("serve accepted an empty api key")
+	}
+
+	err = Serve(t.Context(), Config{Host: DefaultHost, Port: 0, ApiKey: "k"}, nil)
+	if err == nil {
+		t.Fatal("serve accepted a nil registry")
+	}
+}
