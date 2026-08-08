@@ -39,8 +39,8 @@ Use `--env-file` or `--working-directory` to override either daemon setting.
 
 ## First run
 
-`setup` walks through the whole thing -- provider, agent, and the thinking and
-tool defaults -- asking one question at a time:
+`setup` walks through the whole thing -- provider, agent, the thinking and tool
+defaults, and finally the systemd user daemon -- asking one question at a time:
 
 ```sh
 ./out/mininaru setup
@@ -48,6 +48,14 @@ tool defaults -- asking one question at a time:
 
 It keeps what is already configured unless you say otherwise, so it is safe to
 run again later.
+
+The daemon step is offered only when `systemctl` is on `PATH`, and it is opt-in.
+Accepting it writes the environment file at mode `0600` with an API key you
+supply, or one it generates and prints, and then installs and starts the unit.
+An existing environment file that already defines `MININARU_API_KEY` is left
+alone; one that exists without it is reported rather than overwritten. If the
+daemon step fails, the provider and agent are already saved and setup says so
+instead of unwinding.
 
 To do it by hand instead, add an OpenAI-compatible provider and then the global
 chat agent:

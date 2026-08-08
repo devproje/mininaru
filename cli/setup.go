@@ -1,7 +1,12 @@
 package main
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
 
 	"github.com/devproje/mininaru/config"
 	"github.com/devproje/mininaru/core"
@@ -138,6 +143,96 @@ func setupPreferences() error {
 	return config.ClientSave()
 }
 
+func setupApiKey() (string, error) {
+	var key string
+	var raw [24]byte
+
+	var err error
+
+	key, err = askSecret("api key for the http api, empty to generate one", true)
+	if err != nil {
+		return "", err
+	}
+
+	if key != "" {
+		return key, nil
+	}
+
+	_, err = rand.Read(raw[:])
+	if err != nil {
+		return "", err
+	}
+
+	key = hex.EncodeToString(raw[:])
+	fmt.Fprintf(askOut, "generated api key: %s\n", key)
+
+	return key, nil
+}
+
+func setupEnvFile(path string) error {
+	var key string
+
+	var err error
+
+	err = daemonEnvValid(path)
+	if err == nil {
+		return nil
+	}
+
+	_, err = os.Stat(path)
+	if err == nil {
+		return fmt.Errorf("%s exists but does not define %s, fix it and run `mininaru daemon install`", path, apiKeyEnv)
+	}
+	if !os.IsNotExist(err) {
+		return err
+	}
+
+	fmt.Fprintf(askOut, "the daemon reads %s from %s\n", apiKeyEnv, path)
+
+	key, err = setupApiKey()
+	if err != nil {
+		return err
+	}
+
+	err = os.MkdirAll(filepath.Dir(path), 0700)
+	if err != nil {
+		return err
+	}
+
+	return util.WriteFileAtomic(path, []byte(apiKeyEnv+"="+key+"\n"), 0600)
+}
+
+func setupDaemon(cmd *cobra.Command) error {
+	var install bool
+	var envFile string
+
+	var err error
+
+	_, err = exec.LookPath("systemctl")
+	if err != nil {
+		return nil
+	}
+
+	fmt.Fprintln(askOut, "\nthe daemon runs the http api and any configured bots in the background")
+
+	install, err = askConfirm("install the systemd user daemon", false)
+	if err != nil || !install {
+		return err
+	}
+
+	_, envFile, err = daemonPaths()
+	if err != nil {
+		return err
+	}
+
+	err = setupEnvFile(envFile)
+	if err != nil {
+		return err
+	}
+
+	return daemonInstallExecute(cmd, nil)
+}
+
 func setupExecute(cmd *cobra.Command, args []string) error {
 	var prov *core.Provider
 
@@ -162,6 +257,12 @@ func setupExecute(cmd *cobra.Command, args []string) error {
 	err = setupPreferences()
 	if err != nil {
 		return err
+	}
+
+	err = setupDaemon(cmd)
+	if err != nil {
+		fmt.Fprintf(askOut, "\ndaemon setup skipped: %v\n", err)
+		fmt.Fprintln(askOut, "run `mininaru daemon install` once it is sorted out")
 	}
 
 	fmt.Fprintf(askOut, "\nready, run `mininaru` to start chatting with %s\n", core.Global.Name)
