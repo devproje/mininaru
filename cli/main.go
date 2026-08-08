@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"runtime"
+	"strings"
 	"syscall"
 	"time"
 
@@ -27,14 +27,90 @@ var (
 	sessionIdRef string
 	chatAgentRef string
 	promptRef    string
+
+	logLevelRef  string
+	logFormatRef string
 )
 
 var root *cobra.Command = &cobra.Command{
-	Use:          "mininaru [session id]",
-	Short:        "Lightweight LLM agent skeleton system",
-	SilenceUsage: true,
-	Args:         cobra.MaximumNArgs(1),
-	RunE:         execute,
+	Use:               "mininaru [session id]",
+	Short:             "Lightweight LLM agent skeleton system",
+	SilenceUsage:      true,
+	Args:              cobra.MaximumNArgs(1),
+	PersistentPreRunE: bootstrapExecute,
+	RunE:              execute,
+}
+
+func bootstrapExecute(cmd *cobra.Command, args []string) error {
+	if versionRef {
+		return nil
+	}
+
+	return bootstrap()
+}
+
+func bootstrap() error {
+	var workingDir string
+	var path string
+
+	var err error
+
+	err = util.LogInit(util.LogOptions{Level: logLevelRef, Format: logFormatRef})
+	if err != nil {
+		return err
+	}
+
+	workingDir, err = os.Getwd()
+	if err != nil {
+		return err
+	}
+
+	err = modules.SetWorkingRoot(workingDir)
+	if err != nil {
+		return err
+	}
+
+	path = os.Getenv("NARU_PATH")
+	if path == "" {
+		path = ".mininaru"
+	}
+
+	err = util.InitFS(path)
+	if err != nil {
+		return err
+	}
+
+	util.DB, err = util.InitDatabase(util.Path("mininaru.db"))
+	if err != nil {
+		return err
+	}
+
+	err = config.ClientInit()
+	if err != nil {
+		return err
+	}
+
+	err = modules.WebLoad()
+	if err != nil {
+		return err
+	}
+
+	err = modules.SkillInit()
+	if err != nil {
+		return err
+	}
+
+	err = core.ProviderInit()
+	if err != nil {
+		return err
+	}
+
+	err = core.AgentInit()
+	if err != nil {
+		return err
+	}
+
+	return core.BotInit()
 }
 
 func showVersion() {
@@ -42,7 +118,7 @@ func showVersion() {
 	fmt.Println(util.NaruLogoWithPad("  "))
 	fmt.Println()
 
-	fmt.Printf("mininaru %s %s (branch: %s) %s/%s\n", version, hash, branch, runtime.GOOS, runtime.GOARCH)
+	fmt.Println(util.RuntimeIdentity())
 }
 
 func resolveAgent() (*core.NaruAgent, error) {
@@ -58,8 +134,8 @@ func resolveAgent() (*core.NaruAgent, error) {
 }
 
 func resolveSession(agent *core.NaruAgent, args []string) (*core.Session, error) {
-	var session *core.Session
 	var id string
+	var session *core.Session
 
 	var err error
 
@@ -96,8 +172,8 @@ func resolveSession(agent *core.NaruAgent, args []string) (*core.Session, error)
 
 func execute(cmd *cobra.Command, args []string) error {
 	var agent *core.NaruAgent
-	var session *core.Session
 	var content string
+	var session *core.Session
 	var history []*core.Message
 
 	var err error
@@ -105,6 +181,13 @@ func execute(cmd *cobra.Command, args []string) error {
 	if versionRef {
 		showVersion()
 		return nil
+	}
+
+	if config.Client.Tools.Enabled {
+		err = modules.MCPInit(cmd.Context())
+		if err != nil {
+			return err
+		}
 	}
 
 	agent, err = resolveAgent()
@@ -141,8 +224,6 @@ func execute(cmd *cobra.Command, args []string) error {
 }
 
 func main() {
-	var path string
-	var workingDir string
 	var ctx context.Context
 	var stop context.CancelFunc
 
@@ -152,49 +233,10 @@ func main() {
 	util.AppBranch = branch
 	util.AppHash = hash
 
-	workingDir, err = os.Getwd()
-	if err != nil {
-		panic(err)
-	}
-	err = modules.SetWorkingRoot(workingDir)
-	if err != nil {
-		panic(err)
-	}
-
-	path = os.Getenv("NARU_PATH")
-	if path == "" {
-		path = ".mininaru"
-	}
-
-	err = util.InitFS(path)
-	if err != nil {
-		panic(err)
-	}
-
-	util.DB, err = util.InitDatabase(util.Path("mininaru.db"))
-	if err != nil {
-		panic(err)
-	}
-
-	err = config.ClientInit()
-	if err != nil {
-		panic(err)
-	}
-
-	err = core.ProviderInit()
-	if err != nil {
-		panic(err)
-	}
-
-	err = core.AgentInit()
-	if err != nil {
-		panic(err)
-	}
-
-	err = core.BotInit()
-	if err != nil {
-		panic(err)
-	}
+	root.PersistentFlags().StringVar(&logLevelRef, "log-level", "",
+		"diagnostic log level: "+strings.Join(util.LogLevels(), ", ")+" (default info, or "+util.LogLevelEnv+")")
+	root.PersistentFlags().StringVar(&logFormatRef, "log-format", "",
+		"diagnostic log format: "+strings.Join(util.LogFormats(), ", ")+" (default auto, or "+util.LogFormatEnv+")")
 
 	root.Flags().BoolVar(&util.AppDebug, "debug", false, "enable debugging mode")
 	root.Flags().BoolVar(&config.AllowDangerousTools, "allow-dangerous-tools", false, "allow file writes and shell commands for this run")
@@ -215,13 +257,24 @@ func main() {
 	root.AddCommand(thinking)
 	root.AddCommand(contextConfig)
 	root.AddCommand(toolsConfig)
+	root.AddCommand(mcpConfig)
+	root.AddCommand(skillConfig)
+	root.AddCommand(webConfig)
 	root.AddCommand(botConfig)
+	root.AddCommand(daemonConfig)
 
 	ctx, stop = signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
 	err = root.ExecuteContext(ctx)
+
+	modules.MCPClose()
+
+	if util.DB != nil {
+		util.DB.Close()
+	}
+
 	if err != nil {
-		os.Exit(-1)
+		os.Exit(1)
 	}
 }

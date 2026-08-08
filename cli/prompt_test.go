@@ -71,8 +71,8 @@ func TestPromptContentReadsStdinOnDash(t *testing.T) {
 }
 
 func TestRunPromptPrintsAnswerToStdoutAndLogsToStderr(t *testing.T) {
-	var requests int
 	var srv *httptest.Server
+	var requests int
 	var session *core.Session
 	var agent *core.NaruAgent
 	var out, logs bytes.Buffer

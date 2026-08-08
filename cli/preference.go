@@ -203,8 +203,8 @@ func resolveProvider() (*core.Provider, error) {
 }
 
 func agentAddExecute(cmd *cobra.Command, args []string) error {
-	var newAgent *core.NaruAgent
 	var prov *core.Provider
+	var newAgent *core.NaruAgent
 
 	var err error
 
@@ -262,8 +262,9 @@ func agentListExecute(cmd *cobra.Command, args []string) error {
 }
 
 func agentUpdateExecute(cmd *cobra.Command, args []string) error {
+	var name, role, soul, model *string
 	var prov *core.Provider
-	var name, role, soul, model, providerId *string
+	var providerId *string
 
 	var err error
 

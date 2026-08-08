@@ -15,6 +15,7 @@ import (
 	"github.com/devproje/mininaru/config"
 	"github.com/devproje/mininaru/core"
 	"github.com/devproje/mininaru/modules"
+	"github.com/devproje/mininaru/util"
 )
 
 type chatDeltaMsg string
@@ -157,6 +158,7 @@ func newClient(session *core.Session, agent *core.NaruAgent, history []*core.Mes
 func runClient(session *core.Session, agent *core.NaruAgent, history []*core.Message) error {
 	var c *client
 	var p *tea.Program
+	var release func()
 
 	var err error
 
@@ -164,7 +166,12 @@ func runClient(session *core.Session, agent *core.NaruAgent, history []*core.Mes
 	p = tea.NewProgram(c, tea.WithAltScreen())
 	c.program = p
 
+	release = util.LogHold()
+
 	_, err = p.Run()
+
+	release()
+
 	if err == nil {
 		fmt.Print(c.farewell())
 	}
@@ -272,8 +279,8 @@ func (c *client) submit(content string) tea.Cmd {
 }
 
 func (c *client) finish(msg chatDoneMsg) tea.Cmd {
-	var cmds []tea.Cmd
 	var reply string
+	var cmds []tea.Cmd
 
 	reply = c.pending.String()
 
@@ -334,6 +341,7 @@ func thinkingNext(level string) string {
 
 func (c *client) saveThinking() tea.Cmd {
 	var state string
+
 	var err error
 
 	err = config.ClientSave()
@@ -693,13 +701,13 @@ func (c *client) renderTranscriptEntry(entry transcriptEntry) string {
 }
 
 func (c *client) transcriptView(height int) string {
-	var blocks []string
 	var entry transcriptEntry
+	var blocks []string
 	var stream string
 	var lines []string
-	var start int
-	var end int
 	var maxOffset int
+	var end int
+	var start int
 	var body string
 
 	for _, entry = range c.transcript {
@@ -794,11 +802,11 @@ func (c *client) farewell() string {
 }
 
 func (c *client) View() string {
-	var body strings.Builder
 	var box lipgloss.Style
 	var input string
 	var status string
 	var historyHeight int
+	var body strings.Builder
 
 	if c.quitting {
 		return ""

@@ -15,6 +15,7 @@ import (
 
 func tuiClient(t *testing.T) *client {
 	var c *client
+
 	var err error
 
 	t.Helper()
@@ -69,6 +70,7 @@ func TestSlashThinkingSetsLevel(t *testing.T) {
 
 func TestSlashThinkingPersists(t *testing.T) {
 	var c *client
+
 	var err error
 
 	c = tuiClient(t)
@@ -88,8 +90,8 @@ func TestSlashThinkingPersists(t *testing.T) {
 
 func TestCtrlTCyclesThroughEveryLevel(t *testing.T) {
 	var c *client
-	var seen []string
 	var i int
+	var seen []string
 
 	c = tuiClient(t)
 

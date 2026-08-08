@@ -17,6 +17,7 @@ var contextConfig *cobra.Command = &cobra.Command{
 
 func contextExecute(cmd *cobra.Command, args []string) error {
 	var maxChars int
+
 	var err error
 
 	if len(args) == 0 {

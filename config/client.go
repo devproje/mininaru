@@ -2,7 +2,6 @@ package config
 
 import (
 	"encoding/json"
-	"fmt"
 	"os"
 	"strings"
 
@@ -101,8 +100,8 @@ func ClientInit() error {
 	Client.Thinking.Level = strings.ToLower(Client.Thinking.Level)
 
 	if !ThinkingValid(Client.Thinking.Level) {
-		fmt.Fprintf(os.Stderr, "%s: ignoring invalid thinking level %q, falling back to %s\n",
-			CLIENT_PATH, Client.Thinking.Level, defaultClient.Thinking.Level)
+		util.Log.Warn("ignoring an invalid thinking level",
+			"config", CLIENT_PATH, "thinking_level", Client.Thinking.Level, "fallback", defaultClient.Thinking.Level)
 
 		Client.Thinking.Level = defaultClient.Thinking.Level
 	}

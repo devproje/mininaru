@@ -44,6 +44,7 @@ func seed(t *testing.T) (*core.Session, *core.Session) {
 
 func TestResolveSessionBareFlagPicksLatest(t *testing.T) {
 	var newer, got *core.Session
+
 	var err error
 
 	_, newer = seed(t)
@@ -60,6 +61,7 @@ func TestResolveSessionBareFlagPicksLatest(t *testing.T) {
 
 func TestResolveSessionPositionalWinsOverLatest(t *testing.T) {
 	var older, got *core.Session
+
 	var err error
 
 	older, _ = seed(t)
@@ -76,6 +78,7 @@ func TestResolveSessionPositionalWinsOverLatest(t *testing.T) {
 
 func TestResolveSessionNoFlagCreatesNew(t *testing.T) {
 	var older, newer, got *core.Session
+
 	var err error
 
 	older, newer = seed(t)
@@ -91,6 +94,7 @@ func TestResolveSessionNoFlagCreatesNew(t *testing.T) {
 
 func TestResolveSessionRejectsDifferentAgent(t *testing.T) {
 	var foreign *core.Session
+
 	var err error
 
 	seed(t)
@@ -139,8 +143,9 @@ func TestResolveAgentPrefersFlagOverGlobal(t *testing.T) {
 }
 
 func TestResolveSessionScopesToRequestedAgent(t *testing.T) {
+	var globalSession *core.Session
 	var helper *core.NaruAgent
-	var globalSession, got *core.Session
+	var got *core.Session
 
 	var err error
 
