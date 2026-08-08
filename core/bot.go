@@ -82,9 +82,9 @@ func BotInit() error {
 }
 
 func BotSave() error {
+	var cfg BotConfig
 	var path string
 	var buf []byte
-	var cfg BotConfig
 
 	var err error
 
@@ -234,8 +234,8 @@ func BotUpdateFields(ref string, name, token, agent, guildId *string, enabled *b
 
 func BotDelete(ref string) error {
 	var target *Bot
-	var remaining []*Bot
 	var cur *Bot
+	var remaining []*Bot
 
 	var err error
 
@@ -258,8 +258,8 @@ func BotDelete(ref string) error {
 }
 
 func BotsEnabled() []*Bot {
-	var running []*Bot
 	var cur *Bot
+	var running []*Bot
 
 	for _, cur = range Bots {
 		if !cur.Enabled {

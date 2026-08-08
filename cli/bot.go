@@ -60,6 +60,31 @@ var botDisable *cobra.Command = &cobra.Command{
 	RunE:  botDisableExecute,
 }
 
+var botPair *cobra.Command = &cobra.Command{
+	Use:   "pair <id or name>",
+	Short: "create a one-time Discord admin pairing code",
+	Args:  cobra.ExactArgs(1),
+	RunE:  botPairExecute,
+}
+
+func botPairExecute(cmd *cobra.Command, args []string) error {
+	var target *core.Bot
+	var code string
+
+	var err error
+
+	target, err = core.BotFind(args[0])
+	if err != nil {
+		return err
+	}
+	code, err = core.DiscordPairCreate(target.Id)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("Run /pair code:%s in Discord within 10 minutes to pair with %s\n", code, target.Name)
+	return nil
+}
+
 func botAddExecute(cmd *cobra.Command, args []string) error {
 	var created *core.Bot
 
@@ -155,5 +180,5 @@ func init() {
 	botUpdate.Flags().StringVarP(&botAgentRef, "agent", "a", "", "agent new channels talk to, pass an empty value to fall back to the global agent")
 	botUpdate.Flags().StringVarP(&botGuildRef, "guild", "g", "", "guild id for slash command registration")
 
-	botConfig.AddCommand(botAdd, botList, botUpdate, botRemove, botEnable, botDisable)
+	botConfig.AddCommand(botAdd, botList, botUpdate, botRemove, botEnable, botDisable, botPair)
 }

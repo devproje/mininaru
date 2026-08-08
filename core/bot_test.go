@@ -124,8 +124,8 @@ func TestBotInitCreatesAnEmptyFile(t *testing.T) {
 }
 
 func TestBotUpdateDistinguishesOmittedFromCleared(t *testing.T) {
-	var blank string
 	var target *Bot
+	var blank string
 	var disabled bool
 
 	var err error
