@@ -13,8 +13,8 @@ import (
 
 func TestChatFailureDoesNotPersistPartialTurn(t *testing.T) {
 	var srv *httptest.Server
-	var session *Session
 	var agent *NaruAgent
+	var session *Session
 	var messages []*Message
 	var status, errorText string
 

@@ -33,8 +33,8 @@ const (
 
 func MessageList(sessionId string) ([]*Message, error) {
 	var rows *sql.Rows
-	var messages []*Message
 	var cur Message
+	var messages []*Message
 
 	var err error
 
@@ -92,6 +92,7 @@ func MessageSave(sessionId, role, content, reasoning string) (*Message, error) {
 
 func messageStart(sessionId, content string) (*Message, error) {
 	var message Message
+
 	var err error
 
 	message = Message{Id: uuid.NewString(), SessionId: sessionId, Role: "user", Content: content, Status: MessagePending}
@@ -106,6 +107,7 @@ func messageStart(sessionId, content string) (*Message, error) {
 
 func messageFail(id, status string, chatErr error) error {
 	var text string
+
 	var err error
 
 	if chatErr != nil {
@@ -117,8 +119,8 @@ func messageFail(id, status string, chatErr error) error {
 }
 
 func messageCompleteTurn(userId, sessionId, assistantContent, reasoning string) (*Message, error) {
-	var tx *sql.Tx
 	var assistant Message
+	var tx *sql.Tx
 
 	var err error
 
@@ -162,8 +164,8 @@ func toolCost(calls []*ToolCall) int {
 }
 
 func trimHistory(history []*Message, calls map[string][]*ToolCall, maxChars, reserved int) []*Message {
-	var start int
 	var used int
+	var start int
 	var index, turnStart, turnCost, cursor int
 
 	if maxChars <= 0 {
@@ -197,8 +199,8 @@ func trimHistory(history []*Message, calls map[string][]*ToolCall, maxChars, res
 
 func deltaReasoning(delta openai.ChatCompletionChunkChoiceDelta) string {
 	var field respjson.Field
-	var text string
 	var ok bool
+	var text string
 
 	var err error
 
@@ -248,8 +250,14 @@ func ChatWithTools(ctx context.Context, session *Session, agent *NaruAgent, cont
 }
 
 func chatWithTools(ctx context.Context, session *Session, agent *NaruAgent, content string, defs []modules.Def, onContent, onReasoning func(string), onTool ToolEventFunc, approve ToolApprovalFunc) (*Message, error) {
+	return chatWithToolPolicy(ctx, session, agent, content, nil, defs, onContent, onReasoning, onTool, approve, config.AllowDangerousTools)
+}
+
+func chatWithToolPolicy(ctx context.Context, session *Session, agent *NaruAgent, content string, parts []openai.ChatCompletionContentPartUnionParam,
+	defs []modules.Def, onContent, onReasoning func(string), onTool ToolEventFunc, approve ToolApprovalFunc, allowDangerous bool) (*Message, error) {
 	var history []*Message
 	var calls map[string][]*ToolCall
+	var prompt string
 	var messages []openai.ChatCompletionMessageParamUnion
 	var params openai.ChatCompletionNewParams
 	var pending *Message
@@ -281,13 +289,17 @@ func chatWithTools(ctx context.Context, session *Session, agent *NaruAgent, cont
 		}
 	}
 
-	if agent.Role != "" || agent.Soul != "" {
-		messages = append(messages, openai.SystemMessage(agent.Role+"\n"+agent.Soul))
-	}
-	history = trimHistory(history, calls, config.Client.Context.MaxChars, len(agent.Role)+len(agent.Soul)+len(content))
+	prompt = systemPrompt(agent, defs)
+
+	messages = append(messages, openai.SystemMessage(prompt))
+	history = trimHistory(history, calls, config.Client.Context.MaxChars, len(prompt)+len(content))
 
 	messages = append(messages, historyMessages(history, calls)...)
-	messages = append(messages, openai.UserMessage(content))
+	if len(parts) > 0 {
+		messages = append(messages, openai.UserMessage(parts))
+	} else {
+		messages = append(messages, openai.UserMessage(content))
+	}
 
 	params = openai.ChatCompletionNewParams{
 		Model:    agent.Model,
@@ -307,7 +319,7 @@ func chatWithTools(ctx context.Context, session *Session, agent *NaruAgent, cont
 	}
 
 	run = completionRun{
-		AI: agent.AI, Params: params, Defs: defs, AllowDangerous: config.AllowDangerousTools, MessageId: pending.Id,
+		AI: agent.AI, Params: params, Defs: defs, AllowDangerous: allowDangerous, AllowPrivileged: true, MessageId: pending.Id,
 		OnContent: onContent, OnReasoning: onReasoning, OnTool: onTool, Approve: approve,
 	}
 

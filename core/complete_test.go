@@ -15,6 +15,7 @@ import (
 
 func rowCount(t *testing.T, table string) int {
 	var count int
+
 	var err error
 
 	t.Helper()
@@ -28,12 +29,12 @@ func rowCount(t *testing.T, table string) int {
 }
 
 func TestCompleteRunsToolsWithoutTouchingDatabase(t *testing.T) {
-	var requests []string
 	var srv *httptest.Server
+	var requests []string
 	var agent *NaruAgent
 	var def modules.Def
-	var result *Completion
 	var executions int
+	var result *Completion
 
 	var err error
 
@@ -112,8 +113,8 @@ func TestCompleteRejectsMissingAgentAndMessages(t *testing.T) {
 }
 
 func TestCompleteKeepsFinalAnswerOnlyAndFullReasoning(t *testing.T) {
-	var requests []string
 	var srv *httptest.Server
+	var requests []string
 	var agent *NaruAgent
 	var def modules.Def
 	var result *Completion

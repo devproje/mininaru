@@ -75,7 +75,8 @@ func thinkingSetup(t *testing.T, srvURL string) (*Session, *NaruAgent) {
 }
 
 func runChat(t *testing.T, session *Session, agent *NaruAgent) (string, string) {
-	var thought, answer strings.Builder
+	var answer strings.Builder
+	var thought strings.Builder
 
 	var err error
 
@@ -93,10 +94,10 @@ func runChat(t *testing.T, session *Session, agent *NaruAgent) (string, string) 
 }
 
 func TestThinkingStreamSurfaced(t *testing.T) {
+	var field string
 	var session *Session
 	var agent *NaruAgent
 	var body, thought, answer string
-	var field string
 
 	for _, field = range []string{"reasoning_content", "reasoning"} {
 		t.Run(field, func(t *testing.T) {
@@ -155,8 +156,8 @@ func TestReasoningPersistedAndReplayed(t *testing.T) {
 	var session *Session
 	var agent *NaruAgent
 	var body string
-	var history []*Message
 	var saved *Message
+	var history []*Message
 
 	var err error
 

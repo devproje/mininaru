@@ -131,9 +131,9 @@ func AgentInit() error {
 }
 
 func AgentSave() error {
+	var cfg AgentConfig
 	var path string
 	var buf []byte
-	var cfg AgentConfig
 
 	var err error
 
@@ -246,8 +246,8 @@ func AgentByName(name string) (*NaruAgent, error) {
 func AgentDefault(ref string) error {
 	var target *NaruAgent
 	var previous *NaruAgent
-	var remaining []*NaruAgent
 	var cur *NaruAgent
+	var remaining []*NaruAgent
 
 	var err error
 
@@ -322,9 +322,9 @@ func AgentUpdate(id string, payload NaruAgent) error {
 }
 
 func AgentUpdateFields(id string, name, role, soul, model, providerId *string) error {
+	var index int
 	var cur *NaruAgent
 	var update NaruAgent
-	var index int
 
 	var err error
 
@@ -372,8 +372,8 @@ func AgentUpdateFields(id string, name, role, soul, model, providerId *string) e
 
 func AgentDelete(ref string) error {
 	var target *NaruAgent
-	var remaining []*NaruAgent
 	var cur *NaruAgent
+	var remaining []*NaruAgent
 
 	var err error
 

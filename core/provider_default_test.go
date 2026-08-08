@@ -141,6 +141,7 @@ func TestUpdatingDefaultKeepsItCurrent(t *testing.T) {
 
 func TestDeletingProviderUsedByAgentIsRejected(t *testing.T) {
 	var id string
+
 	var err error
 
 	providerSetup(t)
@@ -159,6 +160,7 @@ func TestDeletingProviderUsedByAgentIsRejected(t *testing.T) {
 
 func TestProviderUpdateFieldsCanClearValues(t *testing.T) {
 	var empty string
+
 	var err error
 
 	providerSetup(t)

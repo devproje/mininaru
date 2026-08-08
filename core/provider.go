@@ -73,9 +73,9 @@ func ProviderInit() error {
 }
 
 func ProviderSave() error {
+	var cfg ProviderConfig
 	var path string
 	var buf []byte
-	var cfg ProviderConfig
 
 	var err error
 
@@ -165,9 +165,9 @@ func ProviderUpdate(id string, payload Provider) error {
 }
 
 func ProviderUpdateFields(id string, name, apiKey, baseURL *string) error {
+	var index int
 	var cur *Provider
 	var update Provider
-	var index int
 
 	var err error
 

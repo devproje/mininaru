@@ -73,8 +73,8 @@ func SessionFind(id string) (*Session, error) {
 }
 
 func SessionLatest(agentId string) (*Session, error) {
-	var session Session
 	var query string
+	var session Session
 
 	var err error
 
@@ -96,8 +96,8 @@ func SessionLatest(agentId string) (*Session, error) {
 
 func SessionList(agentId string) ([]*Session, error) {
 	var rows *sql.Rows
-	var sessions []*Session
 	var cur Session
+	var sessions []*Session
 
 	var err error
 

@@ -13,15 +13,17 @@ import (
 )
 
 type completionRun struct {
-	AI             *openai.Client
-	Params         openai.ChatCompletionNewParams
-	Defs           []modules.Def
-	AllowDangerous bool
-	MessageId      string
-	OnContent      func(string)
-	OnReasoning    func(string)
-	OnTool         ToolEventFunc
-	Approve        ToolApprovalFunc
+	AI              *openai.Client
+	Params          openai.ChatCompletionNewParams
+	Defs            []modules.Def
+	AllowDangerous  bool
+	AllowPrivileged bool
+
+	MessageId   string
+	OnContent   func(string)
+	OnReasoning func(string)
+	OnTool      ToolEventFunc
+	Approve     ToolApprovalFunc
 }
 
 type Completion struct {
@@ -31,9 +33,9 @@ type Completion struct {
 }
 
 func (r *completionRun) stream(ctx context.Context, reply, reasoning *strings.Builder) (*openai.ChatCompletionAccumulator, error) {
-	var accumulator openai.ChatCompletionAccumulator
 	var stream *ssestream.Stream[openai.ChatCompletionChunk]
 	var chunk openai.ChatCompletionChunk
+	var accumulator openai.ChatCompletionAccumulator
 	var delta openai.ChatCompletionChunkChoiceDelta
 	var thought string
 
@@ -102,7 +104,7 @@ func (r *completionRun) dispatch(ctx context.Context, message openai.ChatComplet
 				Arguments: record.Arguments, Status: record.Status})
 		}
 
-		record, err = executeTool(ctx, record, r.Defs, r.AllowDangerous, r.Approve)
+		record, err = executeTool(ctx, record, r.Defs, r.AllowDangerous, r.AllowPrivileged, r.Approve)
 		if err != nil {
 			return err
 		}
@@ -119,12 +121,12 @@ func (r *completionRun) dispatch(ctx context.Context, message openai.ChatComplet
 }
 
 func (r *completionRun) execute(ctx context.Context) (*Completion, error) {
-	var result Completion
-	var reply strings.Builder
-	var reasoning strings.Builder
-	var accumulator *openai.ChatCompletionAccumulator
-	var message openai.ChatCompletionMessage
 	var round int
+	var reply strings.Builder
+	var accumulator *openai.ChatCompletionAccumulator
+	var reasoning strings.Builder
+	var result Completion
+	var message openai.ChatCompletionMessage
 
 	var err error
 
@@ -176,15 +178,14 @@ func Complete(ctx context.Context, agent *NaruAgent, messages []openai.ChatCompl
 		return nil, fmt.Errorf("at least one message is required")
 	}
 
-	if agent.Role != "" || agent.Soul != "" {
-		params.Messages = append(params.Messages, openai.SystemMessage(agent.Role+"\n"+agent.Soul))
-	}
+	defs = permittedTools(defs)
+
+	params.Messages = append(params.Messages, openai.SystemMessage(systemPrompt(agent, defs)))
 	params.Messages = append(params.Messages, messages...)
 
 	params.Model = agent.Model
 	params.StreamOptions.IncludeUsage = param.NewOpt(true)
 
-	defs = permittedTools(defs)
 	if len(defs) > 0 {
 		params.Tools = toolParams(defs)
 	}

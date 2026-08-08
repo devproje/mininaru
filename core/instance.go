@@ -90,7 +90,45 @@ func (i *Instance) Chat(ctx context.Context, session *Session, content string,
 	}
 	defer i.locks.release(session.Id)
 
-	return chatWithTools(ctx, session, i.Agent, content, i.Tools, onContent, onReasoning, onTool, nil)
+	return chatWithToolPolicy(ctx, session, i.Agent, content, nil, i.Tools, onContent, onReasoning, onTool, nil, false)
+}
+
+func (i *Instance) ChatWithTools(ctx context.Context, session *Session, content string, defs []modules.Def,
+	onReasoning func(string), onTool ToolEventFunc, approve ToolApprovalFunc) (*Message, error) {
+	var err error
+
+	if session == nil {
+		return nil, fmt.Errorf("session is required to chat")
+	}
+	if session.AgentId != i.Agent.Id {
+		return nil, fmt.Errorf("session %s does not belong to agent %s", session.Id, i.Agent.Name)
+	}
+	err = i.locks.acquire(ctx, session.Id)
+	if err != nil {
+		return nil, err
+	}
+	defer i.locks.release(session.Id)
+
+	return chatWithToolPolicy(ctx, session, i.Agent, content, nil, defs, nil, onReasoning, onTool, approve, false)
+}
+
+func (i *Instance) ChatInput(ctx context.Context, session *Session, content string, parts []openai.ChatCompletionContentPartUnionParam,
+	defs []modules.Def, onReasoning func(string), onTool ToolEventFunc, approve ToolApprovalFunc) (*Message, error) {
+	var err error
+
+	if session == nil {
+		return nil, fmt.Errorf("session is required to chat")
+	}
+	if session.AgentId != i.Agent.Id {
+		return nil, fmt.Errorf("session %s does not belong to agent %s", session.Id, i.Agent.Name)
+	}
+	err = i.locks.acquire(ctx, session.Id)
+	if err != nil {
+		return nil, err
+	}
+	defer i.locks.release(session.Id)
+
+	return chatWithToolPolicy(ctx, session, i.Agent, content, parts, defs, nil, onReasoning, onTool, approve, false)
 }
 
 func (i *Instance) Session(name string) (*Session, error) {
@@ -124,10 +162,10 @@ func NewRegistry() *Registry {
 
 func (r *Registry) Reload() error {
 	var instances map[string]*Instance
-	var ordered []*Instance
-	var cur *Instance
 	var agent *NaruAgent
 	var taken bool
+	var cur *Instance
+	var ordered []*Instance
 
 	var err error
 

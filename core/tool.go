@@ -46,8 +46,8 @@ const (
 )
 
 func permittedTools(defs []modules.Def) []modules.Def {
-	var permitted []modules.Def
 	var def modules.Def
+	var permitted []modules.Def
 
 	for _, def = range defs {
 		if def.Execute == nil || def.Name == "" {
@@ -60,8 +60,8 @@ func permittedTools(defs []modules.Def) []modules.Def {
 }
 
 func toolParams(defs []modules.Def) []openai.ChatCompletionToolParam {
-	var tools []openai.ChatCompletionToolParam
 	var def modules.Def
+	var tools []openai.ChatCompletionToolParam
 
 	for _, def = range defs {
 		tools = append(tools, openai.ChatCompletionToolParam{
@@ -110,6 +110,7 @@ func assistantToolCallMessage(message openai.ChatCompletionMessage) openai.ChatC
 
 func toolCallStart(messageId string, call openai.ChatCompletionMessageToolCall) (*ToolCall, error) {
 	var record ToolCall
+
 	var err error
 
 	record = ToolCall{
@@ -130,7 +131,7 @@ func toolCallStart(messageId string, call openai.ChatCompletionMessageToolCall) 
 	return &record, nil
 }
 
-func executeTool(ctx context.Context, record *ToolCall, defs []modules.Def, allowDangerous bool, approve ToolApprovalFunc) (*ToolCall, error) {
+func executeTool(ctx context.Context, record *ToolCall, defs []modules.Def, allowDangerous, allowPrivileged bool, approve ToolApprovalFunc) (*ToolCall, error) {
 	var def *modules.Def
 	var approved bool
 
@@ -144,6 +145,8 @@ func executeTool(ctx context.Context, record *ToolCall, defs []modules.Def, allo
 	record.Status = MessageCompleted
 	if def == nil {
 		err = fmt.Errorf("unknown tool %q", record.Name)
+	} else if def.Permission == modules.PermissionPrivileged && !allowPrivileged {
+		err = fmt.Errorf("privileged tool %q is only available to an interactive front end", def.Name)
 	} else if def.Permission == modules.PermissionDangerous && !allowDangerous {
 		if approve == nil {
 			err = fmt.Errorf("dangerous tool %q requires user approval", def.Name)
@@ -177,10 +180,10 @@ func executeTool(ctx context.Context, record *ToolCall, defs []modules.Def, allo
 }
 
 func toolCallsBySession(sessionId string) (map[string][]*ToolCall, error) {
+	var query string
 	var rows *sql.Rows
 	var calls map[string][]*ToolCall
 	var call ToolCall
-	var query string
 
 	var err error
 
@@ -231,8 +234,8 @@ func replayableCalls(calls []*ToolCall) bool {
 }
 
 func storedToolCallMessage(calls []*ToolCall) openai.ChatCompletionMessageParamUnion {
-	var assistant openai.ChatCompletionAssistantMessageParam
 	var call *ToolCall
+	var assistant openai.ChatCompletionAssistantMessageParam
 
 	for _, call = range calls {
 		assistant.ToolCalls = append(assistant.ToolCalls, openai.ChatCompletionMessageToolCallParam{
@@ -248,8 +251,8 @@ func storedToolCallMessage(calls []*ToolCall) openai.ChatCompletionMessageParamU
 }
 
 func historyMessages(history []*Message, calls map[string][]*ToolCall) []openai.ChatCompletionMessageParamUnion {
-	var messages []openai.ChatCompletionMessageParamUnion
 	var cur *Message
+	var messages []openai.ChatCompletionMessageParamUnion
 	var turn []*ToolCall
 	var call *ToolCall
 
@@ -278,8 +281,9 @@ func historyMessages(history []*Message, calls map[string][]*ToolCall) []openai.
 
 func ToolCallList(messageId string) ([]*ToolCall, error) {
 	var rows *sql.Rows
-	var calls []*ToolCall
 	var call ToolCall
+	var calls []*ToolCall
+
 	var err error
 
 	rows, err = util.DB.Query(`SELECT id, call_id, message_id, name, arguments, result, status, error

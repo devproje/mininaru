@@ -18,19 +18,19 @@ func toolChunk(id, delta, finish string) string {
 }
 
 func TestChatExecutesToolAndReturnsFinalAnswer(t *testing.T) {
-	var requests []string
-	var executions int
 	var srv *httptest.Server
+	var requests []string
 	var session *Session
 	var agent *NaruAgent
-	var message *Message
-	var history []*Message
-	var calls []*ToolCall
-	var events []ToolEvent
 	var def modules.Def
+	var executions int
 	var payload struct {
 		Text string `json:"text"`
 	}
+	var message *Message
+	var events []ToolEvent
+	var history []*Message
+	var calls []*ToolCall
 
 	var err error
 
@@ -105,13 +105,14 @@ func TestDangerousToolRequiresApprovalOrBypass(t *testing.T) {
 	var session *Session
 	var pending *Message
 	var defs []modules.Def
+	var executions int
 	var call openai.ChatCompletionMessageToolCall
 	var record *ToolCall
 	var calls []*ToolCall
-	var executions int
 	var approvals int
 	var result string
 	var approved bool
+
 	var err error
 
 	session, _ = thinkingSetup(t, "http://127.0.0.1")
@@ -141,7 +142,7 @@ func TestDangerousToolRequiresApprovalOrBypass(t *testing.T) {
 	if len(calls) != 1 || calls[0].Status != MessagePending {
 		t.Fatalf("started tool call = %#v", calls)
 	}
-	record, err = executeTool(context.Background(), record, defs, false,
+	record, err = executeTool(context.Background(), record, defs, false, true,
 		func(context.Context, modules.Def, string) (bool, error) {
 			approvals++
 			return false, nil
@@ -159,7 +160,7 @@ func TestDangerousToolRequiresApprovalOrBypass(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	record, err = executeTool(context.Background(), record, defs, false,
+	record, err = executeTool(context.Background(), record, defs, false, true,
 		func(context.Context, modules.Def, string) (bool, error) {
 			approvals++
 			return true, nil
@@ -178,7 +179,7 @@ func TestDangerousToolRequiresApprovalOrBypass(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	record, err = executeTool(context.Background(), record, defs, true,
+	record, err = executeTool(context.Background(), record, defs, true, true,
 		func(context.Context, modules.Def, string) (bool, error) {
 			approved = true
 			return false, nil
@@ -193,8 +194,8 @@ func TestDangerousToolRequiresApprovalOrBypass(t *testing.T) {
 }
 
 func TestResumedSessionReplaysToolCallsToTheModel(t *testing.T) {
-	var requests []string
 	var srv *httptest.Server
+	var requests []string
 	var session *Session
 	var agent *NaruAgent
 	var def modules.Def

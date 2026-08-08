@@ -77,6 +77,7 @@ func TestSessionLatestWithoutHistory(t *testing.T) {
 
 func TestSessionUpdateRenamesSession(t *testing.T) {
 	var session, got *Session
+
 	var err error
 
 	util.DB, err = util.InitDatabase(filepath.Join(t.TempDir(), "t.db"))

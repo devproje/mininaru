@@ -64,8 +64,8 @@ func registrySetup(t *testing.T, upstream string) *Registry {
 
 func TestRegistryResolvesEveryAgentInOrder(t *testing.T) {
 	var registry *Registry
-	var found *Instance
 	var listed []*Instance
+	var found *Instance
 
 	var err error
 
@@ -136,14 +136,14 @@ func TestRegistryReloadPicksUpNewAgentsAndKeepsOldInstancesUsable(t *testing.T) 
 }
 
 func TestInstanceSerializesTurnsOnTheSameSession(t *testing.T) {
+	var srv *httptest.Server
+	var inflight atomic.Int32
+	var overlap atomic.Bool
 	var registry *Registry
 	var target *Instance
 	var session *Session
-	var inflight atomic.Int32
-	var overlap atomic.Bool
-	var srv *httptest.Server
-	var group sync.WaitGroup
 	var round int
+	var group sync.WaitGroup
 
 	var err error
 
@@ -191,13 +191,13 @@ func TestInstanceSerializesTurnsOnTheSameSession(t *testing.T) {
 }
 
 func TestInstanceRunsDifferentSessionsConcurrently(t *testing.T) {
+	var srv *httptest.Server
+	var inflight atomic.Int32
+	var peakMu sync.Mutex
+	var peak int32
 	var registry *Registry
 	var target *Instance
 	var first, second *Session
-	var peak int32
-	var peakMu sync.Mutex
-	var inflight atomic.Int32
-	var srv *httptest.Server
 	var group sync.WaitGroup
 
 	var err error

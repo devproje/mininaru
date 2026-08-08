@@ -97,6 +97,7 @@ func reload(t *testing.T) {
 func TestAgentKeepsOwnProviderAcrossReload(t *testing.T) {
 	var alpha, beta *Provider
 	var hitA, hitB int
+
 	var err error
 
 	alpha, beta = setup(t, &hitA, &hitB)
@@ -127,6 +128,7 @@ func TestAgentKeepsOwnProviderAcrossReload(t *testing.T) {
 func TestAgentWithoutProviderIdFallsBackToDefault(t *testing.T) {
 	var alpha *Provider
 	var hitA, hitB int
+
 	var err error
 
 	alpha, _ = setup(t, &hitA, &hitB)
@@ -153,8 +155,8 @@ func TestAgentWithoutProviderIdFallsBackToDefault(t *testing.T) {
 }
 
 func TestAgentByNameFindsGlobalAndNamedAgents(t *testing.T) {
-	var found *NaruAgent
 	var prov *Provider
+	var found *NaruAgent
 
 	var err error
 
@@ -257,8 +259,8 @@ func TestAgentDefaultPromotesAndDemotes(t *testing.T) {
 func TestAgentDeleteGlobalPromotesSuccessorAndDropsSessions(t *testing.T) {
 	var prov *Provider
 	var removed *NaruAgent
-	var sessions []*Session
 	var count int
+	var sessions []*Session
 
 	var err error
 
