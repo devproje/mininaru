@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
 	"time"
 )
@@ -11,6 +12,34 @@ import (
 const defaultBashTimeout = 30
 const maxBashTimeout = 120
 const maxBashOutput = 65536
+
+const bashWaitDelay = 2 * time.Second
+
+func bashShell() (string, error) {
+	var candidate string
+	var candidates []string
+	var resolved string
+
+	var err error
+
+	candidate = os.Getenv("MININARU_SHELL")
+	if candidate != "" {
+		return exec.LookPath(candidate)
+	}
+
+	candidates = []string{"bash", "sh"}
+
+	for _, candidate = range candidates {
+		resolved, err = exec.LookPath(candidate)
+		if err != nil {
+			continue
+		}
+
+		return resolved, nil
+	}
+
+	return "", fmt.Errorf("no usable shell found, set MININARU_SHELL to one")
+}
 
 func BashExec(root string) Def {
 	return Def{
@@ -32,6 +61,7 @@ func BashExec(root string) Def {
 				TimeoutSeconds int    `json:"timeout_seconds"`
 			}
 			var workingDir string
+			var shell string
 			var commandCtx context.Context
 			var cancel context.CancelFunc
 			var command *exec.Cmd
@@ -56,11 +86,19 @@ func BashExec(root string) Def {
 			if err != nil {
 				return "", err
 			}
+			shell, err = bashShell()
+			if err != nil {
+				return "", err
+			}
 
 			commandCtx, cancel = context.WithTimeout(ctx, time.Duration(payload.TimeoutSeconds)*time.Second)
 			defer cancel()
-			command = exec.CommandContext(commandCtx, "/bin/bash", "-lc", payload.Command)
+			command = exec.CommandContext(commandCtx, shell, "-lc", payload.Command)
 			command.Dir = workingDir
+			command.WaitDelay = bashWaitDelay
+			command.Cancel = func() error { return bashTerminate(command) }
+			bashIsolate(command)
+
 			output, err = command.CombinedOutput()
 			if len(output) > maxBashOutput {
 				output = append(output[:maxBashOutput], []byte("\n[truncated]")...)
