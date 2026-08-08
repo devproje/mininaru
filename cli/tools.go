@@ -11,7 +11,7 @@ import (
 
 var toolsConfig *cobra.Command = &cobra.Command{
 	Use:   "tools [on|off|list]",
-	Short: "show, enable, disable, or list built-in tools",
+	Short: "show, enable, disable, or list available tools",
 	Args:  cobra.MaximumNArgs(1),
 	RunE:  toolsExecute,
 }
@@ -19,6 +19,7 @@ var toolsConfig *cobra.Command = &cobra.Command{
 func toolsExecute(cmd *cobra.Command, args []string) error {
 	var state string
 	var def modules.Def
+
 	var err error
 
 	if len(args) == 0 {
@@ -32,8 +33,13 @@ func toolsExecute(cmd *cobra.Command, args []string) error {
 
 	state = strings.ToLower(args[0])
 	if state == "list" {
+		err = modules.MCPInit(cmd.Context())
+		if err != nil {
+			return err
+		}
+
 		for _, def = range modules.DefaultTools() {
-			fmt.Printf("%s\t%s\t%s\n", def.Name, def.Permission.String(), def.Description)
+			fmt.Printf("%s\t%s\t%s\t%s\n", def.Name, def.Permission.String(), modules.ToolSource(def.Name), def.Description)
 		}
 		return nil
 	}

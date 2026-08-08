@@ -2,7 +2,6 @@ package modules
 
 import (
 	"context"
-	"os"
 )
 
 type Permission int
@@ -13,11 +12,13 @@ type Def struct {
 	Parameters  map[string]any
 	Permission  Permission
 	Execute     func(ctx context.Context, arguments string) (string, error)
+	daemon      bool
 }
 
 const (
 	PermissionSafe Permission = iota
 	PermissionDangerous
+	PermissionPrivileged
 )
 
 var workingRoot string
@@ -26,6 +27,8 @@ func (p Permission) String() string {
 	switch p {
 	case PermissionDangerous:
 		return "dangerous"
+	case PermissionPrivileged:
+		return "privileged"
 	default:
 		return "safe"
 	}
@@ -33,6 +36,7 @@ func (p Permission) String() string {
 
 func SetWorkingRoot(root string) error {
 	var resolved string
+
 	var err error
 
 	resolved, err = toolRoot(root)
@@ -45,28 +49,20 @@ func SetWorkingRoot(root string) error {
 }
 
 func DefaultTools() []Def {
-	var root string
+	var tools []Def
 
-	root = workingRoot
-	if root == "" {
-		root, _ = os.Getwd()
-	}
+	tools = append(tools, builtinDefs()...)
+	tools = append(tools, manager.defs()...)
 
-	return []Def{
-		CurrentTime(),
-		FileRead(root),
-		FileWrite(root),
-		BashExec(root),
-		WebSearch(),
-	}
+	return tools
 }
 
 func SafeTools() []Def {
-	var tools []Def
 	var def Def
+	var tools []Def
 
 	for _, def = range DefaultTools() {
-		if def.Permission != PermissionSafe {
+		if def.Permission != PermissionSafe || !def.daemon {
 			continue
 		}
 

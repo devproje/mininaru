@@ -8,6 +8,7 @@ import (
 
 func TestCurrentTime(t *testing.T) {
 	var result string
+
 	var err error
 
 	result, err = CurrentTime().Execute(context.Background(), `{"timezone":"Asia/Seoul"}`)

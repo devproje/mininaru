@@ -62,6 +62,7 @@ func TestFileReadAndWriteStayUnderRoot(t *testing.T) {
 func TestFileReadTruncatesOutput(t *testing.T) {
 	var root string
 	var result string
+
 	var err error
 
 	root = t.TempDir()

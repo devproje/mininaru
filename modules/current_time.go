@@ -29,6 +29,7 @@ func CurrentTime() Def {
 			var location *time.Location
 			var now time.Time
 			var buf []byte
+
 			var err error
 
 			if arguments != "" {
