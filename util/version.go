@@ -2,6 +2,7 @@ package util
 
 import (
 	"fmt"
+	"runtime"
 	"strings"
 )
 
@@ -33,9 +34,14 @@ var NaruArt = []string{
 	`╚═╝  ╚═══╝╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝`,
 }
 
+func RuntimeIdentity() string {
+	return fmt.Sprintf("mininaru %s-%s (branch: %s) %s/%s",
+		AppVersion, AppHash, AppBranch, runtime.GOOS, runtime.GOARCH)
+}
+
 func NaruLogo() string {
-	var lines [6]string
 	var i int
+	var lines [6]string
 
 	for i = range 6 {
 		lines[i] = fmt.Sprintf("%s%s%s%s%s", ansiReset, MiniArt[i], ansiRed, NaruArt[i], ansiReset)
@@ -45,8 +51,8 @@ func NaruLogo() string {
 }
 
 func NaruLogoWithPad(pad string) string {
-	var lines [6]string
 	var i int
+	var lines [6]string
 
 	for i = range 6 {
 		lines[i] = fmt.Sprintf("%s%s%s%s%s%s", pad, ansiReset, MiniArt[i], ansiRed, NaruArt[i], ansiReset)

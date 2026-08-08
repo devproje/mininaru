@@ -9,8 +9,8 @@ import (
 func TestWriteFileAtomicReplacesContentAndKeepsMode(t *testing.T) {
 	var dir string
 	var path string
-	var info os.FileInfo
 	var buf []byte
+	var info os.FileInfo
 	var leftovers []os.DirEntry
 
 	var err error

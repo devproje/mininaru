@@ -26,6 +26,7 @@ func SafeSegment(name string) error {
 func SafeJoin(root, rel string) (string, error) {
 	var absRoot string
 	var full string
+
 	var err error
 
 	if filepath.IsAbs(rel) {
@@ -99,6 +100,7 @@ func WriteFileAtomic(path string, data []byte, perm os.FileMode) error {
 
 func InitFS(dir string) error {
 	var abs string
+
 	var err error
 
 	abs, err = filepath.Abs(dir)

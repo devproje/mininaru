@@ -135,6 +135,7 @@ func TestMessageStatusColumnsAddedToExistingDatabase(t *testing.T) {
 func TestToolCallsTableCreated(t *testing.T) {
 	var db *sql.DB
 	var count int
+
 	var err error
 
 	db, err = InitDatabase(filepath.Join(t.TempDir(), "tools.db"))

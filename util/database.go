@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"embed"
 	"io/fs"
-	"log"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -43,13 +42,11 @@ func migration(tx *sql.Tx, version, buf string) error {
 
 func migrations(db *sql.DB) error {
 	var migs []fs.DirEntry
-	var mig fs.DirEntry
 	var row *sql.Rows
-
 	var heap string
 	var applied []string
-
 	var tx *sql.Tx
+	var mig fs.DirEntry
 	var version, path string
 	var buf []byte
 	var rollbackErr error
@@ -120,7 +117,7 @@ func migrations(db *sql.DB) error {
 		if err != nil {
 			rollbackErr = tx.Rollback()
 			if rollbackErr != nil {
-				log.Printf("[db] rollback after migration %s failure also failed: %v", version, rollbackErr)
+				Log.Error("rollback after a failed migration also failed", "version", version, "error", rollbackErr)
 			}
 			return err
 		}
@@ -130,7 +127,7 @@ func migrations(db *sql.DB) error {
 	if err != nil {
 		rollbackErr = tx.Rollback()
 		if rollbackErr != nil {
-			log.Printf("[db] rollback after commit failure also failed: %v", rollbackErr)
+			Log.Error("rollback after a failed migration commit also failed", "error", rollbackErr)
 		}
 		return err
 	}
@@ -138,32 +135,31 @@ func migrations(db *sql.DB) error {
 	return nil
 }
 
+func databaseDSN(dbPath string) string {
+	var query string
+
+	query = strings.Join([]string{
+		"_pragma=journal_mode(WAL)",
+		"_pragma=foreign_keys(1)",
+		"_pragma=busy_timeout(5000)",
+	}, "&")
+
+	return "file:" + dbPath + "?" + query
+}
+
 func InitDatabase(dbPath string) (*sql.DB, error) {
 	var database *sql.DB
+
 	var err error
 
-	database, err = sql.Open("sqlite", dbPath)
-	if err != nil {
-		return nil, err
-	}
-
-	_, err = database.Exec("PRAGMA journal_mode = WAL")
-	if err != nil {
-		return nil, err
-	}
-
-	_, err = database.Exec("PRAGMA foreign_keys = ON")
-	if err != nil {
-		return nil, err
-	}
-
-	_, err = database.Exec("PRAGMA busy_timeout = 5000")
+	database, err = sql.Open("sqlite", databaseDSN(dbPath))
 	if err != nil {
 		return nil, err
 	}
 
 	err = migrations(database)
 	if err != nil {
+		database.Close()
 		return nil, err
 	}
 
