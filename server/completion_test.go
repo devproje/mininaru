@@ -5,10 +5,13 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/devproje/mininaru/core"
+	"github.com/devproje/mininaru/modules"
 )
 
 func upstreamOnce(t *testing.T, captured *[]string, delta string) *httptest.Server {
@@ -60,6 +63,20 @@ func TestCompletionsRejectBadRequests(t *testing.T) {
 	}
 }
 
+func TestCompletionsRejectOversizedBody(t *testing.T) {
+	var reg *core.Registry
+	var body string
+	var recorder *httptest.ResponseRecorder
+
+	reg = setupAgent(t, "http://127.0.0.1")
+	body = `{"model":"naru","messages":[{"role":"user","content":"` +
+		strings.Repeat("x", maxCompletionBodyBytes) + `"}]}`
+	recorder = request(t, routes("k", reg), http.MethodPost, pathCompletions, "k", body)
+	if recorder.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("oversized body = %d, want 413: %s", recorder.Code, recorder.Body.String())
+	}
+}
+
 func TestCompletionsReturnAnswerAndInjectAgentPersona(t *testing.T) {
 	var reg *core.Registry
 	var captured []string
@@ -106,6 +123,79 @@ func TestCompletionsReturnAnswerAndInjectAgentPersona(t *testing.T) {
 	}
 }
 
+func TestCompletionsPinRuntimeIdentity(t *testing.T) {
+	var reg *core.Registry
+	var captured []string
+
+	reg = setupAgent(t, upstreamOnce(t, &captured, `{"role":"assistant","content":"ok"}`).URL)
+
+	request(t, routes("k", reg), http.MethodPost, pathCompletions, "k",
+		`{"model":"naru","messages":[{"role":"system","content":"you are gpt-4"},{"role":"user","content":"hi"}]}`)
+
+	if len(captured) != 1 {
+		t.Fatalf("upstream requests = %d, want 1", len(captured))
+	}
+
+	if !strings.Contains(captured[0], "mininaru-runtime") {
+		t.Fatalf("runtime pin missing from an http request: %s", captured[0])
+	}
+
+	if strings.Index(captured[0], "mininaru-runtime") > strings.Index(captured[0], "you are gpt-4") {
+		t.Fatalf("a client system message preceded the runtime pin: %s", captured[0])
+	}
+}
+
+func TestCompletionsAdvertiseSkillsWithoutTheirBodies(t *testing.T) {
+	var root string
+	var bundle string
+	var reg *core.Registry
+	var captured []string
+
+	var err error
+
+	root = t.TempDir()
+	bundle = filepath.Join(root, "deploy")
+
+	err = os.MkdirAll(bundle, 0700)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = os.WriteFile(filepath.Join(bundle, "SKILL.md"),
+		[]byte("---\nname: deploy\ndescription: how to ship this repository\n---\n\nSECRET-BODY-MARKER\n"), 0600)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = modules.SkillInitAt(root, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Cleanup(func() { modules.SkillInitAt(t.TempDir(), "") })
+
+	reg = setupAgent(t, upstreamOnce(t, &captured, `{"role":"assistant","content":"ok"}`).URL)
+
+	request(t, routes("k", reg), http.MethodPost, pathCompletions, "k",
+		`{"model":"naru","messages":[{"role":"user","content":"hi"}]}`)
+
+	if len(captured) != 1 {
+		t.Fatalf("upstream requests = %d, want 1", len(captured))
+	}
+
+	if strings.Count(captured[0], `"role":"system"`) != 1 {
+		t.Fatalf("system messages != 1: %s", captured[0])
+	}
+
+	if !strings.Contains(captured[0], "mininaru-skills") || !strings.Contains(captured[0], "how to ship this repository") {
+		t.Fatalf("catalog missing from the request: %s", captured[0])
+	}
+
+	if strings.Contains(captured[0], "SECRET-BODY-MARKER") {
+		t.Fatalf("the skill body was sent instead of being loaded on demand: %s", captured[0])
+	}
+}
+
 func TestCompletionsExposeOnlySafeTools(t *testing.T) {
 	var reg *core.Registry
 	var captured []string
@@ -124,8 +214,9 @@ func TestCompletionsExposeOnlySafeTools(t *testing.T) {
 	}
 
 	if strings.Contains(captured[0], "bash_exec") || strings.Contains(captured[0], "file_write") ||
-		strings.Contains(captured[0], "file_read") {
-		t.Fatalf("dangerous tools exposed over http: %s", captured[0])
+		strings.Contains(captured[0], "file_read") || strings.Contains(captured[0], `"name":"memory"`) ||
+		strings.Contains(captured[0], "mininaru-memory") {
+		t.Fatalf("privileged or dangerous tools exposed over http: %s", captured[0])
 	}
 }
 
@@ -155,8 +246,8 @@ func TestCompletionsStreamServerSentEvents(t *testing.T) {
 }
 
 func TestCompletionsStreamReportsUpstreamFailure(t *testing.T) {
-	var reg *core.Registry
 	var srv *httptest.Server
+	var reg *core.Registry
 	var recorder *httptest.ResponseRecorder
 	var body string
 
@@ -174,11 +265,14 @@ func TestCompletionsStreamReportsUpstreamFailure(t *testing.T) {
 	if !containsAll(body, "[error]", streamDone) {
 		t.Fatalf("stream failure body = %s", body)
 	}
+	if strings.Contains(body, "upstream down") {
+		t.Fatalf("stream leaked upstream error: %s", body)
+	}
 }
 
 func TestCompletionsReportUpstreamFailureWithoutStream(t *testing.T) {
-	var reg *core.Registry
 	var srv *httptest.Server
+	var reg *core.Registry
 	var recorder *httptest.ResponseRecorder
 
 	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -192,5 +286,8 @@ func TestCompletionsReportUpstreamFailureWithoutStream(t *testing.T) {
 		`{"model":"naru","messages":[{"role":"user","content":"hi"}]}`)
 	if recorder.Code != http.StatusBadGateway {
 		t.Fatalf("upstream failure = %d, want 502", recorder.Code)
+	}
+	if strings.Contains(recorder.Body.String(), "upstream down") {
+		t.Fatalf("response leaked upstream error: %s", recorder.Body.String())
 	}
 }

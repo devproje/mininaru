@@ -21,9 +21,9 @@ func providerLabel(id string) string {
 }
 
 func modelList(reg *core.Registry) ModelList {
+	var created int64
 	var list ModelList
 	var cur *core.Instance
-	var created int64
 
 	created = time.Now().Unix()
 	list.Object = objectList

@@ -38,8 +38,8 @@ func TestContentTextAcceptsStringAndParts(t *testing.T) {
 
 func TestRequestMessagesMapRoles(t *testing.T) {
 	var messages []RequestMessage
-	var converted []any
 	var buf []byte
+	var converted []any
 
 	var err error
 

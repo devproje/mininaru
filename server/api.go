@@ -127,9 +127,9 @@ func contentText(raw json.RawMessage) string {
 }
 
 func requestMessages(messages []RequestMessage) []openai.ChatCompletionMessageParamUnion {
-	var converted []openai.ChatCompletionMessageParamUnion
 	var message RequestMessage
 	var text string
+	var converted []openai.ChatCompletionMessageParamUnion
 
 	for _, message = range messages {
 		text = contentText(message.Content)

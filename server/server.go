@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/devproje/mininaru/core"
+	"github.com/devproje/mininaru/util"
 )
 
 type Config struct {
@@ -36,6 +37,14 @@ const bearerPrefix = "Bearer "
 
 const shutdownTimeout = 5 * time.Second
 
+const (
+	readHeaderTimeout        = 5 * time.Second
+	readTimeout              = 30 * time.Second
+	idleTimeout              = 60 * time.Second
+	maxHeaderBytes           = 1 << 20
+	maxConcurrentCompletions = 16
+)
+
 func bearerToken(r *http.Request) string {
 	var header string
 
@@ -53,6 +62,7 @@ func authorize(key string, next http.Handler) http.Handler {
 
 		token = bearerToken(r)
 		if subtle.ConstantTimeCompare([]byte(token), []byte(key)) != 1 {
+			requestLogger(r.Context()).Warn("rejected an unauthorized request", "presented_key", token != "")
 			writeError(w, http.StatusUnauthorized, "invalid_request_error", "invalid_api_key", "invalid or missing api key")
 			return
 		}
@@ -63,6 +73,7 @@ func authorize(key string, next http.Handler) http.Handler {
 
 func routes(key string, reg *core.Registry) http.Handler {
 	var mux *http.ServeMux
+	var completions http.Handler
 
 	mux = http.NewServeMux()
 
@@ -70,36 +81,58 @@ func routes(key string, reg *core.Registry) http.Handler {
 		handleModels(w, r, reg)
 	})
 
-	mux.HandleFunc(pathCompletions, func(w http.ResponseWriter, r *http.Request) {
+	completions = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		handleCompletions(w, r, reg)
 	})
+	mux.Handle(pathCompletions, limitConcurrent(maxConcurrentCompletions, completions))
 
-	return authorize(key, mux)
+	return logRequests(authorize(key, mux))
+}
+
+func limitConcurrent(max int, next http.Handler) http.Handler {
+	var slots chan struct{}
+
+	slots = make(chan struct{}, max)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case slots <- struct{}{}:
+			defer func() { <-slots }()
+			next.ServeHTTP(w, r)
+		default:
+			requestLogger(r.Context()).Warn("shed a request over the concurrency limit", "limit", max)
+			w.Header().Set("Retry-After", "1")
+			writeError(w, http.StatusTooManyRequests, "rate_limit_error", "server_busy", "too many concurrent requests")
+		}
+	})
+}
+
+func newHTTPServer(handler http.Handler) *http.Server {
+	return &http.Server{
+		Handler:           handler,
+		ReadHeaderTimeout: readHeaderTimeout,
+		ReadTimeout:       readTimeout,
+		IdleTimeout:       idleTimeout,
+		MaxHeaderBytes:    maxHeaderBytes,
+	}
 }
 
 func AnnounceAgents(reg *core.Registry) {
 	var model Model
 
 	for _, model = range modelList(reg).Data {
-		fmt.Printf("  agent %s (provider %s)\n", model.Id, model.OwnedBy)
+		util.Log.Info("agent available", "agent", model.Id, "provider", model.OwnedBy)
 	}
-}
-
-func announce(addr net.Addr, reg *core.Registry) {
-	fmt.Printf("mininaru api listening on http://%s/api/v1\n", addr)
-
-	AnnounceAgents(reg)
 }
 
 func Serve(ctx context.Context, cfg Config, registry *core.Registry) error {
 	var address string
 	var listener net.Listener
-	var srv *http.Server
 	var notified context.Context
 	var stop context.CancelFunc
+	var srv *http.Server
+	var errs chan error
 	var shutdown context.Context
 	var cancel context.CancelFunc
-	var errs chan error
 
 	var err error
 
@@ -129,10 +162,15 @@ func Serve(ctx context.Context, cfg Config, registry *core.Registry) error {
 	notified, stop = signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	srv = &http.Server{Handler: routes(cfg.ApiKey, registry)}
+	srv = newHTTPServer(routes(cfg.ApiKey, registry))
 	errs = make(chan error, 1)
 
-	announce(listener.Addr(), registry)
+	util.Log.Info("api server listening",
+		"url", "http://"+listener.Addr().String()+"/api/v1",
+		"agents", len(registry.List()),
+		"max_concurrent_completions", maxConcurrentCompletions)
+
+	AnnounceAgents(registry)
 
 	go func() {
 		errs <- srv.Serve(listener)
@@ -144,12 +182,24 @@ func Serve(ctx context.Context, cfg Config, registry *core.Registry) error {
 			return nil
 		}
 
+		util.Log.Error("api server stopped unexpectedly", "error", err)
+
 		return err
 	case <-notified.Done():
 	}
 
+	util.Log.Info("api server shutting down", "timeout", shutdownTimeout.String())
+
 	shutdown, cancel = context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
 
-	return srv.Shutdown(shutdown)
+	err = srv.Shutdown(shutdown)
+	if err != nil {
+		util.Log.Error("api server shutdown did not finish cleanly", "error", err)
+		return err
+	}
+
+	util.Log.Info("api server stopped")
+
+	return nil
 }

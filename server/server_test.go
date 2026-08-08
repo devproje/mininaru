@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/devproje/mininaru/core"
@@ -125,5 +126,62 @@ func TestServeRejectsEmptyApiKey(t *testing.T) {
 	err = Serve(t.Context(), Config{Host: DefaultHost, Port: 0, ApiKey: "k"}, nil)
 	if err == nil {
 		t.Fatal("serve accepted a nil registry")
+	}
+}
+
+func TestHTTPServerHasConnectionLimits(t *testing.T) {
+	var srv *http.Server
+
+	srv = newHTTPServer(http.NotFoundHandler())
+	if srv.ReadHeaderTimeout != readHeaderTimeout {
+		t.Fatalf("read header timeout = %s", srv.ReadHeaderTimeout)
+	}
+	if srv.ReadTimeout != readTimeout {
+		t.Fatalf("read timeout = %s", srv.ReadTimeout)
+	}
+	if srv.IdleTimeout != idleTimeout {
+		t.Fatalf("idle timeout = %s", srv.IdleTimeout)
+	}
+	if srv.MaxHeaderBytes != maxHeaderBytes {
+		t.Fatalf("max header bytes = %d", srv.MaxHeaderBytes)
+	}
+}
+
+func TestConcurrentLimitRejectsExcessRequest(t *testing.T) {
+	var entered chan struct{}
+	var release chan struct{}
+	var handler http.Handler
+	var first *httptest.ResponseRecorder
+	var wait sync.WaitGroup
+	var second *httptest.ResponseRecorder
+
+	entered = make(chan struct{})
+	release = make(chan struct{})
+	handler = limitConcurrent(1, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		close(entered)
+		<-release
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	first = httptest.NewRecorder()
+	wait.Add(1)
+	go func() {
+		defer wait.Done()
+		handler.ServeHTTP(first, httptest.NewRequest(http.MethodPost, "/", nil))
+	}()
+	<-entered
+
+	second = httptest.NewRecorder()
+	handler.ServeHTTP(second, httptest.NewRequest(http.MethodPost, "/", nil))
+	if second.Code != http.StatusTooManyRequests {
+		t.Fatalf("excess request = %d, want 429", second.Code)
+	}
+	if second.Header().Get("Retry-After") != "1" {
+		t.Fatalf("retry-after = %q", second.Header().Get("Retry-After"))
+	}
+
+	close(release)
+	wait.Wait()
+	if first.Code != http.StatusNoContent {
+		t.Fatalf("first request = %d, want 204", first.Code)
 	}
 }
