@@ -123,10 +123,47 @@ var sessionRename *cobra.Command = &cobra.Command{
 	RunE:  sessionRenameExecute,
 }
 
+func providerAddAsk() error {
+	var err error
+
+	if providerNameRef == "" {
+		providerNameRef, err = askRequired("provider name")
+		if err != nil {
+			return err
+		}
+	}
+
+	if providerBaseURLRef == "" {
+		providerBaseURLRef, err = askRequired("base url")
+		if err != nil {
+			return err
+		}
+	}
+
+	if providerApiKeyRef == "" {
+		providerApiKeyRef, err = askSecret("api key", true)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 func providerAddExecute(cmd *cobra.Command, args []string) error {
 	var payload core.Provider
+
+	var err error
+
+	if askInteractive() {
+		err = providerAddAsk()
+		if err != nil {
+			return err
+		}
+	}
+
 	if providerNameRef == "" {
-		return fmt.Errorf("provider name is required")
+		return fmt.Errorf("provider name is required, pass --name")
 	}
 
 	payload = core.Provider{
@@ -170,8 +207,55 @@ func providerDefaultExecute(cmd *cobra.Command, args []string) error {
 	return core.ProviderDefault(args[0])
 }
 
+func providerUpdateAsk(current *core.Provider) error {
+	var err error
+
+	fmt.Fprintf(askOut, "updating provider %s, press enter to keep a value\n", current.Name)
+
+	providerNameRef, err = askText("provider name", current.Name)
+	if err != nil {
+		return err
+	}
+
+	providerBaseURLRef, err = askText("base url", current.BaseURL)
+	if err != nil {
+		return err
+	}
+
+	providerApiKeyRef, err = askSecret("api key", true)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func providerUpdateExecute(cmd *cobra.Command, args []string) error {
+	var touched bool
+	var current *core.Provider
 	var name, apiKey, baseURL *string
+
+	var err error
+
+	touched = cmd.Flags().Changed("name") || cmd.Flags().Changed("api-key") || cmd.Flags().Changed("base-url")
+
+	if !touched && askInteractive() {
+		current, err = core.ProviderFind(args[0])
+		if err != nil {
+			return err
+		}
+
+		err = providerUpdateAsk(current)
+		if err != nil {
+			return err
+		}
+
+		if providerApiKeyRef != "" {
+			apiKey = &providerApiKeyRef
+		}
+
+		return core.ProviderUpdateFields(current.Id, &providerNameRef, apiKey, &providerBaseURLRef)
+	}
 
 	if cmd.Flags().Changed("name") {
 		name = &providerNameRef
@@ -202,17 +286,81 @@ func resolveProvider() (*core.Provider, error) {
 	return core.DefaultProvider, nil
 }
 
+func providerNames() []string {
+	var cur *core.Provider
+	var names []string
+
+	for _, cur = range core.Providers {
+		names = append(names, cur.Name)
+	}
+
+	return names
+}
+
+func agentAddAsk() error {
+	var fallback string
+
+	var err error
+
+	if agentNameRef == "" {
+		agentNameRef, err = askRequired("agent name")
+		if err != nil {
+			return err
+		}
+	}
+
+	if agentModelRef == "" {
+		agentModelRef, err = askRequired("model")
+		if err != nil {
+			return err
+		}
+	}
+
+	if agentRoleRef == "" {
+		agentRoleRef, err = askText("role", "")
+		if err != nil {
+			return err
+		}
+	}
+
+	if agentSoulRef == "" {
+		agentSoulRef, err = askText("soul", "")
+		if err != nil {
+			return err
+		}
+	}
+
+	if agentProviderRef != "" || len(core.Providers) < 2 {
+		return nil
+	}
+
+	if core.DefaultProvider != nil {
+		fallback = core.DefaultProvider.Name
+	}
+
+	agentProviderRef, err = askChoice("provider", providerNames(), fallback)
+
+	return err
+}
+
 func agentAddExecute(cmd *cobra.Command, args []string) error {
 	var prov *core.Provider
 	var newAgent *core.NaruAgent
 
 	var err error
 
+	if askInteractive() {
+		err = agentAddAsk()
+		if err != nil {
+			return err
+		}
+	}
+
 	if agentNameRef == "" {
-		return fmt.Errorf("agent name is required")
+		return fmt.Errorf("agent name is required, pass --name")
 	}
 	if agentModelRef == "" {
-		return fmt.Errorf("agent model is required")
+		return fmt.Errorf("agent model is required, pass --model")
 	}
 
 	prov, err = resolveProvider()
@@ -261,12 +409,112 @@ func agentListExecute(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+func agentUpdateAsk(current *core.NaruAgent) error {
+	var err error
+
+	fmt.Fprintf(askOut, "updating agent %s, press enter to keep a value\n", current.Name)
+
+	agentNameRef, err = askText("agent name", current.Name)
+	if err != nil {
+		return err
+	}
+
+	agentModelRef, err = askText("model", current.Model)
+	if err != nil {
+		return err
+	}
+
+	agentRoleRef, err = askText("role", current.Role)
+	if err != nil {
+		return err
+	}
+
+	agentSoulRef, err = askText("soul", current.Soul)
+	if err != nil {
+		return err
+	}
+
+	if len(core.Providers) < 2 {
+		return nil
+	}
+
+	agentProviderRef, err = askChoice("provider", providerNames(), providerLabel(current.ProviderId))
+
+	return err
+}
+
+func agentApplyUpdate(ref string, name, role, soul, model, providerId *string) error {
+	var err error
+
+	if core.Global == nil || core.Global.Id != ref {
+		return core.AgentUpdateFields(ref, name, role, soul, model, providerId)
+	}
+
+	if name != nil {
+		core.Global.Name = *name
+	}
+
+	if role != nil {
+		core.Global.Role = *role
+	}
+
+	if soul != nil {
+		core.Global.Soul = *soul
+	}
+
+	if model != nil {
+		core.Global.Model = *model
+	}
+
+	if providerId != nil {
+		core.Global.ProviderId = *providerId
+
+		err = core.AgentRefreshClient(core.Global)
+		if err != nil {
+			return err
+		}
+	}
+
+	return core.AgentSave()
+}
+
+func agentUpdateTouched(cmd *cobra.Command) bool {
+	return cmd.Flags().Changed("name") || cmd.Flags().Changed("role") ||
+		cmd.Flags().Changed("soul") || cmd.Flags().Changed("model") || cmd.Flags().Changed("provider")
+}
+
 func agentUpdateExecute(cmd *cobra.Command, args []string) error {
 	var name, role, soul, model *string
 	var prov *core.Provider
 	var providerId *string
+	var current *core.NaruAgent
 
 	var err error
+
+	if !agentUpdateTouched(cmd) && askInteractive() {
+		current, err = core.AgentByName(args[0])
+		if err != nil {
+			return err
+		}
+
+		err = agentUpdateAsk(current)
+		if err != nil {
+			return err
+		}
+
+		name, role, soul, model = &agentNameRef, &agentRoleRef, &agentSoulRef, &agentModelRef
+
+		if agentProviderRef != "" {
+			prov, err = core.ProviderFind(agentProviderRef)
+			if err != nil {
+				return err
+			}
+
+			providerId = &prov.Id
+		}
+
+		return agentApplyUpdate(current.Id, name, role, soul, model, providerId)
+	}
 
 	if cmd.Flags().Changed("name") {
 		name = &agentNameRef
@@ -290,35 +538,7 @@ func agentUpdateExecute(cmd *cobra.Command, args []string) error {
 		providerId = &prov.Id
 	}
 
-	if core.Global != nil && core.Global.Id == args[0] {
-		if name != nil {
-			core.Global.Name = *name
-		}
-
-		if role != nil {
-			core.Global.Role = *role
-		}
-
-		if soul != nil {
-			core.Global.Soul = *soul
-		}
-
-		if model != nil {
-			core.Global.Model = *model
-		}
-
-		if providerId != nil {
-			core.Global.ProviderId = *providerId
-			err = core.AgentRefreshClient(core.Global)
-			if err != nil {
-				return err
-			}
-		}
-
-		return core.AgentSave()
-	}
-
-	return core.AgentUpdateFields(args[0], name, role, soul, model, providerId)
+	return agentApplyUpdate(args[0], name, role, soul, model, providerId)
 }
 
 func agentRemoveExecute(cmd *cobra.Command, args []string) error {
@@ -408,8 +628,17 @@ func sessionRemoveExecute(cmd *cobra.Command, args []string) error {
 }
 
 func sessionRenameExecute(cmd *cobra.Command, args []string) error {
+	var err error
+
+	if sessionNameRef == "" && askInteractive() {
+		sessionNameRef, err = askRequired("new session name")
+		if err != nil {
+			return err
+		}
+	}
+
 	if sessionNameRef == "" {
-		return fmt.Errorf("session name is required")
+		return fmt.Errorf("session name is required, pass --name")
 	}
 
 	return core.SessionUpdate(args[0], sessionNameRef)

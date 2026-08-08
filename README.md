@@ -39,7 +39,18 @@ Use `--env-file` or `--working-directory` to override either daemon setting.
 
 ## First run
 
-Add an OpenAI-compatible provider, then create the global chat agent:
+`setup` walks through the whole thing -- provider, agent, and the thinking and
+tool defaults -- asking one question at a time:
+
+```sh
+./out/mininaru setup
+```
+
+It keeps what is already configured unless you say otherwise, so it is safe to
+run again later.
+
+To do it by hand instead, add an OpenAI-compatible provider and then the global
+chat agent:
 
 ```sh
 ./out/mininaru provider add           \
@@ -57,9 +68,38 @@ Add an OpenAI-compatible provider, then create the global chat agent:
 
 The first agent becomes the global agent used by the interactive client.
 
+## Interactive prompts
+
+The commands that create or change something -- `provider add`, `provider
+update`, `agent add`, `agent update`, `bot add`, `bot update`, `mcp add`, and
+`session rename` -- ask for whatever you did not pass as a flag:
+
+```sh
+$ mininaru provider add
+provider name: openrouter
+base url: https://openrouter.ai/api/v1
+api key (leave empty to skip):
+```
+
+API keys and bot tokens are read without echo. An `update` with no flags walks
+every field with the current value as the default, so pressing enter keeps it;
+leaving a secret empty keeps the stored one rather than clearing it.
+
+**Prompting only happens on a terminal.** When stdin or stderr is a pipe --
+a script, a systemd unit, CI -- nothing is asked and a missing required value
+is still an error, so automation behaves exactly as before:
+
+```sh
+$ mininaru provider add < /dev/null
+Error: provider name is required, pass --name
+```
+
+Prompts are written to stderr, so stdout stays parseable.
+
 ## Common commands
 
 ```sh
+mininaru setup                 # guided first run configuration
 mininaru provider list
 mininaru provider default [id-or-name]
 mininaru agent list

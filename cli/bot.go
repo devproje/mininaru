@@ -85,10 +85,62 @@ func botPairExecute(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+func agentNames() []string {
+	var cur *core.NaruAgent
+	var names []string
+
+	for _, cur = range core.AgentAll() {
+		names = append(names, cur.Name)
+	}
+
+	return names
+}
+
+func botAddAsk() error {
+	var err error
+
+	if botNameRef == "" {
+		botNameRef, err = askRequired("bot name")
+		if err != nil {
+			return err
+		}
+	}
+
+	if botTokenRef == "" {
+		botTokenRef, err = askSecret("bot token", false)
+		if err != nil {
+			return err
+		}
+	}
+
+	if botAgentRef == "" && len(core.AgentAll()) > 1 {
+		botAgentRef, err = askChoice("agent new channels talk to, empty for the global agent", agentNames(), "")
+		if err != nil {
+			return err
+		}
+	}
+
+	if botGuildRef == "" {
+		botGuildRef, err = askText("guild id for instant slash commands, empty for global", "")
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 func botAddExecute(cmd *cobra.Command, args []string) error {
 	var created *core.Bot
 
 	var err error
+
+	if askInteractive() {
+		err = botAddAsk()
+		if err != nil {
+			return err
+		}
+	}
 
 	created, err = core.BotCreate(core.Bot{
 		Name:    botNameRef,
@@ -133,8 +185,59 @@ func botListExecute(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+func botUpdateAsk(current *core.Bot) error {
+	var err error
+
+	fmt.Fprintf(askOut, "updating bot %s, press enter to keep a value\n", current.Name)
+
+	botNameRef, err = askText("bot name", current.Name)
+	if err != nil {
+		return err
+	}
+
+	botTokenRef, err = askSecret("bot token", true)
+	if err != nil {
+		return err
+	}
+
+	botAgentRef, err = askText("agent, empty for the global agent", current.Agent)
+	if err != nil {
+		return err
+	}
+
+	botGuildRef, err = askText("guild id", current.GuildId)
+
+	return err
+}
+
+func botUpdateTouched(cmd *cobra.Command) bool {
+	return cmd.Flags().Changed("name") || cmd.Flags().Changed("token") ||
+		cmd.Flags().Changed("agent") || cmd.Flags().Changed("guild")
+}
+
 func botUpdateExecute(cmd *cobra.Command, args []string) error {
 	var name, token, agent, guildId *string
+	var current *core.Bot
+
+	var err error
+
+	if !botUpdateTouched(cmd) && askInteractive() {
+		current, err = core.BotFind(args[0])
+		if err != nil {
+			return err
+		}
+
+		err = botUpdateAsk(current)
+		if err != nil {
+			return err
+		}
+
+		if botTokenRef != "" {
+			token = &botTokenRef
+		}
+
+		return core.BotUpdateFields(current.Id, &botNameRef, token, &botAgentRef, &botGuildRef, nil)
+	}
 
 	if cmd.Flags().Changed("name") {
 		name = &botNameRef

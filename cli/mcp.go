@@ -64,6 +64,36 @@ func mcpList(cmd *cobra.Command) error {
 	return nil
 }
 
+func mcpAddAsk() error {
+	var transport string
+
+	var err error
+
+	if mcpCommandRef != "" || mcpUrlRef != "" {
+		return nil
+	}
+
+	transport, err = askChoice("transport", []string{modules.TransportStdio, modules.TransportHTTP}, modules.TransportStdio)
+	if err != nil {
+		return err
+	}
+
+	if transport == modules.TransportHTTP {
+		mcpUrlRef, err = askRequired("endpoint url")
+
+		return err
+	}
+
+	mcpCommandRef, err = askRequired("command")
+	if err != nil {
+		return err
+	}
+
+	mcpDirRef, err = askText("working directory", "")
+
+	return err
+}
+
 func mcpAdd(name string) error {
 	var entry modules.MCPServer
 	var daemon bool
@@ -72,6 +102,13 @@ func mcpAdd(name string) error {
 
 	if mcpFind(name) >= 0 {
 		return fmt.Errorf("mcp server %q already exists", name)
+	}
+
+	if askInteractive() {
+		err = mcpAddAsk()
+		if err != nil {
+			return err
+		}
 	}
 
 	entry.Name = name

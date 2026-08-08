@@ -250,6 +250,7 @@ func main() {
 	root.Flags().StringVarP(&chatAgentRef, "agent", "a", "", "agent name or id to chat with, defaults to the global agent")
 	root.Flags().StringVarP(&promptRef, "prompt", "p", "", "run one turn without the tui and print the answer, pass - to read it from stdin")
 
+	root.AddCommand(setup)
 	root.AddCommand(serve)
 	root.AddCommand(provider)
 	root.AddCommand(agent)
