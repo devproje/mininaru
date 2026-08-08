@@ -8,7 +8,8 @@ ships two front ends over one core: a terminal chat client and an HTTP API.
 ```
 cli/       cobra commands, the bubbletea TUI, and the serve daemon
 core/      providers, agents, sessions, messages, the tool-calling loop
-modules/   tool implementations and their permission levels
+modules/   tool implementations, the in-process MCP server exposing them, the
+           MCP client manager, mcp.json, web.json, and skill discovery
 server/    stateless OpenAI-compatible HTTP API
 bot/       chat front ends that live inside the daemon (Discord)
 config/    client.json preferences (thinking, context budget, tool switch)
@@ -18,7 +19,9 @@ util/      data directory layout, SQLite handle, migrations, version info
 Dependencies point one way: `cli` depends on `server` and `bot`, both of which
 depend on `core`, and `core` depends on `modules`, `config`, and `util`. Nothing
 in `core` imports its callers, and `server` and `bot` do not import each other —
-`cli/serve.go` is the only place that knows about both.
+`cli/serve.go` is the only place that knows about both. `modules` stays a leaf:
+it imports `util` and the MCP SDK and nothing else in the tree. MCP process
+lifetime is owned by `cli`; `core` never starts or stops anything.
 
 ## Two chat paths, one engine
 
@@ -34,6 +37,11 @@ to `maxToolRounds` (8) times.
 | Tools | `modules.DefaultTools()` | `modules.SafeTools()` |
 | Dangerous tools | approval callback, or `--allow-dangerous-tools` | never offered |
 | Context budget | `trimHistory` applies | client's responsibility |
+
+Both tool sets are a snapshot of what was discovered over live MCP sessions —
+the builtin seven plus every enabled `mcp.json` server. There is no non-MCP path
+to a tool. The `core.Chat` row is also gated on `config.Client.Tools.Enabled`:
+when tools are off, `defs` is empty and the loop degenerates to one round.
 
 The TUI and `-p` share the session-backed path and differ only in their
 callbacks. The TUI supplies an approval callback that pauses for a keystroke;
@@ -57,6 +65,202 @@ Two details of the loop are deliberate and easy to misread:
 - The reasoning builder does *not* reset. Reasoning is never replayed to the
   model, so keeping the whole chain across rounds costs nothing and gives the
   user the complete thought process.
+
+## The system prompt
+
+`systemPrompt` in [core/prompt.go](../core/prompt.go) is the only place a system
+message is built, and both chat paths call it. It emits a
+`<mininaru-runtime>` block carrying `util.RuntimeIdentity()` — the same string
+`--version` prints, so the two can never drift — followed by rules that claim
+precedence over the persona. An `<mininaru-agent>` block follows with only the
+active agent's id and name, then the prompt adds the agent's `Role` and `Soul`.
+
+Four properties are deliberate:
+
+- It is **unconditional**. An agent with no persona still gets the block; before
+  this, such an agent was sent no system message at all.
+- It is **one** system message, not two. Several local OpenAI-compatible servers
+  merge system messages or honor only the first, so splitting the pin from the
+  persona would make the pin transport-dependent.
+- It is **first**, ahead of the client's own messages on the server path. The
+  HTTP API accepts a `system` message from the caller; it lands after the pin.
+- The skill catalog sits between the pin and the persona, and appears **only when
+  the request also carries the tool that can load a skill**. `systemPrompt` takes
+  the request's `defs` for exactly that reason — see Skills below.
+
+`trimHistory` is charged the full prompt length, so neither the runtime block nor
+the catalog can silently eat the context budget.
+
+## MCP
+
+Every tool reaches the model through an MCP client session. The seven builtin
+tools are served by an in-process MCP server wired to the client over
+`mcp.NewInMemoryTransports()` — no subprocess, no socket, but the same code path
+external servers take. It bootstraps lazily on the first `DefaultTools()` call,
+which is why one-shot commands and tests that never call `MCPInit` still get
+tools.
+
+External servers are declared in `mcp.json` and reached over one of two
+transports: `stdio` (a child process, `mcp.CommandTransport`) or `http`
+(`mcp.StreamableClientTransport`). Configured headers are applied by an
+`http.RoundTripper` wrapper because the SDK's transport has no header field.
+
+Names are qualified as `server__tool`; builtin tools keep their bare names so
+`tool_calls` rows written before MCP still resolve on replay. OpenAI requires
+`^[a-zA-Z0-9_-]{1,64}$`, so out-of-charset bytes become `_` and an over-long
+name is truncated and suffixed with a hash of the original. Collisions are
+resolved first-writer-wins, builtin first, and the loser is dropped with a
+warning; reverse mapping is an exact lookup, never a re-parse of the name.
+
+A `CallToolResult` becomes the `(string, error)` that `Def.Execute` must return:
+text content is joined, image and audio content are replaced by a placeholder so
+base64 never lands in `tool_calls.result` and gets replayed every turn, and
+`IsError` becomes an error — which `executeTool` turns into `MessageFailed` and
+`"error: " + text`, exactly as a direct tool failure did.
+
+Startup deliberately degrades rather than dies: a server that fails to connect
+is reported on stderr and skipped, and the rest of the tools still work. That is
+the opposite of the bot policy, where a failed start aborts `serve` — a missing
+tool is a smaller loss than a chat front end that silently isn't there.
+
+## Skills
+
+A skill is a directory holding a `SKILL.md` with YAML frontmatter (`name`,
+`description`) plus optional companion files. Discovery lives in
+[modules/skill.go](../modules/skill.go), the tool in
+[modules/skilltool.go](../modules/skilltool.go).
+
+**Progressive disclosure.** The system prompt carries one line per skill —
+`name: description` — and nothing else. The body is fetched only when the model
+calls the `skill` tool. The alternative, one MCP tool per skill, was rejected on
+cost: the catalog is one line per skill, whereas a tool per skill puts a full
+JSON Schema per skill into *every* request whether or not it is relevant.
+
+**Two roots, project wins.** `util.Path("skills")` (project — recall `util.RootDir`
+is already `NARU_PATH` or `./.mininaru`) then `$HOME/.mininaru/skills` (user).
+Both are resolved through `toolRoot` before comparison, so running in `$HOME`
+with no `NARU_PATH` — or through a symlinked `$HOME` — collapses to one root
+instead of double-listing every skill. A name collision is won by the project
+root and the loser is dropped with a warning. A missing root, a directory with no
+`SKILL.md`, or a dotfile is skipped **silently**; only something that looks like a
+skill and fails to parse warns. That is the `mcpAccept` policy: never fail the
+load over one bad entry.
+
+**Drop-in compatibility is the point.** Frontmatter is parsed with a plain
+`yaml.Unmarshal` into a two-field struct — deliberately *not* `KnownFields(true)`
+— so an ecosystem bundle carrying `allowed-tools`, `license`, or a nested
+`metadata:` map loads unmodified. Note that **`allowed-tools` is parsed over and
+ignored**: mininaru has no per-turn tool-filter seam, and half-honoring it would
+be worse than not claiming it.
+
+The canonical name is the frontmatter `name` when it passes `util.SafeSegment`
+and the name pattern, otherwise the directory name. That check is what stops a
+hostile `name: ../../etc` from becoming a lookup key.
+
+**Bounded by construction.** `maxSkills` (64), `maxSkillDescription` (200 runes),
+`maxCatalogChars` (4096), `maxSkillBody` (64 KiB). The catalog matters twice over
+because `core/complete.go` does not trim history, so on the HTTP path its size is
+pure additive cost.
+
+**Sandboxing is per bundle, not per root.** `Skill.Path` holds the symlink-resolved
+bundle directory and the tool's optional `path` argument is checked against *that*
+with the existing `readPath`. This deliberately differs from the root-prefix model
+in [modules/file.go](../modules/file.go), and the reason is that installing a
+shared skill by symlinking it into `skills/` is a normal thing to do.
+
+**No new execution path.** The tool returns the body, the bundle's absolute path,
+and a listing of companion files. Running a script is still `bash_exec`, so the
+approval prompt and its sandbox apply unchanged.
+
+The tool is classified **safe**, so the Discord bot and the HTTP API get skills.
+That looks like it contradicts `file_read` being dangerous, but the reachable set
+here is finite and enumerable — only the bundles the operator installed, whose
+names and summaries the same request already carries in its prompt. The tool does
+not widen what the model can see; it defers content the operator already chose to
+advertise. The `path` argument exists for the same reason: without it, companion
+files would be reachable only through `file_read`, which is dangerous *and* rooted
+at cwd, so the daemon, `-p`, and every user-scoped bundle would be locked out of
+the feature that exists to serve them.
+
+The scan runs eagerly in `main()` — unlike `MCPInit`, it spawns nothing and opens
+nothing, and `systemPrompt` is reached from four entry points, so a lazy variant
+would need a `sync.Once` reachable from `core` for no benefit. `SIGHUP` re-scans.
+The slice is behind a `sync.RWMutex` rather than being a bare global like
+`modules.MCP`, because a reload rewrites it while request goroutines are building
+prompts from it.
+
+## Memory
+
+Durable memory is a small, global SQLite store shared by trusted interactive
+front ends. The `memory` tool supports list, add, replace, and remove operations,
+deduplicates exact entries, and rejects writes beyond a 4096-character total.
+The current snapshot is added to the system prompt only when that request also
+has the memory tool, so possession of the tool and visibility of the data cannot
+drift apart.
+
+Memory has `PermissionPrivileged`: CLI requests use `DefaultTools()` and receive
+it, while the stateless HTTP API and ordinary paired Discord users use
+`SafeTools()` and receive neither the tool nor the prompt block. A Discord admin
+created through the one-time owner pairing path uses `DefaultTools()`, so the
+owner and CLI see and update the same store regardless of session or agent.
+
+## Web tools
+
+`web_search` and `web_fetch` share HTML helpers
+([modules/webhtml.go](../modules/webhtml.go)) and nothing else — different
+clients, different trust models.
+
+**Search providers** are a table of `{Name, Request, Parse}` in
+[modules/web.go](../modules/web.go), the same shape as `builtinTools()`. Keeping
+a provider's request builder next to its parser is the point: a bare `switch`
+would need two of them, and they drift. `searchRun` owns everything shared — the
+2 MiB cap, the 2xx check, the zero-results error, the limit trim — so a provider
+is only the two functions that actually differ. Selection lives in `web.json`
+(`0600`, it may hold an API key). A broken config warns on stderr and falls back
+to DuckDuckGo rather than leaving the model with no search, the same policy
+`mcpAccept` and `ClientInit` already use; the CLI validates strictly instead, so
+mistakes are caught where a human is watching.
+
+**The `web_fetch` guard hooks `net.Dialer.Control`, not the URL.** `Control`
+receives the literal `ip:port` after resolution and before `connect(2)`, once per
+Happy Eyeballs candidate. That placement is the whole design:
+
+- DNS rebinding fails, because the address checked is the address dialed.
+- Redirects are re-validated for free — every hop is a fresh dial.
+- Connection reuse is safe, because the pool is keyed on host:port.
+
+A URL-level allow/deny list can do none of those. The pre-dial checks in
+`fetchTarget` (scheme, userinfo, port, literal IPs) exist only to give the model a
+clean error instead of a dial failure; they are not the control.
+
+`fetchAddrAllowed` unmaps IPv4-in-IPv6 **before** testing anything —
+`::ffff:127.0.0.1` returns false from every `netip` predicate in its mapped form.
+It then adds prefixes the predicates miss, most importantly `100.64.0.0/10`:
+`netip.Addr.IsPrivate` does not cover CGNAT, which is where Tailscale and its
+`100.100.100.100` metadata endpoint live. 6to4, Teredo, and NAT64 prefixes are
+blocked whole rather than un-embedding and re-checking the inner IPv4 — three
+lines instead of thirty, and it fails closed. There is no special case for
+`169.254.169.254`; it is link-local and already blocked, and a host list would
+only create false confidence about what the control is.
+
+`Proxy` is set to `nil` on the fetch transport. With `HTTP_PROXY` set, the dial
+goes to the proxy and the guard never sees the real destination — a complete
+bypass that is invisible in review.
+
+**The search client is deliberately unguarded**, which is what lets a self-hosted
+SearXNG on `127.0.0.1` work. The asymmetry is about provenance, not convenience:
+the search endpoint comes from an operator-written `0600` file — the same trust
+boundary `mcp.json` sits on, where the operator can already declare a stdio server
+running arbitrary commands — while a fetch URL is chosen by the model, possibly
+from a page it just read. The model cannot influence the endpoint either
+(`web_search`'s schema is `query` + `limit`, `additionalProperties: false`), and a
+search response is parsed into `[]SearchResult` rather than returned verbatim, so
+pointing it at an internal service yields a parse error, not that service's body.
+
+Search results are URLs the model may hand to `web_fetch`, so a poisoned result
+*is* a path back in — and it is already closed, at dial time, wherever the URL
+came from. Result-URL filtering is deliberately absent: it would be redundant
+against the dial check and would suggest the URL list is the control.
 
 ## Agents and providers
 
@@ -83,7 +287,7 @@ so — otherwise deleting the global would strand every remaining agent behind a
 Everything lives under `.mininaru/`, or `NARU_PATH` if set. `InitFS` creates the
 directory `0700` and chmods an existing one to `0700`, since it holds API keys.
 
-- `provider.json`, `agent.json`, `bot.json`, `client.json` — mode `0600`, written through
+- `provider.json`, `agent.json`, `bot.json`, `client.json`, `mcp.json` — mode `0600`, written through
   `util.WriteFileAtomic` (temp file in the same directory, then `os.Rename`) so
   a crash mid-write leaves the previous version intact rather than a truncated
   file. Never call `os.WriteFile` on these directly.
@@ -139,6 +343,18 @@ dangerous tools have no safe path. `Chat` passes a `nil` approval callback, so
 if a dangerous tool ever is configured it is denied and the denial goes back to
 the model as a tool error.
 
+For external MCP tools, safe versus dangerous is derived from the tool's
+`ToolAnnotations.readOnlyHint` and can be overridden per server (`permission`)
+or per tool (`tool_permission`) in `mcp.json`; a tool with no annotations is
+dangerous. The builtin seven are classified by a fixed table in
+[modules/builtin.go](../modules/builtin.go) and are **not** overridable —
+`file_read` is honestly read-only and annotated as such, but classifying it safe
+would put arbitrary filesystem reads on the HTTP API with no human in the loop.
+
+`readOnlyHint` is the remote server's own claim about itself, so adding an entry
+to `mcp.json` is a trust decision. `"daemon": false` keeps a server's tools in
+the TUI while hiding them from the API server and the bots.
+
 ### Session locking
 
 Turns on the *same* session are serialized; different sessions run in parallel.
@@ -165,6 +381,13 @@ resolved, so they finish against the configuration they started with.
 `agent add`, `agent default`, and provider edits without dropping connections.
 Because the HTTP API and the bots share one `*core.Registry`, one signal updates
 all of them.
+
+`cli/serve.go` also runs `modules.MCPReload` on the same signal, before
+`Registry.Reload`. It keeps sessions whose `mcp.json` entry is byte-identical
+and re-dials the rest, so unchanged servers are not restarted. The in-flight
+guarantee is weaker here than for agents: a request holding an old `*Instance`
+may hold `Def.Execute` closures over a session the reload just closed, and such
+a call fails back to the model as a tool error.
 
 ### Attaching a conversation to something external
 
