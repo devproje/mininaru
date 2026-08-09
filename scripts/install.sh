@@ -6,6 +6,7 @@ REPO="devproje/mininaru"
 BIN_DIR="${MININARU_BIN_DIR:-$HOME/.local/bin}"
 VERSION="${MININARU_VERSION:-}"
 UNINSTALL=false
+FORCE=false
 TMP_DIR=""
 
 usage() {
@@ -14,8 +15,12 @@ Usage: scripts/install.sh [OPTIONS]
 
 Download a prebuilt mininaru and install it for the current user.
 
+Run it again later to update an existing installation. It stops early when the
+release you asked for is the one already installed.
+
 Options:
     -u, --uninstall       Remove the installed executable.
+    -f, --force           Reinstall even if that release is already installed.
         --version TAG     Install this release instead of the latest (e.g. v0.2.0).
         --bin-dir DIR     Install directory (default: ~/.local/bin).
     -h, --help            Show this help.
@@ -51,6 +56,7 @@ trap cleanup EXIT INT TERM
 while [ $# -gt 0 ]; do
 	case "$1" in
 		-u|--uninstall) UNINSTALL=true ;;
+		-f|--force) FORCE=true ;;
 		--version)
 			[ $# -ge 2 ] || usage_error "--version requires a tag"
 			VERSION="$2"
@@ -129,6 +135,12 @@ latest_version() {
 	echo "$tag"
 }
 
+installed_version() {
+	[ -x "$INSTALL_PATH" ] || return 1
+
+	"$INSTALL_PATH" --version 2>/dev/null | tail -1 | awk '{print $2}'
+}
+
 verify_checksum() {
 	archive="$1"
 	sums="$2"
@@ -151,12 +163,32 @@ if [ -z "$VERSION" ]; then
 	VERSION=$(latest_version)
 fi
 
+CURRENT=$(installed_version || true)
+ACTION=install
+
+if [ -n "$CURRENT" ]; then
+	ACTION=update
+	case "$CURRENT" in
+		"$VERSION"|"$VERSION"-*) ACTION=reinstall ;;
+	esac
+fi
+
+if [ "$ACTION" = reinstall ] && [ "$FORCE" != true ]; then
+	echo "mininaru $CURRENT is already installed at $INSTALL_PATH"
+	echo "Pass --force to reinstall it."
+	exit 0
+fi
+
 ARCHIVE="mininaru_${VERSION}_${PLATFORM}.tar.gz"
 BASE="https://github.com/$REPO/releases/download/$VERSION"
 
 TMP_DIR=$(mktemp -d)
 
-echo "Downloading mininaru $VERSION for $PLATFORM"
+case "$ACTION" in
+	update)    echo "Updating mininaru $CURRENT to $VERSION for $PLATFORM" ;;
+	reinstall) echo "Reinstalling mininaru $VERSION for $PLATFORM" ;;
+	*)         echo "Downloading mininaru $VERSION for $PLATFORM" ;;
+esac
 download "$BASE/$ARCHIVE" "$TMP_DIR/$ARCHIVE"
 download "$BASE/SHA256SUMS" "$TMP_DIR/SHA256SUMS"
 
@@ -172,7 +204,11 @@ BINARY="$TMP_DIR/mininaru_${PLATFORM}/mininaru"
 
 mkdir -p "$BIN_DIR"
 install -m 0755 "$BINARY" "$INSTALL_PATH"
-echo "Installed mininaru to $INSTALL_PATH"
+case "$ACTION" in
+	update)    echo "Updated mininaru at $INSTALL_PATH" ;;
+	reinstall) echo "Reinstalled mininaru at $INSTALL_PATH" ;;
+	*)         echo "Installed mininaru to $INSTALL_PATH" ;;
+esac
 
 case ":$PATH:" in
 	*":$BIN_DIR:"*) ;;

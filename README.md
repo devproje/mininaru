@@ -7,22 +7,42 @@ Go binary and stores configuration and conversation history locally.
 
 ## Install
 
+`scripts/install.sh` fetches the binary for your platform from this
+repository's [GitHub releases](https://github.com/devproje/mininaru/releases),
+verifies it, and puts it on your `PATH`. No Go toolchain, no clone.
+
 ```sh
 curl -fsSL https://raw.githubusercontent.com/devproje/mininaru/master/scripts/install.sh | sh
 ```
 
-That downloads the release for your platform, checks it against `SHA256SUMS`,
-and installs it to `~/.local/bin`. Nothing is written outside your home
-directory and sudo is never used. Pass options after `-s --`:
+It installs to `~/.local/bin`, checks the download against the release's
+`SHA256SUMS` and refuses to install anything that does not match. Nothing is
+written outside your home directory and sudo is never used.
+
+**Run the same line again to update.** It reads the version you already have
+and stops without downloading anything when that is already the release being
+asked for.
+
+Options go after `-s --`:
 
 ```sh
-curl -fsSL .../scripts/install.sh | sh -s -- --version v0.2.0
-curl -fsSL .../scripts/install.sh | sh -s -- --bin-dir ~/bin
-curl -fsSL .../scripts/install.sh | sh -s -- --uninstall
+URL=https://raw.githubusercontent.com/devproje/mininaru/master/scripts/install.sh
+
+curl -fsSL $URL | sh -s -- --version v0.2.0   # pin a release
+curl -fsSL $URL | sh -s -- --force            # reinstall the same one
+curl -fsSL $URL | sh -s -- --bin-dir ~/bin
+curl -fsSL $URL | sh -s -- --uninstall
 ```
 
 Prefer not to pipe a script into a shell? Download it, read it, then run it —
-it is one file with no dependencies beyond `curl` or `wget` and `tar`.
+it is one file, POSIX `sh`, with no dependencies beyond `curl` or `wget` and
+`tar`.
+
+```sh
+curl -fsSLO https://raw.githubusercontent.com/devproje/mininaru/master/scripts/install.sh
+less install.sh
+sh install.sh
+```
 
 Linux and macOS, amd64 and arm64. On Windows, take the `.zip` from the
 [releases page](https://github.com/devproje/mininaru/releases) and put
