@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/devproje/mininaru/modules"
@@ -9,20 +8,67 @@ import (
 )
 
 var webConfig *cobra.Command = &cobra.Command{
-	Use:   "web [show|provider|endpoint|key]",
+	Use:   "web",
 	Short: "show or configure the web search provider",
-	Args:  cobra.MaximumNArgs(2),
-	RunE:  webExecute,
+	Long: `Configure the backend behind the web search tool.
+
+The provider decides which endpoint and request shape mininaru uses; endpoint
+and key override the defaults for that provider.`,
+	Example: `  mininaru web
+  mininaru web provider brave
+  mininaru web key <api key>`,
+	Args:              usageArgs(cobra.NoArgs),
+	PersistentPreRunE: webLoadExecute,
+	RunE:              webShowExecute,
+}
+
+var webShowCmd *cobra.Command = &cobra.Command{
+	Use:   "show",
+	Short: "show the current web search configuration",
+	Args:  usageArgs(cobra.NoArgs),
+	RunE:  webShowExecute,
+}
+
+var webProviderCmd *cobra.Command = &cobra.Command{
+	Use:   "provider <name>",
+	Short: "set the web search provider",
+	Args:  usageArgs(cobra.ExactArgs(1)),
+	RunE:  webProviderExecute,
+}
+
+var webEndpointCmd *cobra.Command = &cobra.Command{
+	Use:   "endpoint <url>",
+	Short: "override the web search endpoint",
+	Args:  usageArgs(cobra.ExactArgs(1)),
+	RunE:  webEndpointExecute,
+}
+
+var webKeyCmd *cobra.Command = &cobra.Command{
+	Use:   "key <value>",
+	Short: "set the web search api key",
+	Args:  usageArgs(cobra.ExactArgs(1)),
+	RunE:  webKeyExecute,
+}
+
+func webLoadExecute(cmd *cobra.Command, args []string) error {
+	return modules.WebLoad()
 }
 
 func webShow() error {
 	var cfg modules.SearchConfig
+	var rows *uiRows
 
 	cfg = modules.WebSearchConfig()
 
-	fmt.Printf("%s\t%s\t%s\n", cfg.Provider, cfg.Endpoint, maskSecret(cfg.APIKey))
+	rows = uiTable("PROVIDER", "ENDPOINT", "API KEY")
+	rows.row(cfg.Provider, cfg.Endpoint, maskSecret(cfg.APIKey))
+	rows.flush()
 
 	return nil
+}
+
+func webShowExecute(cmd *cobra.Command, args []string) error {
+	return webShow()
 }
 
 func webApply(cfg modules.SearchConfig) error {
@@ -43,43 +89,36 @@ func webApply(cfg modules.SearchConfig) error {
 	return webShow()
 }
 
-func webExecute(cmd *cobra.Command, args []string) error {
-	var action string
+func webProviderExecute(cmd *cobra.Command, args []string) error {
 	var cfg modules.SearchConfig
 
-	var err error
+	cfg = modules.WebSearchConfig()
+	cfg.Provider = strings.ToLower(strings.TrimSpace(args[0]))
 
-	err = modules.WebLoad()
-	if err != nil {
-		return err
-	}
+	return webApply(cfg)
+}
 
-	if len(args) == 0 {
-		return webShow()
-	}
-
-	action = strings.ToLower(args[0])
-	if action == "show" {
-		return webShow()
-	}
-
-	if len(args) < 2 {
-		return fmt.Errorf("%s needs a value", action)
-	}
+func webEndpointExecute(cmd *cobra.Command, args []string) error {
+	var cfg modules.SearchConfig
 
 	cfg = modules.WebSearchConfig()
+	cfg.Endpoint = strings.TrimSpace(args[0])
 
-	switch action {
-	case "provider":
-		cfg.Provider = strings.ToLower(strings.TrimSpace(args[1]))
-		return webApply(cfg)
-	case "endpoint":
-		cfg.Endpoint = strings.TrimSpace(args[1])
-		return webApply(cfg)
-	case "key":
-		cfg.APIKey = strings.TrimSpace(args[1])
-		return webApply(cfg)
-	}
+	return webApply(cfg)
+}
 
-	return fmt.Errorf("expected show, provider, endpoint, or key")
+func webKeyExecute(cmd *cobra.Command, args []string) error {
+	var cfg modules.SearchConfig
+
+	cfg = modules.WebSearchConfig()
+	cfg.APIKey = strings.TrimSpace(args[0])
+
+	return webApply(cfg)
+}
+
+func init() {
+	webConfig.AddCommand(webShowCmd)
+	webConfig.AddCommand(webProviderCmd)
+	webConfig.AddCommand(webEndpointCmd)
+	webConfig.AddCommand(webKeyCmd)
 }

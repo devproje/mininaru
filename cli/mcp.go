@@ -2,17 +2,69 @@ package main
 
 import (
 	"fmt"
-	"strings"
+	"strconv"
 
 	"github.com/devproje/mininaru/modules"
 	"github.com/spf13/cobra"
 )
 
 var mcpConfig *cobra.Command = &cobra.Command{
-	Use:   "mcp [list|add|remove|enable|disable]",
+	Use:   "mcp",
 	Short: "show or manage configured mcp servers",
-	Args:  cobra.MaximumNArgs(2),
-	RunE:  mcpExecute,
+	Long: `Manage the MCP servers mininaru connects to for extra tools.
+
+Every server is connected on startup, so a slow or unreachable one delays each
+run until its timeout expires. Disable a server instead of removing it to keep
+its configuration around.`,
+	Example: `  mininaru mcp
+  mininaru mcp add files --stdio npx --arg -y --arg @modelcontextprotocol/server-filesystem
+  mininaru mcp disable files`,
+	Args:              usageArgs(cobra.NoArgs),
+	PersistentPreRunE: mcpLoadExecute,
+	RunE:              mcpListExecute,
+}
+
+var mcpListCmd *cobra.Command = &cobra.Command{
+	Use:     "list",
+	Aliases: []string{"ls"},
+	Short:   "list configured mcp servers and their connection state",
+	Args:    usageArgs(cobra.NoArgs),
+	RunE:    mcpListExecute,
+}
+
+var mcpAddCmd *cobra.Command = &cobra.Command{
+	Use:   "add <name>",
+	Short: "add an mcp server",
+	Long: `Add an MCP server under the given name.
+
+Pass --stdio to launch a local command, or --url for a streamable HTTP endpoint.
+On a terminal, omitting both prompts for the transport and its settings.`,
+	Example: `  mininaru mcp add files --stdio npx --arg -y --arg @modelcontextprotocol/server-filesystem
+  mininaru mcp add remote --url https://example.com/mcp --header Authorization="Bearer token"`,
+	Args: usageArgs(cobra.ExactArgs(1)),
+	RunE: mcpAddExecute,
+}
+
+var mcpRemoveCmd *cobra.Command = &cobra.Command{
+	Use:     "remove <name>",
+	Aliases: []string{"rm"},
+	Short:   "remove an mcp server",
+	Args:    usageArgs(cobra.ExactArgs(1)),
+	RunE:    mcpRemoveExecute,
+}
+
+var mcpEnableCmd *cobra.Command = &cobra.Command{
+	Use:   "enable <name>",
+	Short: "enable an mcp server",
+	Args:  usageArgs(cobra.ExactArgs(1)),
+	RunE:  mcpEnableExecute,
+}
+
+var mcpDisableCmd *cobra.Command = &cobra.Command{
+	Use:   "disable <name>",
+	Short: "disable an mcp server without removing its configuration",
+	Args:  usageArgs(cobra.ExactArgs(1)),
+	RunE:  mcpDisableExecute,
 }
 
 var (
@@ -41,25 +93,71 @@ func mcpFind(name string) int {
 	return -1
 }
 
-func mcpList(cmd *cobra.Command) error {
+func mcpLoadExecute(cmd *cobra.Command, args []string) error {
+	return modules.MCPLoad()
+}
+
+func mcpStatusOf(all []modules.MCPStatus, name string) (modules.MCPStatus, bool) {
+	var index int
+
+	for index = range all {
+		if all[index].Name != name {
+			continue
+		}
+
+		return all[index], true
+	}
+
+	return modules.MCPStatus{}, false
+}
+
+func mcpListExecute(cmd *cobra.Command, args []string) error {
+	var all []modules.MCPStatus
 	var status modules.MCPStatus
+	var entry modules.MCPServer
+	var rows *uiRows
 	var state string
+	var tools string
+	var known bool
 
 	var err error
 
-	err = modules.MCPInit(cmd.Context())
+	if len(modules.MCP.Servers) == 0 {
+		uiEmpty("no mcp servers yet, add one with `mininaru mcp add <name> --stdio <command>`")
+
+		return nil
+	}
+
+	err = withProgress(cmd.Context(), "connecting to mcp servers", func() error {
+		return modules.MCPInit(cmd.Context())
+	})
 	if err != nil {
 		return err
 	}
 
-	for _, status = range modules.MCPStatusAll() {
-		state = "connected"
-		if !status.Connected {
+	all = modules.MCPStatusAll()
+
+	rows = uiTable("NAME", "TRANSPORT", "STATE", "TOOLS", "ERROR")
+
+	for _, entry = range modules.MCP.Servers {
+		status, known = mcpStatusOf(all, entry.Name)
+
+		state = "disabled"
+		tools = "-"
+
+		if known {
 			state = "failed"
+			if status.Connected {
+				state = "connected"
+			}
+
+			tools = strconv.Itoa(status.Tools)
 		}
 
-		fmt.Printf("%s\t%s\t%s\t%d\t%s\n", status.Name, status.Transport, state, status.Tools, status.Error)
+		rows.row(entry.Name, entry.Transport, state, tools, status.Error)
 	}
+
+	rows.flush()
 
 	return nil
 }
@@ -143,7 +241,8 @@ func mcpAdd(name string) error {
 		return err
 	}
 
-	fmt.Println(name)
+	uiOk("added mcp server %s", name)
+
 	return nil
 }
 
@@ -164,8 +263,17 @@ func mcpRemove(name string) error {
 		return err
 	}
 
-	fmt.Println(name)
+	uiOk("removed mcp server %s", name)
+
 	return nil
+}
+
+func mcpToggleLabel(enabled bool) string {
+	if enabled {
+		return "enabled"
+	}
+
+	return "disabled"
 }
 
 func mcpToggle(name string, enabled bool) error {
@@ -185,55 +293,41 @@ func mcpToggle(name string, enabled bool) error {
 		return err
 	}
 
-	fmt.Println(name)
+	uiOk("%s mcp server %s", mcpToggleLabel(enabled), name)
+
 	return nil
 }
 
-func mcpExecute(cmd *cobra.Command, args []string) error {
-	var action string
+func mcpAddExecute(cmd *cobra.Command, args []string) error {
+	return mcpAdd(args[0])
+}
 
-	var err error
+func mcpRemoveExecute(cmd *cobra.Command, args []string) error {
+	return mcpRemove(args[0])
+}
 
-	err = modules.MCPLoad()
-	if err != nil {
-		return err
-	}
+func mcpEnableExecute(cmd *cobra.Command, args []string) error {
+	return mcpToggle(args[0], true)
+}
 
-	if len(args) == 0 {
-		return mcpList(cmd)
-	}
-
-	action = strings.ToLower(args[0])
-	if action == "list" {
-		return mcpList(cmd)
-	}
-
-	if len(args) < 2 {
-		return fmt.Errorf("%s needs a server name", action)
-	}
-
-	switch action {
-	case "add":
-		return mcpAdd(args[1])
-	case "remove":
-		return mcpRemove(args[1])
-	case "enable":
-		return mcpToggle(args[1], true)
-	case "disable":
-		return mcpToggle(args[1], false)
-	}
-
-	return fmt.Errorf("expected list, add, remove, enable, or disable")
+func mcpDisableExecute(cmd *cobra.Command, args []string) error {
+	return mcpToggle(args[0], false)
 }
 
 func init() {
-	mcpConfig.Flags().StringVar(&mcpCommandRef, "stdio", "", "command to run for a stdio mcp server")
-	mcpConfig.Flags().StringArrayVar(&mcpArgsRef, "arg", nil, "argument for the stdio command, repeatable")
-	mcpConfig.Flags().StringToStringVar(&mcpEnvRef, "env", nil, "extra environment variable for the stdio command, repeatable")
-	mcpConfig.Flags().StringVar(&mcpDirRef, "dir", "", "working directory for the stdio command")
-	mcpConfig.Flags().StringVar(&mcpUrlRef, "url", "", "endpoint of a streamable http mcp server")
-	mcpConfig.Flags().StringToStringVar(&mcpHeaderRef, "header", nil, "extra http header, repeatable")
-	mcpConfig.Flags().BoolVar(&mcpNoDaemonRef, "no-daemon", false, "hide this server from the api server and bots")
-	mcpConfig.Flags().StringVar(&mcpPermissionRef, "permission", "", "force safe or dangerous for every tool of this server")
-	mcpConfig.Flags().IntVar(&mcpTimeoutRef, "timeout", 0, "seconds to wait while connecting, defaults to 10")
+	mcpAddCmd.Flags().StringVar(&mcpCommandRef, "stdio", "", "command to run for a stdio mcp server")
+	mcpAddCmd.Flags().StringArrayVar(&mcpArgsRef, "arg", nil, "argument for the stdio command, repeatable")
+	mcpAddCmd.Flags().StringToStringVar(&mcpEnvRef, "env", nil, "extra environment variable for the stdio command, repeatable")
+	mcpAddCmd.Flags().StringVar(&mcpDirRef, "dir", "", "working directory for the stdio command")
+	mcpAddCmd.Flags().StringVar(&mcpUrlRef, "url", "", "endpoint of a streamable http mcp server")
+	mcpAddCmd.Flags().StringToStringVar(&mcpHeaderRef, "header", nil, "extra http header, repeatable")
+	mcpAddCmd.Flags().BoolVar(&mcpNoDaemonRef, "no-daemon", false, "hide this server from the api server and bots")
+	mcpAddCmd.Flags().StringVar(&mcpPermissionRef, "permission", "", "force safe or dangerous for every tool of this server")
+	mcpAddCmd.Flags().IntVar(&mcpTimeoutRef, "timeout", 0, "seconds to wait while connecting, defaults to 10")
+
+	mcpConfig.AddCommand(mcpListCmd)
+	mcpConfig.AddCommand(mcpAddCmd)
+	mcpConfig.AddCommand(mcpRemoveCmd)
+	mcpConfig.AddCommand(mcpEnableCmd)
+	mcpConfig.AddCommand(mcpDisableCmd)
 }

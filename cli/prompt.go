@@ -45,11 +45,16 @@ func promptToolLog(logs io.Writer, event core.ToolEvent) {
 
 func runPrompt(ctx context.Context, out, logs io.Writer, session *core.Session, agent *core.NaruAgent, content string) error {
 	var message *core.Message
+	var waiting *progress
 
 	var err error
 
+	waiting = progressStart(ctx, "thinking")
+
 	message, err = core.ChatWithApproval(ctx, session, agent, content, nil,
 		func(delta string) {
+			waiting.stop()
+
 			if !config.Client.Thinking.Show {
 				return
 			}
@@ -57,8 +62,13 @@ func runPrompt(ctx context.Context, out, logs io.Writer, session *core.Session, 
 			io.WriteString(logs, delta)
 		},
 		func(event core.ToolEvent) {
+			waiting.stop()
+
 			promptToolLog(logs, event)
 		}, nil)
+
+	waiting.stop()
+
 	if err != nil {
 		return err
 	}

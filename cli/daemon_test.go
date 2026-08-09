@@ -33,10 +33,10 @@ func TestDaemonUnit(t *testing.T) {
 
 	unit = daemonUnit("/opt/mininaru", "/var/lib/mininaru", "/srv/project", "/etc/mininaru/env")
 	for _, expected = range []string{
-		`WorkingDirectory="/srv/project"`,
-		`Environment="NARU_PATH=/var/lib/mininaru"`,
-		`EnvironmentFile="/etc/mininaru/env"`,
-		`ExecStart="/opt/mininaru" serve`,
+		"WorkingDirectory=/srv/project",
+		"Environment=NARU_PATH=/var/lib/mininaru",
+		"EnvironmentFile=/etc/mininaru/env",
+		"ExecStart=/opt/mininaru serve",
 	} {
 		if !strings.Contains(unit, expected) {
 			t.Fatalf("unit does not contain %q:\n%s", expected, unit)

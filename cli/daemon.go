@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/devproje/mininaru/util"
@@ -23,18 +24,33 @@ var (
 var daemonConfig *cobra.Command = &cobra.Command{
 	Use:   "daemon",
 	Short: "manage the systemd user daemon",
+	Long: `Run ` + "`mininaru serve`" + ` in the background as a systemd user unit.
+
+The unit reads its API key from an environment file that must exist beforehand
+and be readable only by you. Linux only.`,
+	Example: `  mininaru daemon install
+  mininaru daemon uninstall`,
 }
 
 var daemonInstall *cobra.Command = &cobra.Command{
 	Use:   "install",
 	Short: "install and start the systemd user daemon",
-	RunE:  daemonInstallExecute,
+	Long: `Write the systemd user unit, enable it and start it.
+
+Running this again overwrites an existing unit with the current binary path and
+working directory. User units stop at logout unless lingering is enabled.`,
+	Example: `  mininaru daemon install
+  mininaru daemon install --env-file ~/.config/mininaru/env`,
+	Args: usageArgs(cobra.NoArgs),
+	RunE: daemonInstallExecute,
 }
 
 var daemonUninstall *cobra.Command = &cobra.Command{
-	Use:   "uninstall",
-	Short: "stop and remove the systemd user daemon",
-	RunE:  daemonUninstallExecute,
+	Use:     "uninstall",
+	Aliases: []string{"remove"},
+	Short:   "stop and remove the systemd user daemon",
+	Args:    usageArgs(cobra.NoArgs),
+	RunE:    daemonUninstallExecute,
 }
 
 func daemonPaths() (string, string, error) {
@@ -191,11 +207,35 @@ func daemonInstallExecute(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	if err = systemctlUser(cmd.Context(), "enable", "--now", daemonUnitName); err != nil {
+		uiNote("the unit was written to %s, remove it with `mininaru daemon uninstall`", unitPath)
+
 		return err
 	}
 
-	fmt.Printf("installed and started %s\n", daemonUnitName)
+	uiOk("installed and started %s", daemonUnitName)
+	uiNote("unit:   %s", unitPath)
+	uiNote("env:    %s", envFile)
+	uiNote("status: systemctl --user status %s", daemonUnitName)
+	uiNote("logs:   journalctl --user -u %s -f", daemonUnitName)
+
+	if !daemonLingering(cmd.Context()) {
+		uiNote("the daemon stops when you log out, run `loginctl enable-linger` to keep it running")
+	}
+
 	return nil
+}
+
+func daemonLingering(ctx context.Context) bool {
+	var out []byte
+
+	var err error
+
+	out, err = exec.CommandContext(ctx, "loginctl", "show-user", strconv.Itoa(os.Getuid()), "--property=Linger").Output()
+	if err != nil {
+		return true
+	}
+
+	return strings.Contains(string(out), "Linger=yes")
 }
 
 func daemonUninstallExecute(cmd *cobra.Command, args []string) error {
@@ -228,7 +268,14 @@ func daemonUninstallExecute(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	fmt.Printf("removed %s\n", daemonUnitName)
+	if !installed {
+		uiNote("%s was not installed", daemonUnitName)
+
+		return nil
+	}
+
+	uiOk("removed %s", daemonUnitName)
+
 	return nil
 }
 

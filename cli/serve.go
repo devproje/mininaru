@@ -27,7 +27,15 @@ var (
 var serve *cobra.Command = &cobra.Command{
 	Use:   "serve",
 	Short: "serve the api and any configured bot front ends",
-	RunE:  serveExecute,
+	Long: `Run the OpenAI compatible HTTP API, plus every enabled bot.
+
+The API is stateless and exposes each agent as a model name. Requests need the
+bearer token from --api-key or ` + "`" + apiKeyEnv + "`" + `, and only safe tools are offered.
+Send SIGHUP to reload configuration without restarting.`,
+	Example: `  mininaru serve
+  mininaru serve --host 0.0.0.0 --port 8080`,
+	Args: usageArgs(cobra.NoArgs),
+	RunE: serveExecute,
 }
 
 func watchReload(ctx context.Context, registry *core.Registry) {
@@ -146,11 +154,13 @@ func serveExecute(cmd *cobra.Command, args []string) error {
 	}
 
 	if cfg.ApiKey == "" {
-		return fmt.Errorf("api key is required, pass --api-key or set %s", apiKeyEnv)
+		return configErrorf("api key is required, pass --api-key or set %s", apiKeyEnv)
 	}
 
 	if config.Client.Tools.Enabled {
-		err = modules.MCPInit(cmd.Context())
+		err = withProgress(cmd.Context(), "connecting to mcp servers", func() error {
+			return modules.MCPInit(cmd.Context())
+		})
 		if err != nil {
 			return err
 		}
@@ -166,7 +176,7 @@ func serveExecute(cmd *cobra.Command, args []string) error {
 	}
 
 	if len(registry.List()) == 0 {
-		return fmt.Errorf("no agent configured, please configure a provider and an agent first")
+		return configErrorf("no agent configured, run `mininaru setup` or add one with `mininaru agent add`")
 	}
 
 	go watchReload(cmd.Context(), registry)
@@ -177,6 +187,8 @@ func serveExecute(cmd *cobra.Command, args []string) error {
 	}
 
 	defer stopBots(started)
+
+	uiNote("serving %d agent(s) on http://%s:%d", len(registry.List()), cfg.Host, cfg.Port)
 
 	return server.Serve(cmd.Context(), cfg, registry)
 }

@@ -18,53 +18,78 @@ var (
 var botConfig *cobra.Command = &cobra.Command{
 	Use:   "bot",
 	Short: "manage chat bot front ends",
+	Long: `Manage the chat front ends that serve agents outside the terminal.
+
+Bots are started by ` + "`mininaru serve`" + `, so a change here takes effect on the next
+serve or SIGHUP. Each bot answers with the agent you name, or the global one.`,
+	Example: `  mininaru bot add --name helper --kind discord
+  mininaru bot pair helper`,
 }
 
 var botAdd *cobra.Command = &cobra.Command{
 	Use:   "add",
 	Short: "add a new bot",
-	RunE:  botAddExecute,
+	Long: `Add a bot front end.
+
+On a terminal any value you leave out is prompted for. A new bot starts enabled
+and needs ` + "`mininaru serve`" + ` running to come online.`,
+	Example: `  mininaru bot add --name helper --kind discord --token <token>`,
+	Args:    usageArgs(cobra.NoArgs),
+	RunE:    botAddExecute,
 }
 
 var botList *cobra.Command = &cobra.Command{
-	Use:   "list",
-	Short: "list bots",
-	RunE:  botListExecute,
+	Use:     "list",
+	Aliases: []string{"ls"},
+	Short:   "list bots",
+	Args:    usageArgs(cobra.NoArgs),
+	RunE:    botListExecute,
 }
 
 var botUpdate *cobra.Command = &cobra.Command{
 	Use:   "update <id or name>",
 	Short: "update a bot",
-	Args:  cobra.ExactArgs(1),
-	RunE:  botUpdateExecute,
+	Long: `Update a bot by id or name.
+
+Only the fields you pass as flags change. On a terminal, passing no flag at all
+walks through every field with the current value as the default.`,
+	Example: `  mininaru bot update helper --agent reviewer`,
+	Args:    usageArgs(cobra.ExactArgs(1)),
+	RunE:    botUpdateExecute,
 }
 
 var botRemove *cobra.Command = &cobra.Command{
-	Use:   "remove <id or name>",
-	Short: "remove a bot",
-	Args:  cobra.ExactArgs(1),
-	RunE:  botRemoveExecute,
+	Use:     "remove <id or name>",
+	Aliases: []string{"rm"},
+	Short:   "remove a bot",
+	Args:    usageArgs(cobra.ExactArgs(1)),
+	RunE:    botRemoveExecute,
 }
 
 var botEnable *cobra.Command = &cobra.Command{
 	Use:   "enable <id or name>",
 	Short: "start this bot on the next serve",
-	Args:  cobra.ExactArgs(1),
+	Args:  usageArgs(cobra.ExactArgs(1)),
 	RunE:  botEnableExecute,
 }
 
 var botDisable *cobra.Command = &cobra.Command{
 	Use:   "disable <id or name>",
 	Short: "keep this bot configured but stop starting it",
-	Args:  cobra.ExactArgs(1),
+	Args:  usageArgs(cobra.ExactArgs(1)),
 	RunE:  botDisableExecute,
 }
 
 var botPair *cobra.Command = &cobra.Command{
 	Use:   "pair <id or name>",
 	Short: "create a one-time Discord admin pairing code",
-	Args:  cobra.ExactArgs(1),
-	RunE:  botPairExecute,
+	Long: `Mint a pairing code that grants Discord admin rights on this bot.
+
+The code is valid for ten minutes and can be redeemed once. The bot must be
+running, so start ` + "`mininaru serve`" + ` before redeeming it.`,
+	Example: `  mininaru bot pair helper`,
+	Args:    usageArgs(cobra.ExactArgs(1)),
+	RunE:    botPairExecute,
 }
 
 func botPairExecute(cmd *cobra.Command, args []string) error {
@@ -153,7 +178,7 @@ func botAddExecute(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	fmt.Printf("%s\t%s\t%s\n", created.Id, created.Name, created.Kind)
+	uiOk("added %s bot %s (%s)", created.Kind, created.Name, created.Id)
 
 	return nil
 }
@@ -175,12 +200,22 @@ func botState(enabled bool) string {
 }
 
 func botListExecute(cmd *cobra.Command, args []string) error {
+	var rows *uiRows
 	var cur *core.Bot
 
-	for _, cur = range core.Bots {
-		fmt.Printf("%s\t%s\t%s\t%s\t%s\t%s\n",
-			cur.Id, cur.Name, cur.Kind, maskSecret(cur.Token), botAgentLabel(cur.Agent), botState(cur.Enabled))
+	if len(core.Bots) == 0 {
+		uiEmpty("no bots yet, add one with `mininaru bot add`")
+
+		return nil
 	}
+
+	rows = uiTable("ID", "NAME", "KIND", "TOKEN", "AGENT", "STATE")
+
+	for _, cur = range core.Bots {
+		rows.row(cur.Id, cur.Name, cur.Kind, maskSecret(cur.Token), botAgentLabel(cur.Agent), botState(cur.Enabled))
+	}
+
+	rows.flush()
 
 	return nil
 }

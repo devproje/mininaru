@@ -2,35 +2,68 @@ package main
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/devproje/mininaru/modules"
 	"github.com/spf13/cobra"
 )
 
 var skillConfig *cobra.Command = &cobra.Command{
-	Use:   "skill [list|show]",
+	Use:   "skill",
 	Short: "list installed skills or show what one sends to the model",
-	Args:  cobra.MaximumNArgs(2),
-	RunE:  skillExecute,
+	Long: `Inspect the skills mininaru found on disk.
+
+A skill is a folder of instructions the agent can load on demand. Use show to
+see the exact text a skill puts in front of the model.`,
+	Example: `  mininaru skill
+  mininaru skill show code-review`,
+	Args: usageArgs(cobra.NoArgs),
+	RunE: skillListExecute,
 }
 
-func skillList() error {
-	var current modules.Skill
+var skillListCmd *cobra.Command = &cobra.Command{
+	Use:     "list",
+	Aliases: []string{"ls"},
+	Short:   "list installed skills",
+	Args:    usageArgs(cobra.NoArgs),
+	RunE:    skillListExecute,
+}
 
-	for _, current = range modules.SkillAll() {
-		fmt.Printf("%s\t%s\t%s\t%s\n", current.Name, current.Scope, current.Path, current.Description)
+var skillShowCmd *cobra.Command = &cobra.Command{
+	Use:   "show <name>",
+	Short: "print what a skill sends to the model",
+	Args:  usageArgs(cobra.ExactArgs(1)),
+	RunE:  skillShowExecute,
+}
+
+func skillListExecute(cmd *cobra.Command, args []string) error {
+	var all []modules.Skill
+	var current modules.Skill
+	var rows *uiRows
+
+	all = modules.SkillAll()
+	if len(all) == 0 {
+		uiEmpty("no skills installed")
+
+		return nil
 	}
+
+	rows = uiTable("NAME", "SCOPE", "PATH", "DESCRIPTION")
+
+	for _, current = range all {
+		rows.row(current.Name, current.Scope, current.Path, current.Description)
+	}
+
+	rows.flush()
 
 	return nil
 }
 
-func skillShow(name string) error {
+func skillShowExecute(cmd *cobra.Command, args []string) error {
 	var result string
 
 	var err error
 
-	result, err = modules.SkillResult(name, "")
+	result, err = modules.SkillResult(args[0], "")
 	if err != nil {
 		return err
 	}
@@ -39,25 +72,7 @@ func skillShow(name string) error {
 	return nil
 }
 
-func skillExecute(cmd *cobra.Command, args []string) error {
-	var action string
-
-	if len(args) == 0 {
-		return skillList()
-	}
-
-	action = strings.ToLower(args[0])
-	if action == "list" {
-		return skillList()
-	}
-
-	if action != "show" {
-		return fmt.Errorf("expected list or show")
-	}
-
-	if len(args) < 2 {
-		return fmt.Errorf("show needs a skill name")
-	}
-
-	return skillShow(args[1])
+func init() {
+	skillConfig.AddCommand(skillListCmd)
+	skillConfig.AddCommand(skillShowCmd)
 }

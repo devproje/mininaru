@@ -67,36 +67,10 @@ type client struct {
 }
 
 const (
-	accentColor = lipgloss.Color("#d97757")
-	userColor   = lipgloss.Color("#7aa2f7")
-	dimColor    = lipgloss.Color("#7f7f7f")
-	errorColor  = lipgloss.Color("#f7768e")
-
 	transcriptMessage  = "message"
 	transcriptThinking = "thinking"
 	transcriptTool     = "tool"
 	transcriptNotice   = "notice"
-)
-
-var (
-	bannerStyle = lipgloss.NewStyle().Foreground(accentColor).Bold(true)
-	metaStyle   = lipgloss.NewStyle().Foreground(dimColor)
-
-	userMarkStyle = lipgloss.NewStyle().Foreground(userColor).Bold(true)
-	userTextStyle = lipgloss.NewStyle().Foreground(dimColor)
-	naruMarkStyle = lipgloss.NewStyle().Foreground(accentColor).Bold(true)
-	naruTextStyle = lipgloss.NewStyle()
-
-	boxStyle     = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(dimColor).Padding(0, 1)
-	boxBusyStyle = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(accentColor).Padding(0, 1)
-
-	hintStyle   = lipgloss.NewStyle().Foreground(dimColor)
-	statusStyle = lipgloss.NewStyle().Foreground(accentColor)
-	errStyle    = lipgloss.NewStyle().Foreground(errorColor)
-
-	thinkMarkStyle = lipgloss.NewStyle().Foreground(dimColor)
-	thinkTextStyle = lipgloss.NewStyle().Foreground(dimColor).Italic(true)
-	toolMarkStyle  = lipgloss.NewStyle().Foreground(accentColor)
 )
 
 func newClient(session *core.Session, agent *core.NaruAgent, history []*core.Message) *client {

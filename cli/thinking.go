@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/devproje/mininaru/config"
@@ -16,19 +15,30 @@ var (
 var thinking *cobra.Command = &cobra.Command{
 	Use:   "thinking [off|low|medium|high|max]",
 	Short: "show or set how hard the model thinks before answering",
-	Args:  cobra.MaximumNArgs(1),
-	RunE:  thinkingExecute,
+	Long: `Show the reasoning effort, or set it by naming a level.
+
+Higher levels let the model reason longer before answering, which costs more
+tokens and time. --show and --hide control whether the chat client renders the
+reasoning stream, independent of the level.`,
+	Example: `  mininaru thinking
+  mininaru thinking high --show`,
+	ValidArgs: config.ThinkingLevels(),
+	Args:      usageArgs(cobra.MatchAll(cobra.MaximumNArgs(1), cobra.OnlyValidArgs)),
+	RunE:      thinkingExecute,
 }
 
 func thinkingStatus() {
 	var state string
+	var rows *uiRows
 
 	state = "hidden"
 	if config.Client.Thinking.Show {
 		state = "shown"
 	}
 
-	fmt.Printf("%s\t%s\n", config.Client.Thinking.Level, state)
+	rows = uiTable("LEVEL", "STREAM")
+	rows.row(config.Client.Thinking.Level, state)
+	rows.flush()
 }
 
 func thinkingExecute(cmd *cobra.Command, args []string) error {
@@ -37,7 +47,7 @@ func thinkingExecute(cmd *cobra.Command, args []string) error {
 	var err error
 
 	if thinkingShowRef && thinkingHideRef {
-		return fmt.Errorf("--show and --hide cannot be used together")
+		return usageErrorf("--show and --hide cannot be used together")
 	}
 
 	if len(args) == 0 && !thinkingShowRef && !thinkingHideRef {
@@ -49,7 +59,7 @@ func thinkingExecute(cmd *cobra.Command, args []string) error {
 	if len(args) == 1 {
 		level = strings.ToLower(args[0])
 		if !config.ThinkingValid(level) {
-			return fmt.Errorf("invalid thinking level %q, expected one of %s",
+			return usageErrorf("invalid thinking level %q, expected one of %s",
 				args[0], strings.Join(config.ThinkingLevels(), ", "))
 		}
 

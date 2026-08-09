@@ -25,102 +25,159 @@ var (
 var provider *cobra.Command = &cobra.Command{
 	Use:   "provider",
 	Short: "manage LLM providers",
+	Long: `Manage the OpenAI compatible endpoints agents talk to.
+
+A provider bundles a base URL and an API key. Agents pick a provider when they
+are created, and new agents fall back to the default one.`,
+	Example: `  mininaru provider add --name openai --base-url https://api.openai.com/v1
+  mininaru provider list
+  mininaru provider default openai`,
 }
 
 var providerAdd *cobra.Command = &cobra.Command{
 	Use:   "add",
 	Short: "add a new provider",
-	RunE:  providerAddExecute,
+	Long: `Add a provider.
+
+On a terminal any value you leave out is prompted for. Without a terminal every
+value must come from a flag.`,
+	Example: `  mininaru provider add --name openai --base-url https://api.openai.com/v1 --api-key sk-...`,
+	Args:    usageArgs(cobra.NoArgs),
+	RunE:    providerAddExecute,
 }
 
 var providerList *cobra.Command = &cobra.Command{
-	Use:   "list",
-	Short: "list providers",
-	RunE:  providerListExecute,
+	Use:     "list",
+	Aliases: []string{"ls"},
+	Short:   "list providers",
+	Args:    usageArgs(cobra.NoArgs),
+	RunE:    providerListExecute,
 }
 
 var providerUpdate *cobra.Command = &cobra.Command{
 	Use:   "update <id>",
 	Short: "update a provider",
-	Args:  cobra.ExactArgs(1),
-	RunE:  providerUpdateExecute,
+	Long: `Update a provider by id or name.
+
+Only the fields you pass as flags change. On a terminal, passing no flag at all
+walks through every field with the current value as the default.`,
+	Example: `  mininaru provider update openai --api-key sk-...`,
+	Args:    usageArgs(cobra.ExactArgs(1)),
+	RunE:    providerUpdateExecute,
 }
 
 var providerRemove *cobra.Command = &cobra.Command{
-	Use:   "remove <id>",
-	Short: "remove a provider",
-	Args:  cobra.ExactArgs(1),
-	RunE:  providerRemoveExecute,
+	Use:     "remove <id>",
+	Aliases: []string{"rm"},
+	Short:   "remove a provider",
+	Args:    usageArgs(cobra.ExactArgs(1)),
+	RunE:    providerRemoveExecute,
 }
 
 var providerDefault *cobra.Command = &cobra.Command{
-	Use:   "default [id or name]",
-	Short: "show or set the provider new agents use by default",
-	Args:  cobra.MaximumNArgs(1),
-	RunE:  providerDefaultExecute,
+	Use:     "default [id or name]",
+	Short:   "show or set the provider new agents use by default",
+	Example: `  mininaru provider default openai`,
+	Args:    usageArgs(cobra.MaximumNArgs(1)),
+	RunE:    providerDefaultExecute,
 }
 
 var agent *cobra.Command = &cobra.Command{
 	Use:   "agent",
 	Short: "manage agents",
+	Long: `Manage the agents you can chat with.
+
+An agent pairs a provider and model with a role and a soul, the two prompts that
+shape how it answers. The global agent is the one the chat client opens by
+default and the one bots use when they name none.`,
+	Example: `  mininaru agent add --name reviewer --model gpt-4o
+  mininaru agent default reviewer`,
 }
 
 var agentAdd *cobra.Command = &cobra.Command{
 	Use:   "add",
 	Short: "add a new agent",
-	RunE:  agentAddExecute,
+	Long: `Add an agent.
+
+On a terminal any value you leave out is prompted for. The agent uses the
+default provider unless --provider names another one.`,
+	Example: `  mininaru agent add --name reviewer --model gpt-4o --role "code reviewer"`,
+	Args:    usageArgs(cobra.NoArgs),
+	RunE:    agentAddExecute,
 }
 
 var agentList *cobra.Command = &cobra.Command{
-	Use:   "list",
-	Short: "list agents",
-	RunE:  agentListExecute,
+	Use:     "list",
+	Aliases: []string{"ls"},
+	Short:   "list agents",
+	Args:    usageArgs(cobra.NoArgs),
+	RunE:    agentListExecute,
 }
 
 var agentUpdate *cobra.Command = &cobra.Command{
 	Use:   "update <id>",
 	Short: "update an agent",
-	Args:  cobra.ExactArgs(1),
-	RunE:  agentUpdateExecute,
+	Long: `Update an agent by id or name.
+
+Only the fields you pass as flags change. On a terminal, passing no flag at all
+walks through every field with the current value as the default.`,
+	Example: `  mininaru agent update reviewer --model gpt-4o-mini`,
+	Args:    usageArgs(cobra.ExactArgs(1)),
+	RunE:    agentUpdateExecute,
 }
 
 var agentRemove *cobra.Command = &cobra.Command{
-	Use:   "remove <id or name>",
-	Short: "remove an agent and its sessions",
-	Args:  cobra.ExactArgs(1),
-	RunE:  agentRemoveExecute,
+	Use:     "remove <id or name>",
+	Aliases: []string{"rm"},
+	Short:   "remove an agent and its sessions",
+	Args:    usageArgs(cobra.ExactArgs(1)),
+	RunE:    agentRemoveExecute,
 }
 
 var agentDefault *cobra.Command = &cobra.Command{
-	Use:   "default [id or name]",
-	Short: "show or set the global agent the client uses by default",
-	Args:  cobra.MaximumNArgs(1),
-	RunE:  agentDefaultExecute,
+	Use:     "default [id or name]",
+	Short:   "show or set the global agent the client uses by default",
+	Example: `  mininaru agent default reviewer`,
+	Args:    usageArgs(cobra.MaximumNArgs(1)),
+	RunE:    agentDefaultExecute,
 }
 
 var session *cobra.Command = &cobra.Command{
 	Use:   "session",
 	Short: "manage chat sessions",
+	Long: `Manage stored conversations.
+
+Every session belongs to one agent, so these commands act on the global agent
+unless --agent names another one. Resume a session with ` + "`mininaru --session <id>`" + `.`,
+	Example: `  mininaru session list
+  mininaru session rename 3f2a --name "release notes"`,
 }
 
 var sessionList *cobra.Command = &cobra.Command{
-	Use:   "list",
-	Short: "list sessions",
-	RunE:  sessionListExecute,
+	Use:     "list",
+	Aliases: []string{"ls"},
+	Short:   "list sessions",
+	Args:    usageArgs(cobra.NoArgs),
+	RunE:    sessionListExecute,
 }
 
 var sessionRemove *cobra.Command = &cobra.Command{
-	Use:   "remove <id>",
-	Short: "remove a session",
-	Args:  cobra.ExactArgs(1),
-	RunE:  sessionRemoveExecute,
+	Use:     "remove <id>",
+	Aliases: []string{"rm"},
+	Short:   "remove a session",
+	Args:    usageArgs(cobra.ExactArgs(1)),
+	RunE:    sessionRemoveExecute,
 }
 
 var sessionRename *cobra.Command = &cobra.Command{
 	Use:   "rename <id>",
 	Short: "rename a chat session",
-	Args:  cobra.ExactArgs(1),
-	RunE:  sessionRenameExecute,
+	Long: `Rename a session.
+
+On a terminal the new name is prompted for when --name is omitted.`,
+	Example: `  mininaru session rename 3f2a --name "release notes"`,
+	Args:    usageArgs(cobra.ExactArgs(1)),
+	RunE:    sessionRenameExecute,
 }
 
 func providerAddAsk() error {
@@ -163,7 +220,7 @@ func providerAddExecute(cmd *cobra.Command, args []string) error {
 	}
 
 	if providerNameRef == "" {
-		return fmt.Errorf("provider name is required, pass --name")
+		return usageErrorf("provider name is required, pass --name")
 	}
 
 	payload = core.Provider{
@@ -178,28 +235,43 @@ func providerAddExecute(cmd *cobra.Command, args []string) error {
 }
 
 func providerListExecute(cmd *cobra.Command, args []string) error {
+	var rows *uiRows
 	var cur *core.Provider
 	var mark string
+
+	if len(core.Providers) == 0 {
+		uiEmpty("no providers yet, add one with `mininaru provider add`")
+
+		return nil
+	}
+
+	rows = uiTable("ID", "NAME", "BASE URL", "API KEY", "")
 
 	for _, cur = range core.Providers {
 		mark = ""
 		if cur == core.DefaultProvider {
-			mark = "\t[default]"
+			mark = "[default]"
 		}
 
-		fmt.Printf("%s\t%s\t%s\t%s%s\n", cur.Id, cur.Name, cur.BaseURL, maskSecret(cur.ApiKey), mark)
+		rows.row(cur.Id, cur.Name, cur.BaseURL, maskSecret(cur.ApiKey), mark)
 	}
+
+	rows.flush()
 
 	return nil
 }
 
 func providerDefaultExecute(cmd *cobra.Command, args []string) error {
+	var rows *uiRows
+
 	if len(args) == 0 {
 		if core.DefaultProvider == nil {
-			return fmt.Errorf("no provider configured, add one with `provider add` first")
+			return configErrorf("no provider configured, add one with `mininaru provider add` first")
 		}
 
-		fmt.Printf("%s\t%s\n", core.DefaultProvider.Id, core.DefaultProvider.Name)
+		rows = uiTable("ID", "NAME")
+		rows.row(core.DefaultProvider.Id, core.DefaultProvider.Name)
+		rows.flush()
 
 		return nil
 	}
@@ -280,7 +352,7 @@ func resolveProvider() (*core.Provider, error) {
 	}
 
 	if core.DefaultProvider == nil {
-		return nil, fmt.Errorf("no provider configured, add one with `provider add` first")
+		return nil, configErrorf("no provider configured, add one with `mininaru provider add` first")
 	}
 
 	return core.DefaultProvider, nil
@@ -396,15 +468,30 @@ func providerLabel(id string) string {
 }
 
 func agentListExecute(cmd *cobra.Command, args []string) error {
+	var rows *uiRows
+	var all []*core.NaruAgent
 	var cur *core.NaruAgent
+	var mark string
 
-	if core.Global != nil {
-		fmt.Printf("%s\t%s\t%s\t%s\t[global]\n", core.Global.Id, core.Global.Name, core.Global.Model, providerLabel(core.Global.ProviderId))
+	all = core.AgentAll()
+	if len(all) == 0 {
+		uiEmpty("no agents yet, add one with `mininaru agent add`")
+
+		return nil
 	}
 
-	for _, cur = range core.Agents {
-		fmt.Printf("%s\t%s\t%s\t%s\n", cur.Id, cur.Name, cur.Model, providerLabel(cur.ProviderId))
+	rows = uiTable("ID", "NAME", "MODEL", "PROVIDER", "")
+
+	for _, cur = range all {
+		mark = ""
+		if core.Global != nil && cur.Id == core.Global.Id {
+			mark = "[global]"
+		}
+
+		rows.row(cur.Id, cur.Name, cur.Model, providerLabel(cur.ProviderId), mark)
 	}
+
+	rows.flush()
 
 	return nil
 }
@@ -546,14 +633,18 @@ func agentRemoveExecute(cmd *cobra.Command, args []string) error {
 }
 
 func agentDefaultExecute(cmd *cobra.Command, args []string) error {
+	var rows *uiRows
+
 	var err error
 
 	if len(args) == 0 {
 		if core.Global == nil {
-			return fmt.Errorf("no global agent configured")
+			return configErrorf("no global agent configured, set one with `mininaru agent default <name>`")
 		}
 
-		fmt.Printf("%s\t%s\n", core.Global.Id, core.Global.Name)
+		rows = uiTable("ID", "NAME")
+		rows.row(core.Global.Id, core.Global.Name)
+		rows.flush()
 
 		return nil
 	}
@@ -563,7 +654,9 @@ func agentDefaultExecute(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	fmt.Printf("%s\t%s\n", core.Global.Id, core.Global.Name)
+	rows = uiTable("ID", "NAME")
+	rows.row(core.Global.Id, core.Global.Name)
+	rows.flush()
 
 	return nil
 }
@@ -574,7 +667,7 @@ func sessionAgent() (*core.NaruAgent, error) {
 	}
 
 	if core.Global == nil {
-		return nil, fmt.Errorf("no agent configured, please configure a provider and an agent first")
+		return nil, configErrorf("no agent configured, run `mininaru setup` or add one with `mininaru agent add`")
 	}
 
 	return core.Global, nil
@@ -584,6 +677,7 @@ func sessionListExecute(cmd *cobra.Command, args []string) error {
 	var target *core.NaruAgent
 	var sessions []*core.Session
 	var cur *core.Session
+	var rows *uiRows
 
 	var err error
 
@@ -597,9 +691,19 @@ func sessionListExecute(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	for _, cur = range sessions {
-		fmt.Printf("%s\t%s\n", cur.Id, cur.Name)
+	if len(sessions) == 0 {
+		uiEmpty("no sessions for %s yet, run `mininaru` to start one", target.Name)
+
+		return nil
 	}
+
+	rows = uiTable("ID", "NAME")
+
+	for _, cur = range sessions {
+		rows.row(cur.Id, cur.Name)
+	}
+
+	rows.flush()
 
 	return nil
 }
@@ -638,7 +742,7 @@ func sessionRenameExecute(cmd *cobra.Command, args []string) error {
 	}
 
 	if sessionNameRef == "" {
-		return fmt.Errorf("session name is required, pass --name")
+		return usageErrorf("session name is required, pass --name")
 	}
 
 	return core.SessionUpdate(args[0], sessionNameRef)

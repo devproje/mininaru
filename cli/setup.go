@@ -17,8 +17,14 @@ import (
 var setup *cobra.Command = &cobra.Command{
 	Use:   "setup",
 	Short: "walk through the first run configuration",
-	Args:  cobra.NoArgs,
-	RunE:  setupExecute,
+	Long: `Configure a provider, an agent and the defaults in one guided pass.
+
+Existing configuration is offered back as the default at every step, so this is
+safe to re-run. It needs a terminal; without one, use ` + "`provider add`" + ` and
+` + "`agent add`" + ` instead.`,
+	Example: `  mininaru setup`,
+	Args:    usageArgs(cobra.NoArgs),
+	RunE:    setupExecute,
 }
 
 func setupProvider() (*core.Provider, error) {
@@ -239,7 +245,7 @@ func setupExecute(cmd *cobra.Command, args []string) error {
 	var err error
 
 	if !askInteractive() {
-		return fmt.Errorf("setup needs a terminal, configure with `provider add` and `agent add` instead")
+		return usageErrorf("setup needs a terminal, configure with `provider add` and `agent add` instead")
 	}
 
 	fmt.Fprintf(askOut, "configuring mininaru in %s\n", util.RootDir)

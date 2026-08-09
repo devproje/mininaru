@@ -25,6 +25,7 @@ var (
 
 	versionRef   bool
 	sessionIdRef string
+	resumeRef    string
 	chatAgentRef string
 	promptRef    string
 
@@ -33,13 +34,29 @@ var (
 )
 
 var root *cobra.Command = &cobra.Command{
-	Use:               "mininaru [session id]",
-	Short:             "Lightweight LLM agent skeleton system",
+	Use:   "mininaru [session id]",
+	Short: "Lightweight LLM agent skeleton system",
+	Long: `mininaru is a single binary that runs an LLM agent from the terminal.
+
+Running it with no arguments opens the chat client with the global agent, either
+resuming the session you name or starting a fresh one. The subcommands configure
+providers, agents, tools and bots, and serve the OpenAI compatible API.`,
+	Example: `  mininaru
+  mininaru --resume
+  mininaru -a reviewer -p "summarise the diff on stdin" -
+  mininaru serve --port 8080`,
 	SilenceUsage:      true,
-	Args:              cobra.MaximumNArgs(1),
+	SilenceErrors:     true,
+	Args:              usageArgs(cobra.MaximumNArgs(1)),
 	PersistentPreRunE: bootstrapExecute,
 	RunE:              execute,
 }
+
+const (
+	groupChat    = "chat"
+	groupConfig  = "configuration"
+	groupService = "service"
+)
 
 func bootstrapExecute(cmd *cobra.Command, args []string) error {
 	if versionRef {
@@ -57,17 +74,17 @@ func bootstrap() error {
 
 	err = util.LogInit(util.LogOptions{Level: logLevelRef, Format: logFormatRef})
 	if err != nil {
-		return err
+		return usageErrorf("init logging: %w", err)
 	}
 
 	workingDir, err = os.Getwd()
 	if err != nil {
-		return err
+		return fmt.Errorf("resolve working directory: %w", err)
 	}
 
 	err = modules.SetWorkingRoot(workingDir)
 	if err != nil {
-		return err
+		return fmt.Errorf("set working root %s: %w", workingDir, err)
 	}
 
 	path = os.Getenv("NARU_PATH")
@@ -77,40 +94,45 @@ func bootstrap() error {
 
 	err = util.InitFS(path)
 	if err != nil {
-		return err
+		return fmt.Errorf("init data directory %s: %w", path, err)
 	}
 
 	util.DB, err = util.InitDatabase(util.Path("mininaru.db"))
 	if err != nil {
-		return err
+		return fmt.Errorf("open database %s: %w", util.Path("mininaru.db"), err)
 	}
 
 	err = config.ClientInit()
 	if err != nil {
-		return err
+		return fmt.Errorf("load client config: %w", err)
 	}
 
 	err = modules.WebLoad()
 	if err != nil {
-		return err
+		return fmt.Errorf("load web search config: %w", err)
 	}
 
 	err = modules.SkillInit()
 	if err != nil {
-		return err
+		return fmt.Errorf("load skills: %w", err)
 	}
 
 	err = core.ProviderInit()
 	if err != nil {
-		return err
+		return fmt.Errorf("load providers: %w", err)
 	}
 
 	err = core.AgentInit()
 	if err != nil {
-		return err
+		return fmt.Errorf("load agents: %w", err)
 	}
 
-	return core.BotInit()
+	err = core.BotInit()
+	if err != nil {
+		return fmt.Errorf("load bots: %w", err)
+	}
+
+	return nil
 }
 
 func showVersion() {
@@ -127,7 +149,7 @@ func resolveAgent() (*core.NaruAgent, error) {
 	}
 
 	if core.Global == nil {
-		return nil, fmt.Errorf("no agent configured, please configure a provider and an agent first")
+		return nil, configErrorf("no agent configured, run `mininaru setup` or add one with `mininaru agent add`")
 	}
 
 	return core.Global, nil
@@ -140,6 +162,10 @@ func resolveSession(agent *core.NaruAgent, args []string) (*core.Session, error)
 	var err error
 
 	id = sessionIdRef
+	if id == "" {
+		id = resumeRef
+	}
+
 	if id == latestSession && len(args) == 1 {
 		id = args[0]
 	}
@@ -184,7 +210,9 @@ func execute(cmd *cobra.Command, args []string) error {
 	}
 
 	if config.Client.Tools.Enabled {
-		err = modules.MCPInit(cmd.Context())
+		err = withProgress(cmd.Context(), "connecting to mcp servers", func() error {
+			return modules.MCPInit(cmd.Context())
+		})
 		if err != nil {
 			return err
 		}
@@ -223,32 +251,50 @@ func execute(cmd *cobra.Command, args []string) error {
 	return runClient(session, agent, history)
 }
 
-func main() {
-	var ctx context.Context
-	var stop context.CancelFunc
-
-	var err error
-
-	util.AppVersion = version
-	util.AppBranch = branch
-	util.AppHash = hash
+func rootInit() {
+	cobra.EnableTraverseRunHooks = true
 
 	root.PersistentFlags().StringVar(&logLevelRef, "log-level", "",
 		"diagnostic log level: "+strings.Join(util.LogLevels(), ", ")+" (default info, or "+util.LogLevelEnv+")")
 	root.PersistentFlags().StringVar(&logFormatRef, "log-format", "",
 		"diagnostic log format: "+strings.Join(util.LogFormats(), ", ")+" (default auto, or "+util.LogFormatEnv+")")
 
-	root.Flags().BoolVar(&util.AppDebug, "debug", false, "enable debugging mode")
-	root.Flags().BoolVar(&config.AllowDangerousTools, "allow-dangerous-tools", false, "allow file writes and shell commands for this run")
+	root.PersistentFlags().BoolVar(&util.AppDebug, "debug", false, "enable debugging mode")
+	root.PersistentFlags().BoolVar(&config.AllowDangerousTools, "allow-dangerous-tools", false, "allow file writes and shell commands for this run")
+
 	root.Flags().BoolVar(&versionRef, "version", false, "check mininaru version info")
 	root.Flags().StringVar(&sessionIdRef, "session", "", "resume chat with session id, omit the id for the latest session")
 	root.Flags().Lookup("session").NoOptDefVal = latestSession
 
-	root.Flags().StringVar(&sessionIdRef, "resume", "", "alias of --session")
+	root.Flags().StringVar(&resumeRef, "resume", "", "alias of --session")
 	root.Flags().Lookup("resume").NoOptDefVal = latestSession
 
 	root.Flags().StringVarP(&chatAgentRef, "agent", "a", "", "agent name or id to chat with, defaults to the global agent")
 	root.Flags().StringVarP(&promptRef, "prompt", "p", "", "run one turn without the tui and print the answer, pass - to read it from stdin")
+
+	root.SetFlagErrorFunc(usageFlagError)
+
+	root.AddGroup(
+		&cobra.Group{ID: groupChat, Title: "Chat:"},
+		&cobra.Group{ID: groupConfig, Title: "Configuration:"},
+		&cobra.Group{ID: groupService, Title: "Service:"},
+	)
+
+	session.GroupID = groupChat
+
+	setup.GroupID = groupConfig
+	provider.GroupID = groupConfig
+	agent.GroupID = groupConfig
+	thinking.GroupID = groupConfig
+	contextConfig.GroupID = groupConfig
+	toolsConfig.GroupID = groupConfig
+	mcpConfig.GroupID = groupConfig
+	skillConfig.GroupID = groupConfig
+	webConfig.GroupID = groupConfig
+	botConfig.GroupID = groupConfig
+
+	serve.GroupID = groupService
+	daemonConfig.GroupID = groupService
 
 	root.AddCommand(setup)
 	root.AddCommand(serve)
@@ -263,6 +309,19 @@ func main() {
 	root.AddCommand(webConfig)
 	root.AddCommand(botConfig)
 	root.AddCommand(daemonConfig)
+}
+
+func main() {
+	var ctx context.Context
+	var stop context.CancelFunc
+
+	var err error
+
+	util.AppVersion = version
+	util.AppBranch = branch
+	util.AppHash = hash
+
+	rootInit()
 
 	ctx, stop = signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -276,6 +335,7 @@ func main() {
 	}
 
 	if err != nil {
-		os.Exit(1)
+		reportError(err)
+		os.Exit(exitCode(err))
 	}
 }
