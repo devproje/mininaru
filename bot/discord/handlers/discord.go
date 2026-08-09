@@ -98,12 +98,28 @@ func (d *Discord) instance(channelId string) (*core.Instance, error) {
 	return d.configuredInstance()
 }
 
+func (d *Discord) onReady(session *discordgo.Session, ready *discordgo.Ready) {
+	var err error
+
+	err = session.UpdateStatusComplex(discordgo.UpdateStatusData{
+		Status: string(discordgo.StatusOnline),
+		Activities: []*discordgo.Activity{{
+			Name: fmt.Sprintf("mininaru %s-%s (%s)", util.AppVersion, util.AppBranch, util.AppHash),
+			Type: discordgo.ActivityTypeListening,
+		}},
+	})
+	if err != nil {
+		util.Log.Error("setting discord presence failed", "error", err)
+	}
+}
+
 func (d *Discord) Start() error {
 	var guildCommands []*discordgo.ApplicationCommand
 	var globalCommands []*discordgo.ApplicationCommand
 
 	var err error
 
+	d.gateway.AddHandler(d.onReady)
 	d.gateway.AddHandler(d.onMessage)
 	d.gateway.AddHandler(d.onInteraction)
 	if err = d.gateway.Open(); err != nil {
