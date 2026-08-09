@@ -1,8 +1,6 @@
-<p align="center">
-  <img src="assets/logo.png" alt="mininaru" width="160">
-</p>
-
 # mininaru
+
+<img src="assets/logo.png" alt="mininaru" width="80" align="right">
 
 Lightweight terminal chat client for OpenAI-compatible LLM APIs. It ships as one
 Go binary and stores configuration and conversation history locally.
