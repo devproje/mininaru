@@ -571,6 +571,26 @@ attachment URLs are downloaded. `/chat` also accepts one optional `attachment`.
 Each channel is bound to one session, so a channel is a running conversation
 with all the history, tool replay, and context trimming the TUI gets.
 
+Because a channel is shared, every message reaching the model is prefixed with
+who sent it and what they are:
+
+```
+[discord from=<@123456789> role=user]
+what does this error mean?
+```
+
+Admins are marked `[discord role=admin]` without a mention, on the assumption
+that the model knows who the admin is from memory. That prefix is stored with
+the turn, so the model can still tell the speakers apart when the conversation
+is replayed later. Several admins in one channel are not distinguishable from
+each other.
+
+This is context, not access control. A user who types the prefix themselves
+gets it stripped and replaced with their real role, but even if one slipped
+through it would change nothing: permissions are enforced by which tools are
+handed to the model, never by what the prompt claims. Dangerous tools are not
+in the list a non-admin's turn is given.
+
 - `/reset` starts a fresh conversation in the channel
 - `/agent` shows which agent answers there, `/agent <name>` switches it
 
