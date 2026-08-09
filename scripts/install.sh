@@ -125,12 +125,35 @@ download() {
 	fail "curl or wget is required"
 }
 
+fetch() {
+	url="$1"
+
+	if command -v curl >/dev/null 2>&1; then
+		curl -fsSL "$url" 2>/dev/null
+		return
+	fi
+	if command -v wget >/dev/null 2>&1; then
+		wget -qO- "$url" 2>/dev/null
+		return
+	fi
+
+	fail "curl or wget is required"
+}
+
 latest_version() {
-	tag=$(download "https://api.github.com/repos/$REPO/releases/latest" /dev/stdout |
+	body=$(fetch "https://api.github.com/repos/$REPO/releases/latest") || body=""
+
+	tag=$(printf '%s' "$body" |
 		sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' |
 		head -1)
 
-	[ -n "$tag" ] || fail "could not determine the latest release. Pass --version explicitly"
+	if [ -z "$tag" ]; then
+		echo "error: no stable release to install." >&2
+		echo "GitHub reports only prereleases, or none at all, for $REPO." >&2
+		echo "Pick a tag from https://github.com/$REPO/releases and pass it:" >&2
+		echo "    --version <tag>" >&2
+		exit 1
+	fi
 
 	echo "$tag"
 }
