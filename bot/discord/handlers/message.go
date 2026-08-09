@@ -163,6 +163,7 @@ func (d *Discord) onMessage(gateway *discordgo.Session, message *discordgo.Messa
 			"user", message.Author.ID, "channel", message.ChannelID, "error", err)
 		return
 	}
+	content = withIdentity(message.Author.ID, role, content)
 	channelId = d.conversationChannel(message)
 
 	go func() {
