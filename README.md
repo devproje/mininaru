@@ -491,7 +491,11 @@ becomes an admin. Admins can add regular users with `/user add`; users are
 scoped to that configured bot.
 
 The bot answers when an authorized user mentions it in a server channel, and
-answers every authorized message in a DM without requiring a mention. A guild
+answers every authorized message in a DM without requiring a mention. A mention
+from someone who is not paired is ignored without a reply, so an unauthorized
+attempt leaves nothing in the channel; run the daemon at `--log-level debug` to
+see who tried. Slash commands do answer, privately, because Discord shows its
+own failure notice when an interaction goes unanswered. A guild
 mention starts a thread when Discord permits it and falls back to the current
 channel if thread creation fails. Messages inside a thread created by the bot
 do not need to mention it again. It shows Discord's typing indicator while
@@ -612,3 +616,7 @@ GPLv2.
 character are all rights reserved; see [COPYRIGHT.md](COPYRIGHT.md) for what
 that allows. The software is unaffected by this: nothing in the program depends
 on the artwork.
+
+[CONTRIBUTING.md](CONTRIBUTING.md) covers how to send a change, and
+[SECURITY.md](SECURITY.md) is where to report a vulnerability privately —
+please do not open a public issue for one.
