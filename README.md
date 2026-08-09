@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo.png" alt="mininaru" width="160">
+</p>
+
 # mininaru
 
 Lightweight terminal chat client for OpenAI-compatible LLM APIs. It ships as one
