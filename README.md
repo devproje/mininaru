@@ -5,7 +5,43 @@
 Lightweight terminal chat client for OpenAI-compatible LLM APIs. It ships as one
 Go binary and stores configuration and conversation history locally.
 
-## Build
+## Install
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/devproje/mininaru/master/install.sh | sh
+```
+
+That downloads the release for your platform, checks it against `SHA256SUMS`,
+and installs it to `~/.local/bin`. Nothing is written outside your home
+directory and sudo is never used. Pass options after `-s --`:
+
+```sh
+curl -fsSL .../install.sh | sh -s -- --version v0.2.0
+curl -fsSL .../install.sh | sh -s -- --bin-dir ~/bin
+curl -fsSL .../install.sh | sh -s -- --uninstall
+```
+
+Prefer not to pipe a script into a shell? Download it, read it, then run it —
+it is one file with no dependencies beyond `curl` or `wget` and `tar`.
+
+Linux and macOS, amd64 and arm64. On Windows, take the `.zip` from the
+[releases page](https://github.com/devproje/mininaru/releases) and put
+`mininaru.exe` on your `PATH`; the `daemon` command needs systemd and will not
+work there, but the chat client and `serve` do.
+
+### Verifying a download yourself
+
+Every release ships `SHA256SUMS` and a signed build provenance attestation.
+
+```sh
+sha256sum -c SHA256SUMS --ignore-missing
+gh attestation verify mininaru_v0.2.0_linux_amd64.tar.gz --repo devproje/mininaru
+```
+
+The attestation proves the archive came out of this repository's release
+workflow, which a checksum alone cannot tell you.
+
+## Build from source
 
 Requires the Go version declared in `go.mod`.
 
@@ -20,6 +56,9 @@ Install or remove only the binary for the current user:
 make install
 make uninstall
 ```
+
+`make dist GOOS=linux GOARCH=arm64` cross-compiles a single release layout into
+`dist/`, which is what the release workflow runs for each target.
 
 ## User daemon
 

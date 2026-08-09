@@ -81,7 +81,10 @@ a fixture:
   bot tokens in `bot.json`, both unencrypted. They are masked in list output
   precisely so they do not end up in a transcript.
 - **Do not push, tag, or force anything.** Committing is fine when asked;
-  publishing is a separate decision.
+  publishing is a separate decision. Pushing a `v*` tag is the loudest of
+  these: it triggers the release workflow, which builds six binaries and
+  publishes a GitHub release that people will download. Deleting a release
+  afterwards does not recall it.
 
 The data directory is `.mininaru/` unless `NARU_PATH` says otherwise, and it is
 gitignored. Nothing under it should ever be staged.
