@@ -1,0 +1,78 @@
+name: Bug report
+description: Something behaves differently from what the documentation says
+labels: [bug]
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not paste API keys, bot tokens, or the contents of `provider.json`
+        or `bot.json`. Logs can contain them; check before pasting.
+
+        For a security vulnerability, close this and use the private advisory
+        link on the previous page instead.
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The full line from `mininaru --version`.
+      placeholder: "mininaru v0.2.0-91f49ff (branch: master) linux/amd64"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Where it happens
+      options:
+        - Chat client (the TUI)
+        - A command that is not the chat client
+        - One-shot prompt (-p)
+        - HTTP API (serve)
+        - Discord bot
+        - systemd user daemon
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What should have happened
+      description: If the documentation says so, link the line. "It should work" is not enough to act on.
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: What happened instead
+      description: Exact output, including the error and the exit code. 2 is a usage error, 3 is something not configured, 1 is everything else.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: How to reproduce
+      description: |
+        Commands in the order you ran them. Set `NARU_PATH` to an empty
+        directory first if you can; a bug that survives a fresh data directory
+        is much faster to fix.
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Output of the same run with `--log-level debug`, secrets removed.
+      render: shell
+
+  - type: input
+    id: model
+    attributes:
+      label: Provider and model
+      description: Only if the bug involves a model answering. The base URL matters more than the provider's name.
+      placeholder: openai-compatible at http://127.0.0.1:8080/v1, qwen3-8b

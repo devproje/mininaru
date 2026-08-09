@@ -1,0 +1,42 @@
+name: Feature request
+description: Suggest something mininaru should be able to do
+labels: [enhancement]
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This is a small project with one maintainer. A request that explains
+        the problem is far more likely to go somewhere than one that specifies
+        a solution.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do
+      description: Describe the situation you are stuck in, not the feature. What did you reach for and not find?
+    validations:
+      required: true
+
+  - type: textarea
+    id: workaround
+    attributes:
+      label: How you work around it today
+      description: Including "I gave up". If an existing command almost does it, say which one and where it stops.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you have in mind
+      description: Optional. If it is a command or a flag, write the line you want to type.
+
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Before submitting
+      options:
+        - label: I checked `--help` and the README, and this is not already possible.
+          required: true
+        - label: I am willing to open a pull request for it.
