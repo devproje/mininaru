@@ -59,24 +59,24 @@ func (d *Discord) contextCommand(interaction *discordgo.InteractionCreate, user 
 	var err error
 
 	if !userInstallOwner(interaction, user.ID) {
-		d.respond(interaction, "this command requires the app to be installed to your user account")
+		d.respond(interaction, "This only works when the app is installed to your account.")
 		return
 	}
 	selected = contextMessage(interaction)
 	if selected == nil || strings.TrimSpace(selected.Content) == "" {
-		d.respond(interaction, "the selected message has no text content")
+		d.respond(interaction, "That message has no text to work with.")
 		return
 	}
 	target, err = d.configuredInstance()
 	if err != nil {
-		d.respond(interaction, publicFailure("agent lookup", err))
+		d.respond(interaction, publicFailure("looking up the agent", err))
 		return
 	}
 	flags = discordgo.MessageFlagsIsComponentsV2 | discordgo.MessageFlagsEphemeral
 	title = interaction.ApplicationCommandData().Name
 	err = d.gateway.InteractionRespond(interaction.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseChannelMessageWithSource,
-		Data: &discordgo.InteractionResponseData{Flags: flags, Components: contextResultComponents(title, "💡 **처리 중**")},
+		Data: &discordgo.InteractionResponseData{Flags: flags, Components: contextResultComponents(title, "💡 **Working on it**")},
 	})
 	if err == nil {
 		go func() {
@@ -108,8 +108,8 @@ func (d *Discord) runContextCommand(ctx context.Context, interaction *discordgo.
 	if len(files) > 0 {
 		parts, err = attachments.Build(ctx, content, files)
 		if err != nil {
-			publicFailure("attachment processing", err)
-			components = contextResultComponents(title, "❌ 첨부 처리 실패")
+			publicFailure("reading the attachment", err)
+			components = contextResultComponents(title, "❌ Could not read the attachment")
 			d.gateway.InteractionResponseEdit(interaction.Interaction, &discordgo.WebhookEdit{Components: &components})
 			return
 		}
@@ -119,8 +119,8 @@ func (d *Discord) runContextCommand(ctx context.Context, interaction *discordgo.
 	}
 	result, err = core.Complete(ctx, target.Agent, messages, defs, "", nil, nil)
 	if err != nil {
-		publicFailure("context command", err)
-		components = contextResultComponents(title, "❌ 처리 실패")
+		publicFailure("running that command", err)
+		components = contextResultComponents(title, "❌ That did not work")
 	} else {
 		components = contextResultComponents(title, result.Content)
 	}
@@ -142,7 +142,7 @@ func (d *Discord) chatCommand(interaction *discordgo.InteractionCreate, user *di
 	var err error
 
 	if !userInstallOwner(interaction, user.ID) {
-		d.respond(interaction, "this command requires the app to be installed to your user account")
+		d.respond(interaction, "This only works when the app is installed to your account.")
 		return
 	}
 	ephemeral = true
@@ -163,12 +163,12 @@ func (d *Discord) chatCommand(interaction *discordgo.InteractionCreate, user *di
 		}
 	}
 	if content == "" {
-		d.respond(interaction, "content is required")
+		d.respond(interaction, "Say something for me to answer.")
 		return
 	}
 	target, err = d.configuredInstance()
 	if err != nil {
-		d.respond(interaction, publicFailure("agent lookup", err))
+		d.respond(interaction, publicFailure("looking up the agent", err))
 		return
 	}
 	flags = discordgo.MessageFlagsIsComponentsV2
@@ -177,7 +177,7 @@ func (d *Discord) chatCommand(interaction *discordgo.InteractionCreate, user *di
 	}
 	err = d.gateway.InteractionRespond(interaction.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseChannelMessageWithSource,
-		Data: &discordgo.InteractionResponseData{Flags: flags, Components: contextResultComponents("Stateless Chat", "💡 **처리 중**")},
+		Data: &discordgo.InteractionResponseData{Flags: flags, Components: contextResultComponents("Stateless Chat", "💡 **Working on it**")},
 	})
 	if err == nil {
 		if attachment != nil {
@@ -207,8 +207,8 @@ func (d *Discord) runStatelessChat(ctx context.Context, interaction *discordgo.I
 	if len(files) > 0 {
 		parts, err = attachments.Build(ctx, content, files)
 		if err != nil {
-			publicFailure("attachment processing", err)
-			components = contextResultComponents("Stateless Chat", "❌ 첨부 처리 실패")
+			publicFailure("reading the attachment", err)
+			components = contextResultComponents("Stateless Chat", "❌ Could not read the attachment")
 			d.gateway.InteractionResponseEdit(interaction.Interaction, &discordgo.WebhookEdit{Components: &components})
 			return
 		}
@@ -218,8 +218,8 @@ func (d *Discord) runStatelessChat(ctx context.Context, interaction *discordgo.I
 	}
 	result, err = core.Complete(ctx, target.Agent, messages, nil, "", nil, nil)
 	if err != nil {
-		publicFailure("stateless chat", err)
-		components = contextResultComponents("Stateless Chat", "❌ 처리 실패")
+		publicFailure("answering", err)
+		components = contextResultComponents("Stateless Chat", "❌ That did not work")
 	} else {
 		components = contextResultComponents("Stateless Chat", result.Content)
 	}

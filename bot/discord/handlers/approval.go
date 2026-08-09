@@ -42,12 +42,12 @@ func (d *Discord) approve(ctx context.Context, channelId, userId string, def mod
 	_, err = d.gateway.ChannelMessageSendComplex(channelId, &discordgo.MessageSend{
 		Flags: discordgo.MessageFlagsIsComponentsV2,
 		Components: v2Container(approvalAccent,
-			discordgo.TextDisplay{Content: fmt.Sprintf("### 🔐 도구 승인 필요\n<@%s>만 승인할 수 있어.", userId)},
+			discordgo.TextDisplay{Content: fmt.Sprintf("### 🔐 Tool approval needed\nOnly <@%s> can answer this.", userId)},
 			discordgo.Separator{},
 			discordgo.TextDisplay{Content: fmt.Sprintf("**🔧 `%s`**\n```json\n%s\n```", def.Name, shown)},
 			discordgo.ActionsRow{Components: []discordgo.MessageComponent{
-				discordgo.Button{Label: "승인", Emoji: &discordgo.ComponentEmoji{Name: "✅"}, Style: discordgo.SuccessButton, CustomID: "hil:yes:" + id},
-				discordgo.Button{Label: "거부", Emoji: &discordgo.ComponentEmoji{Name: "✖️"}, Style: discordgo.DangerButton, CustomID: "hil:no:" + id},
+				discordgo.Button{Label: "Approve", Emoji: &discordgo.ComponentEmoji{Name: "✅"}, Style: discordgo.SuccessButton, CustomID: "hil:yes:" + id},
+				discordgo.Button{Label: "Deny", Emoji: &discordgo.ComponentEmoji{Name: "✖️"}, Style: discordgo.DangerButton, CustomID: "hil:no:" + id},
 			}},
 		),
 	})
@@ -82,13 +82,13 @@ func (d *Discord) approvalInteraction(interaction *discordgo.InteractionCreate) 
 	d.mu.Unlock()
 	actor = interactionUser(interaction)
 	if !found || actor == nil || actor.ID != pending.userId {
-		d.respond(interaction, "this approval is not yours or has expired")
+		d.respond(interaction, "That approval is not yours, or it already expired.")
 		return
 	}
 	components = v2Container(map[bool]int{true: statusAccent, false: approvalAccent}[approved],
 		discordgo.TextDisplay{Content: fmt.Sprintf("%s **%s** · <@%s>",
 			map[bool]string{true: "✅", false: "✖️"}[approved],
-			map[bool]string{true: "승인됨", false: "거부됨"}[approved], pending.userId)})
+			map[bool]string{true: "Approved", false: "Denied"}[approved], pending.userId)})
 	d.gateway.InteractionRespond(interaction.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseUpdateMessage,
 		Data: &discordgo.InteractionResponseData{Flags: discordgo.MessageFlagsIsComponentsV2, Components: components},

@@ -49,7 +49,7 @@ func newExecutionStatus(gateway *discordgo.Session, channelId, sourceChannelId, 
 
 	status = &executionStatus{
 		gateway: gateway, channelId: channelId, sourceChannelId: sourceChannelId, sourceMessageId: sourceMessageId,
-		current: "💡 **스킬 선택 중**", currentReaction: "💡",
+		current: "💡 **Picking a skill**", currentReaction: "💡",
 	}
 	message, err = gateway.ChannelMessageSendComplex(channelId, &discordgo.MessageSend{
 		Flags:      discordgo.MessageFlagsIsComponentsV2,

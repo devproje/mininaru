@@ -12,32 +12,32 @@ var userInstallContexts = []discordgo.InteractionContextType{
 
 var slashCommands = []*discordgo.ApplicationCommand{
 	{
-		Name: "pair", Description: "pair yourself as this bot's admin",
+		Name: "pair", Description: "Become this bot's admin",
 		Options: []*discordgo.ApplicationCommandOption{
-			{Type: discordgo.ApplicationCommandOptionString, Name: "code", Description: "one-time pairing code from the CLI", Required: true},
+			{Type: discordgo.ApplicationCommandOptionString, Name: "code", Description: "The one-time code from `mininaru bot pair`", Required: true},
 		},
 	},
-	{Name: "reset", Description: "start a fresh conversation in this channel"},
+	{Name: "reset", Description: "Forget this channel's conversation and start over"},
 	{
-		Name: "agent", Description: "show or switch the agent answering in this channel",
+		Name: "agent", Description: "Show or switch who answers in this channel",
 		Options: []*discordgo.ApplicationCommandOption{
-			{Type: discordgo.ApplicationCommandOptionString, Name: "name", Description: "agent name", Required: false},
+			{Type: discordgo.ApplicationCommandOptionString, Name: "name", Description: "Agent to switch to, or leave empty to see the current one", Required: false},
 		},
 	},
 	{
-		Name: "user", Description: "manage users allowed to talk to this bot",
+		Name: "user", Description: "Manage who is allowed to talk to this bot",
 		Options: []*discordgo.ApplicationCommandOption{{
-			Type: discordgo.ApplicationCommandOptionSubCommand, Name: "add", Description: "add a regular user",
-			Options: []*discordgo.ApplicationCommandOption{{Type: discordgo.ApplicationCommandOptionUser, Name: "user", Description: "user to add", Required: true}},
+			Type: discordgo.ApplicationCommandOptionSubCommand, Name: "add", Description: "Let someone talk to this bot",
+			Options: []*discordgo.ApplicationCommandOption{{Type: discordgo.ApplicationCommandOptionUser, Name: "user", Description: "Person to allow", Required: true}},
 		}},
 	},
 	{
-		Name: "chat", Description: "run a stateless one-turn chat",
+		Name: "chat", Description: "Ask one question, with nothing remembered afterwards",
 		IntegrationTypes: &userInstallTypes, Contexts: &userInstallContexts,
 		Options: []*discordgo.ApplicationCommandOption{
-			{Type: discordgo.ApplicationCommandOptionString, Name: "content", Description: "message to send", Required: true},
-			{Type: discordgo.ApplicationCommandOptionAttachment, Name: "attachment", Description: "optional file or image", Required: false},
-			{Type: discordgo.ApplicationCommandOptionBoolean, Name: "ephemeral", Description: "show only to you; defaults to true", Required: false},
+			{Type: discordgo.ApplicationCommandOptionString, Name: "content", Description: "What to ask", Required: true},
+			{Type: discordgo.ApplicationCommandOptionAttachment, Name: "attachment", Description: "A file or image to include", Required: false},
+			{Type: discordgo.ApplicationCommandOptionBoolean, Name: "ephemeral", Description: "Keep the reply private, on by default", Required: false},
 		},
 	},
 }

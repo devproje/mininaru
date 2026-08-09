@@ -95,12 +95,12 @@ func (d *Discord) answerFor(ctx context.Context, channelId, sourceChannelId, sou
 
 	target, err = d.instance(channelId)
 	if err != nil {
-		sendReply(d.gateway, channelId, publicFailure("agent lookup", err))
+		sendReply(d.gateway, channelId, publicFailure("looking up the agent", err))
 		return
 	}
 	session, err = target.Bind(OriginDiscord, channelId, "discord "+channelId)
 	if err != nil {
-		sendReply(d.gateway, channelId, publicFailure("session setup", err))
+		sendReply(d.gateway, channelId, publicFailure("setting up the conversation", err))
 		return
 	}
 	indicator = startTyping(d.gateway, channelId)
@@ -109,17 +109,17 @@ func (d *Discord) answerFor(ctx context.Context, channelId, sourceChannelId, sou
 		parts, err = attachments.Build(ctx, content, sourceAttachments)
 		if err != nil {
 			indicator.stop()
-			status.show("❌", "❌ **첨부 처리 실패**")
-			sendReply(d.gateway, channelId, publicFailure("attachment processing", err))
+			status.show("❌", "❌ **Could not read the attachment**")
+			sendReply(d.gateway, channelId, publicFailure("reading the attachment", err))
 			return
 		}
 	}
 	onReasoning = func(text string) {
-		reasoningOnce.Do(func() { status.show("⚡", "⚡ **추론 중**") })
+		reasoningOnce.Do(func() { status.show("⚡", "⚡ **Thinking**") })
 	}
 	onTool = func(event core.ToolEvent) {
 		if event.Phase == core.ToolEventStarted {
-			status.show("🔧", "🔧 **툴 실행 중** · `"+event.Name+"`")
+			status.show("🔧", "🔧 **Running a tool** · `"+event.Name+"`")
 		}
 	}
 	if role == core.DiscordRoleAdmin {
@@ -133,11 +133,11 @@ func (d *Discord) answerFor(ctx context.Context, channelId, sourceChannelId, sou
 	}
 	indicator.stop()
 	if err != nil {
-		status.show("❌", "❌ **실행 실패**")
-		sendReply(d.gateway, channelId, publicFailure("request", err))
+		status.show("❌", "❌ **That did not work**")
+		sendReply(d.gateway, channelId, publicFailure("answering", err))
 		return
 	}
-	status.show("✅", "✅ **완료**")
+	status.show("✅", "✅ **Done**")
 	sendReply(d.gateway, channelId, message.Content)
 }
 

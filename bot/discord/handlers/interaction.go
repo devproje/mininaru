@@ -19,24 +19,24 @@ func (d *Discord) pairCommand(interaction *discordgo.InteractionCreate, user *di
 	var err error
 
 	if d.cfg.BotId == "" {
-		d.respond(interaction, "pairing requires a configured bot")
+		d.respond(interaction, "Pairing needs a bot configured with `mininaru bot add`.")
 		return
 	}
 	options = interaction.ApplicationCommandData().Options
 	if len(options) != 1 {
-		d.respond(interaction, "pairing code is required")
+		d.respond(interaction, "Give me the pairing code from `mininaru bot pair`.")
 		return
 	}
 	claimed, err = core.DiscordPairClaim(d.cfg.BotId, options[0].StringValue(), user.ID)
 	if err != nil {
-		d.respond(interaction, publicFailure("pairing", err))
+		d.respond(interaction, publicFailure("pairing you", err))
 		return
 	}
 	if !claimed {
-		d.respond(interaction, "invalid, expired, or already used pairing code")
+		d.respond(interaction, "That code is wrong, expired, or already used.")
 		return
 	}
-	d.respond(interaction, "paired as admin")
+	d.respond(interaction, "You are the admin now.")
 }
 
 func (d *Discord) resetCommand(interaction *discordgo.InteractionCreate) {
@@ -48,15 +48,15 @@ func (d *Discord) resetCommand(interaction *discordgo.InteractionCreate) {
 	channelId = interaction.ChannelID
 	target, err = d.instance(channelId)
 	if err != nil {
-		d.respond(interaction, publicFailure("agent lookup", err))
+		d.respond(interaction, publicFailure("looking up the agent", err))
 		return
 	}
 	_, err = core.SessionAttach(target.Agent, OriginDiscord, channelId, "discord "+channelId)
 	if err != nil {
-		d.respond(interaction, publicFailure("session reset", err))
+		d.respond(interaction, publicFailure("resetting the conversation", err))
 		return
 	}
-	d.respond(interaction, "started a fresh conversation with "+target.Agent.Name)
+	d.respond(interaction, "Fresh start with "+target.Agent.Name+". I forgot what we were talking about.")
 }
 
 func (d *Discord) agentCommand(interaction *discordgo.InteractionCreate) {
@@ -72,26 +72,26 @@ func (d *Discord) agentCommand(interaction *discordgo.InteractionCreate) {
 	if len(options) == 0 {
 		target, err = d.instance(channelId)
 		if err != nil {
-			d.respond(interaction, publicFailure("agent lookup", err))
+			d.respond(interaction, publicFailure("looking up the agent", err))
 			return
 		}
-		d.respond(interaction, "this channel talks to "+target.Agent.Name)
+		d.respond(interaction, "This channel talks to "+target.Agent.Name+".")
 		return
 	}
 
 	name = options[0].StringValue()
 	target, err = d.registry.Get(name)
 	if err != nil {
-		publicFailure("agent lookup", err)
-		d.respond(interaction, "agent not found")
+		publicFailure("looking up the agent", err)
+		d.respond(interaction, "No agent by that name.")
 		return
 	}
 	_, err = core.SessionAttach(target.Agent, OriginDiscord, channelId, "discord "+channelId)
 	if err != nil {
-		d.respond(interaction, publicFailure("agent switch", err))
+		d.respond(interaction, publicFailure("switching the agent", err))
 		return
 	}
-	d.respond(interaction, "this channel now talks to "+name+", starting a fresh conversation")
+	d.respond(interaction, "This channel talks to "+name+" now, starting fresh.")
 }
 
 func (d *Discord) userCommand(interaction *discordgo.InteractionCreate) {
@@ -104,30 +104,30 @@ func (d *Discord) userCommand(interaction *discordgo.InteractionCreate) {
 
 	actor = interactionUser(interaction)
 	if actor == nil {
-		d.respond(interaction, "could not identify the requesting user")
+		d.respond(interaction, "I could not tell who asked.")
 		return
 	}
 	role, err = d.role(actor.ID)
 	if err != nil || role != core.DiscordRoleAdmin {
-		d.respond(interaction, "admin role is required")
+		d.respond(interaction, "Only the admin can do that.")
 		return
 	}
 	options = interaction.ApplicationCommandData().Options
 	if len(options) != 1 || len(options[0].Options) != 1 {
-		d.respond(interaction, "user is required")
+		d.respond(interaction, "Pick a user to add.")
 		return
 	}
 	user = options[0].Options[0].UserValue(nil)
 	if user == nil || user.Bot {
-		d.respond(interaction, "select a non-bot user")
+		d.respond(interaction, "Pick a person, not a bot.")
 		return
 	}
 	err = core.DiscordUserAdd(d.cfg.BotId, user.ID, core.DiscordRoleUser)
 	if err != nil {
-		d.respond(interaction, publicFailure("user add", err))
+		d.respond(interaction, publicFailure("adding the user", err))
 		return
 	}
-	d.respond(interaction, "added <@"+user.ID+"> with the user role")
+	d.respond(interaction, "<@"+user.ID+"> can talk to me now.")
 }
 
 func (d *Discord) onInteraction(gateway *discordgo.Session, interaction *discordgo.InteractionCreate) {
@@ -163,7 +163,7 @@ func (d *Discord) onInteraction(gateway *discordgo.Session, interaction *discord
 	}
 	role, err = d.role(user.ID)
 	if err != nil || role == "" {
-		d.respond(interaction, "you are not paired with this bot")
+		d.respond(interaction, "You are not paired with this bot.")
 		return
 	}
 
