@@ -10,7 +10,7 @@ TMP_DIR=""
 
 usage() {
 	cat <<'EOF'
-Usage: install.sh [OPTIONS]
+Usage: scripts/install.sh [OPTIONS]
 
 Download a prebuilt mininaru and install it for the current user.
 
