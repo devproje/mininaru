@@ -41,10 +41,11 @@ func TestHelpListsConvertedSubcommands(t *testing.T) {
 	var err error
 
 	cases = map[string][]string{
-		"mcp":   {"list", "add", "remove", "enable", "disable"},
-		"tools": {"enable", "disable", "list"},
-		"skill": {"list", "show"},
-		"web":   {"show", "provider", "endpoint", "key"},
+		"mcp":    {"list", "add", "remove", "enable", "disable"},
+		"tools":  {"enable", "disable", "list"},
+		"skill":  {"list", "show"},
+		"web":    {"show", "provider", "endpoint", "key"},
+		"daemon": {"install", "reload", "uninstall"},
 	}
 
 	for parent, verbs = range cases {

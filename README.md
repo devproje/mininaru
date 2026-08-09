@@ -31,11 +31,16 @@ install -m 0600 /dev/null ~/.config/mininaru/env
 $EDITOR ~/.config/mininaru/env    # add MININARU_API_KEY=<API_KEY>
 
 mininaru daemon install
+mininaru daemon reload      # restart it to pick up configuration changes
 mininaru daemon uninstall
 ```
 
 The service uses the current `NARU_PATH` and working directory at install time.
 Use `--env-file` or `--working-directory` to override either daemon setting.
+
+Providers, agents, bots, and mcp servers are read once at startup, so changes
+made with the other commands need a `daemon reload` to take effect. The running
+service also reloads its configuration on `SIGHUP` without dropping connections.
 
 ## First run
 

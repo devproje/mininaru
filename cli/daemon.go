@@ -29,6 +29,7 @@ var daemonConfig *cobra.Command = &cobra.Command{
 The unit reads its API key from an environment file that must exist beforehand
 and be readable only by you. Linux only.`,
 	Example: `  mininaru daemon install
+  mininaru daemon reload
   mininaru daemon uninstall`,
 }
 
@@ -43,6 +44,20 @@ working directory. User units stop at logout unless lingering is enabled.`,
   mininaru daemon install --env-file ~/.config/mininaru/env`,
 	Args: usageArgs(cobra.NoArgs),
 	RunE: daemonInstallExecute,
+}
+
+var daemonReload *cobra.Command = &cobra.Command{
+	Use:     "reload",
+	Aliases: []string{"restart"},
+	Short:   "restart the systemd user daemon",
+	Long: `Restart the daemon so it picks up the current configuration.
+
+Providers, agents, bots and mcp servers are read once at startup, so a restart
+is what applies changes made with the other subcommands. The unit file is read
+from disk again first, which also picks up a unit rewritten by a newer binary.`,
+	Example: `  mininaru daemon reload`,
+	Args:    usageArgs(cobra.NoArgs),
+	RunE:    daemonReloadExecute,
 }
 
 var daemonUninstall *cobra.Command = &cobra.Command{
@@ -238,6 +253,53 @@ func daemonLingering(ctx context.Context) bool {
 	return strings.Contains(string(out), "Linger=yes")
 }
 
+func daemonActiveState(ctx context.Context) string {
+	var out []byte
+
+	out, _ = exec.CommandContext(ctx, "systemctl", "--user", "is-active", daemonUnitName).Output()
+
+	return strings.TrimSpace(string(out))
+}
+
+func daemonReloadExecute(cmd *cobra.Command, args []string) error {
+	var unitPath string
+	var state string
+
+	var err error
+
+	if _, err = exec.LookPath("systemctl"); err != nil {
+		return fmt.Errorf("systemctl is required: %w", err)
+	}
+	unitPath, _, err = daemonPaths()
+	if err != nil {
+		return err
+	}
+	if _, err = os.Stat(unitPath); err != nil {
+		if os.IsNotExist(err) {
+			return configErrorf("%s is not installed, run `mininaru daemon install` first", daemonUnitName)
+		}
+
+		return err
+	}
+	if err = systemctlUser(cmd.Context(), "daemon-reload"); err != nil {
+		return err
+	}
+	if err = systemctlUser(cmd.Context(), "restart", daemonUnitName); err != nil {
+		return err
+	}
+
+	state = daemonActiveState(cmd.Context())
+	if state != "active" && state != "activating" {
+		uiNote("logs: journalctl --user -u %s -n 50", daemonUnitName)
+
+		return fmt.Errorf("%s is %s after the restart", daemonUnitName, state)
+	}
+
+	uiOk("restarted %s", daemonUnitName)
+
+	return nil
+}
+
 func daemonUninstallExecute(cmd *cobra.Command, args []string) error {
 	var unitPath string
 	var installed bool
@@ -282,5 +344,5 @@ func daemonUninstallExecute(cmd *cobra.Command, args []string) error {
 func init() {
 	daemonInstall.Flags().StringVar(&daemonEnvFileRef, "env-file", "", "environment file containing MININARU_API_KEY")
 	daemonInstall.Flags().StringVar(&daemonWorkingDirRef, "working-directory", "", "working directory exposed to built-in tools")
-	daemonConfig.AddCommand(daemonInstall, daemonUninstall)
+	daemonConfig.AddCommand(daemonInstall, daemonReload, daemonUninstall)
 }
