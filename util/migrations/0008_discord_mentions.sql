@@ -1,0 +1,1 @@
+ALTER TABLE discord_users ADD COLUMN mention_enabled BOOLEAN NOT NULL DEFAULT 0;

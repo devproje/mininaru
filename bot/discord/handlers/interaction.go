@@ -97,6 +97,42 @@ func (d *Discord) agentCommand(interaction *discordgo.InteractionCreate) {
 	d.respond(interaction, "This channel talks to "+name+" now, starting fresh.")
 }
 
+func (d *Discord) mentionCommand(interaction *discordgo.InteractionCreate, user *discordgo.User) {
+	var options []*discordgo.ApplicationCommandInteractionDataOption
+	var enabled bool
+
+	var err error
+
+	options = interaction.ApplicationCommandData().Options
+	if len(options) == 0 {
+		enabled, err = core.DiscordMentionEnabled(d.cfg.BotId, user.ID)
+		if err != nil {
+			d.respond(interaction, publicFailure("reading your mention setting", err))
+			return
+		}
+		if enabled {
+			d.respond(interaction, "I will ping you when I mention you.")
+			return
+		}
+		d.respond(interaction, "I mention you without pinging. Use `/mention on` to be pinged.")
+		return
+	}
+
+	enabled = options[0].StringValue() == "on"
+
+	err = core.DiscordMentionSet(d.cfg.BotId, user.ID, enabled)
+	if err != nil {
+		d.respond(interaction, publicFailure("saving your mention setting", err))
+		return
+	}
+
+	if enabled {
+		d.respond(interaction, "I will ping you from now on.")
+		return
+	}
+	d.respond(interaction, "I will stop pinging you.")
+}
+
 func (d *Discord) userCommand(interaction *discordgo.InteractionCreate) {
 	var actor *discordgo.User
 	var role string
@@ -175,6 +211,8 @@ func (d *Discord) onInteraction(gateway *discordgo.Session, interaction *discord
 		d.resetCommand(interaction)
 	case "agent":
 		d.agentCommand(interaction)
+	case "mention":
+		d.mentionCommand(interaction, user)
 	case "user":
 		d.userCommand(interaction)
 	}

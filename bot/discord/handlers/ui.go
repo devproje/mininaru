@@ -55,8 +55,9 @@ func newExecutionStatus(gateway *discordgo.Session, channelId, sourceChannelId, 
 		current: "💡 **Picking a skill**", currentReaction: "💡",
 	}
 	message, err = gateway.ChannelMessageSendComplex(channelId, &discordgo.MessageSend{
-		Flags:      discordgo.MessageFlagsIsComponentsV2,
-		Components: v2Container(statusAccent, discordgo.TextDisplay{Content: status.current}),
+		Flags:           discordgo.MessageFlagsIsComponentsV2,
+		Components:      v2Container(statusAccent, discordgo.TextDisplay{Content: status.current}),
+		AllowedMentions: silentMentions(),
 	})
 	if err == nil {
 		status.messageId = message.ID
@@ -80,6 +81,7 @@ func (s *executionStatus) show(reaction, text string) {
 		components = v2Container(statusAccent, discordgo.TextDisplay{Content: text})
 		s.gateway.ChannelMessageEditComplex(&discordgo.MessageEdit{
 			ID: s.messageId, Channel: s.channelId, Flags: discordgo.MessageFlagsIsComponentsV2, Components: &components,
+			AllowedMentions: silentMentions(),
 		})
 	}
 	if s.sourceMessageId != "" && reaction != s.currentReaction {
