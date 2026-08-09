@@ -4,3 +4,7 @@ contact_links:
   - name: Report a security vulnerability
     url: https://github.com/devproje/mininaru/security/advisories/new
     about: Never open a public issue for a vulnerability. Report it privately here; SECURITY.md says what is in scope.
+
+  - name: Ask a question
+    url: https://github.com/devproje/mininaru/discussions
+    about: Usage questions, and ideas that are not yet a bug report or a feature request.
