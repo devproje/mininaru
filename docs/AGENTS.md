@@ -110,7 +110,14 @@ Things that look like a bug or a simplification and are not:
   `dangerous`, or `privileged` permission. Do not widen a permission to make a
   test pass.
 
-## Commits
+## Branches and commits
+
+`master` is protected and takes changes through pull requests, so work goes on
+a branch. **Cut a new branch for every piece of work.** A branch whose pull
+request has been merged or closed is spent: do not push to it again and do not
+check it out for the next task, however closely the two are related. Branch
+from an updated `master` instead. [CONTRIBUTING.md](../CONTRIBUTING.md) says
+why.
 
 Conventional commits with a `type(scope):` subject, and a body in prose rather
 than bullet points, explaining what was wrong before the change and why this is
