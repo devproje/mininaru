@@ -596,4 +596,5 @@ make test-all    # test-race and test-cover together
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the package layout, how the
 TUI and server share one tool-calling loop, and the testing patterns.
 [docs/CONVENTION.md](docs/CONVENTION.md) defines the code style that `make test`
-enforces.
+enforces. [docs/AGENTS.md](docs/AGENTS.md) is what to hand an AI coding agent
+before it touches this repository.
