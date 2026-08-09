@@ -593,6 +593,23 @@ in the list a non-admin's turn is given.
 
 - `/reset` starts a fresh conversation in the channel
 - `/agent` shows which agent answers there, `/agent <name>` switches it
+- `/mention` shows whether the bot may ping you, `/mention on|off` sets it
+
+### Pings
+
+**The bot pings nobody by default.** Every message it sends goes out with an
+allowed-mentions list, so `@everyone`, `@here`, and role mentions never fire no
+matter what the model writes, and a mention of a person renders as a link
+without a notification.
+
+Being pinged is opt-in and per person: `/mention on` adds you to the list of
+users the bot may notify, and only you. The setting survives a change of role
+and applies to every channel that bot serves. `/mention off` puts it back.
+
+This is not a filter on the text — mentions still appear in the message and the
+model is free to write them. Discord is simply told which of them are allowed
+to notify anyone, which is why `@everyone` cannot fire even if the model is
+talked into typing it.
 
 Switching agents starts a new conversation; the old one keeps its history and
 simply stops being the channel's live session. The bot's `--agent` picks which

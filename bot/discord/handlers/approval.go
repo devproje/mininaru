@@ -43,7 +43,8 @@ func (d *Discord) approve(ctx context.Context, channelId, userId string, def mod
 		shown = string([]rune(shown)[:1200]) + "…"
 	}
 	_, err = d.gateway.ChannelMessageSendComplex(channelId, &discordgo.MessageSend{
-		Flags: discordgo.MessageFlagsIsComponentsV2,
+		Flags:           discordgo.MessageFlagsIsComponentsV2,
+		AllowedMentions: d.allowedMentions("<@" + userId + ">"),
 		Components: v2Container(approvalAccent,
 			discordgo.TextDisplay{Content: fmt.Sprintf("### 🔐 Tool approval needed\nOnly <@%s> can answer this.", userId)},
 			discordgo.Separator{},

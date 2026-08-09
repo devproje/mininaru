@@ -99,12 +99,12 @@ func (d *Discord) answerFor(ctx context.Context, channelId, sourceChannelId, sou
 
 	target, err = d.instance(channelId)
 	if err != nil {
-		sendReply(d.gateway, channelId, publicFailure("looking up the agent", err))
+		d.sendReply(channelId, publicFailure("looking up the agent", err))
 		return
 	}
 	session, err = target.Bind(OriginDiscord, channelId, "discord "+channelId)
 	if err != nil {
-		sendReply(d.gateway, channelId, publicFailure("setting up the conversation", err))
+		d.sendReply(channelId, publicFailure("setting up the conversation", err))
 		return
 	}
 	indicator = startTyping(d.gateway, channelId)
@@ -114,7 +114,7 @@ func (d *Discord) answerFor(ctx context.Context, channelId, sourceChannelId, sou
 		if err != nil {
 			indicator.stop()
 			status.show("❌", "❌ **Could not read the attachment**")
-			sendReply(d.gateway, channelId, publicFailure("reading the attachment", err))
+			d.sendReply(channelId, publicFailure("reading the attachment", err))
 			return
 		}
 	}
@@ -138,11 +138,11 @@ func (d *Discord) answerFor(ctx context.Context, channelId, sourceChannelId, sou
 	indicator.stop()
 	if err != nil {
 		status.show("❌", "❌ **That did not work**")
-		sendReply(d.gateway, channelId, publicFailure("answering", err))
+		d.sendReply(channelId, publicFailure("answering", err))
 		return
 	}
 	status.show("✅", "✅ **Done**")
-	sendReply(d.gateway, channelId, message.Content)
+	d.sendReply(channelId, message.Content)
 }
 
 func (d *Discord) onMessage(gateway *discordgo.Session, message *discordgo.MessageCreate) {

@@ -54,6 +54,72 @@ func DiscordUserAdd(botId, userId, role string) error {
 	return err
 }
 
+func DiscordMentionEnabled(botId, userId string) (bool, error) {
+	var enabled bool
+
+	var err error
+
+	err = util.DB.QueryRow("SELECT mention_enabled FROM discord_users WHERE bot_id = ? AND user_id = ?;",
+		botId, userId).Scan(&enabled)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	return enabled, err
+}
+
+func DiscordMentionSet(botId, userId string, enabled bool) error {
+	var result sql.Result
+	var changed int64
+
+	var err error
+
+	if botId == "" || userId == "" {
+		return fmt.Errorf("bot and user ids are required")
+	}
+
+	result, err = util.DB.Exec("UPDATE discord_users SET mention_enabled = ? WHERE bot_id = ? AND user_id = ?;",
+		enabled, botId, userId)
+	if err != nil {
+		return err
+	}
+
+	changed, err = result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if changed == 0 {
+		return fmt.Errorf("discord user is not paired with this bot")
+	}
+
+	return nil
+}
+
+func DiscordMentionUsers(botId string) (map[string]bool, error) {
+	var rows *sql.Rows
+	var allowed map[string]bool
+	var userId string
+
+	var err error
+
+	allowed = make(map[string]bool)
+
+	rows, err = util.DB.Query("SELECT user_id FROM discord_users WHERE bot_id = ? AND mention_enabled = 1;", botId)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		err = rows.Scan(&userId)
+		if err != nil {
+			return nil, err
+		}
+		allowed[userId] = true
+	}
+
+	return allowed, rows.Err()
+}
+
 func DiscordPairCreate(botId string) (string, error) {
 	var raw [8]byte
 	var index int

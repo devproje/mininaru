@@ -97,7 +97,7 @@ func (t *typing) stop() {
 	t.wait.Wait()
 }
 
-func sendReply(gateway *discordgo.Session, channelId, text string) {
+func (d *Discord) sendReply(channelId, text string) {
 	var chunks []string
 	var chunk string
 
@@ -108,6 +108,9 @@ func sendReply(gateway *discordgo.Session, channelId, text string) {
 	chunks = splitMessage(text, messageLimit)
 
 	for _, chunk = range chunks {
-		gateway.ChannelMessageSend(channelId, chunk)
+		d.gateway.ChannelMessageSendComplex(channelId, &discordgo.MessageSend{
+			Content:         chunk,
+			AllowedMentions: d.allowedMentions(chunk),
+		})
 	}
 }

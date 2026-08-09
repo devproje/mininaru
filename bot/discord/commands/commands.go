@@ -28,6 +28,19 @@ var slashCommands = []*discordgo.ApplicationCommand{
 		},
 	},
 	{
+		Name: "mention", Description: "Show or set whether this bot may ping you",
+		Options: []*discordgo.ApplicationCommandOption{
+			{
+				Type: discordgo.ApplicationCommandOptionString, Name: "state",
+				Description: "Leave empty to see the current setting", Required: false,
+				Choices: []*discordgo.ApplicationCommandOptionChoice{
+					{Name: "on", Value: "on"},
+					{Name: "off", Value: "off"},
+				},
+			},
+		},
+	},
+	{
 		Name: "user", Description: "Manage who is allowed to talk to this bot",
 		Options: []*discordgo.ApplicationCommandOption{{
 			Type: discordgo.ApplicationCommandOptionSubCommand, Name: "add", Description: "Let someone talk to this bot",
