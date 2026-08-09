@@ -598,3 +598,17 @@ TUI and server share one tool-calling loop, and the testing patterns.
 [docs/CONVENTION.md](docs/CONVENTION.md) defines the code style that `make test`
 enforces. [docs/AGENTS.md](docs/AGENTS.md) is what to hand an AI coding agent
 before it touches this repository.
+
+## License
+
+mininaru is free software under the **GNU General Public License, version 3 or
+later** (`GPL-3.0-or-later`). See [LICENSE](LICENSE) for the full text.
+
+Version 3 rather than 2 because the binary links `cobra`, `openai-go`, and the
+MCP SDK, which are Apache-2.0 — a licence compatible with GPLv3 but not with
+GPLv2.
+
+**The artwork is not covered by the GPL.** `assets/logo.png` and the naru
+character are all rights reserved; see [COPYRIGHT.md](COPYRIGHT.md) for what
+that allows. The software is unaffected by this: nothing in the program depends
+on the artwork.
