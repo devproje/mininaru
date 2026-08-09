@@ -107,7 +107,29 @@ func main() {
 - In a package without `main`, apply the same procedural order so that the
   package's public entry point or representative function comes last.
 
-## 3. API Paths
+## 3. Comments
+
+Do not write explanatory comments. If a block needs one to be understood, the
+names are wrong or the function is doing too much. Fix that instead.
+
+Three kinds of comment are allowed, and nothing else:
+
+- The two-line SPDX header every `.go` file starts with. It is the per-file
+  licence notice the GPL asks for, and tooling reads it.
+- Compiler directives such as `//go:build` and `//go:embed`.
+- A `//nolint` or equivalent pragma a tool requires to work.
+
+```go
+// SPDX-FileCopyrightText: 2026 Wonhyeok Kim (Project_IO)
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+package modules
+```
+
+A new file that is missing the header is incomplete. Copy it from any
+neighbouring file rather than retyping it.
+
+## 4. API Paths
 
 The externally exposed OpenAI-compatible API should follow OpenAI's request and
 response format and behavior as closely as possible, but every endpoint path
@@ -120,7 +142,7 @@ response format and behavior as closely as possible, but every endpoint path
 - Even when referring to an original OpenAI path, apply the `/api/v1` prefix to
   the actual URL the project serves.
 
-## 4. Logging
+## 5. Logging
 
 Diagnostics go through `util.Log`, the shared `log/slog` logger. Do not use
 `log.Printf`, and do not write diagnostics to `os.Stderr` with `fmt.Fprintf`.
@@ -149,7 +171,7 @@ Output written for the user — a command's results, the `-p` answer, tool progr
 in `-p` mode — is not logging. It keeps using `fmt` and goes to stdout, except
 `-p` tool progress and reasoning, which the README documents as stderr.
 
-## 5. Early Return
+## 6. Early Return
 
 Use early returns to reduce nested conditionals and keep the happy path easy to
 read. Return immediately on any condition that prevents further processing, such

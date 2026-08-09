@@ -28,9 +28,10 @@ place.
 `make test` fails on unformatted files, but gofmt does not check any of the
 rules below. They are the ones that come back in review:
 
-- **No comments.** The non-test source of this repository contains three
-  comment lines, and all three are `//go:build` or `//go:embed` directives. Do
-  not add explanatory comments; if a block needs one, the names are wrong.
+- **No comments.** Every comment in this repository is either the two-line SPDX
+  licence header at the top of a file or a compiler directive. There are no
+  explanatory comments anywhere; do not add the first one. A new `.go` file
+  starts with the SPDX header — copy it from a neighbouring file.
 - **No `:=`.** One `var` block at the top of the function, in first-use order,
   `err` last, assigned with `=` where the value is needed. This includes the
   init statements of `for`, `if`, and `switch`.
