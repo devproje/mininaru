@@ -8,7 +8,7 @@ Go binary and stores configuration and conversation history locally.
 ## Install
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/devproje/mininaru/master/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/devproje/mininaru/master/scripts/install.sh | sh
 ```
 
 That downloads the release for your platform, checks it against `SHA256SUMS`,
@@ -16,9 +16,9 @@ and installs it to `~/.local/bin`. Nothing is written outside your home
 directory and sudo is never used. Pass options after `-s --`:
 
 ```sh
-curl -fsSL .../install.sh | sh -s -- --version v0.2.0
-curl -fsSL .../install.sh | sh -s -- --bin-dir ~/bin
-curl -fsSL .../install.sh | sh -s -- --uninstall
+curl -fsSL .../scripts/install.sh | sh -s -- --version v0.2.0
+curl -fsSL .../scripts/install.sh | sh -s -- --bin-dir ~/bin
+curl -fsSL .../scripts/install.sh | sh -s -- --uninstall
 ```
 
 Prefer not to pipe a script into a shell? Download it, read it, then run it —
