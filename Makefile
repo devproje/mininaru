@@ -13,12 +13,25 @@ FMT_DIR = bot/ cli/ config/ core/ modules/ server/ util/
 
 COVER_OUT = out/coverage.out
 
-.PHONY: all build fmt vet test test-race test-cover test-all install uninstall clean
+DIST_DIR = dist
+GOOS    ?= $(shell go env GOOS)
+GOARCH  ?= $(shell go env GOARCH)
+DIST_NAME = mininaru_$(GOOS)_$(GOARCH)
+DIST_BIN  = $(DIST_DIR)/$(DIST_NAME)/mininaru$(if $(filter windows,$(GOOS)),.exe,)
+
+.PHONY: all build fmt vet test test-race test-cover test-all dist install uninstall clean
 
 all: build
 
 build:
 	go build -ldflags "$(LD_FLAGS)" -o $(TARGET) ./cli
+
+dist:
+	@mkdir -p $(dir $(DIST_BIN))
+	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) \
+		go build -trimpath -ldflags "$(LD_FLAGS)" -o $(DIST_BIN) ./cli
+	@cp LICENSE COPYRIGHT.md README.md $(dir $(DIST_BIN))
+	@echo "built $(DIST_BIN)"
 
 fmt:
 	@echo "checking code format..."
@@ -52,4 +65,4 @@ uninstall:
 
 clean:
 	@rm -f $(TARGET) $(COVER_OUT)
-	@rm -rf out/
+	@rm -rf out/ $(DIST_DIR)/
