@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 
 	"github.com/devproje/mininaru/util"
@@ -119,10 +118,10 @@ Wants=network-online.target
 [Service]
 Type=simple
 UMask=0077
-WorkingDirectory=` + strconv.Quote(workingDir) + `
-Environment=` + strconv.Quote("NARU_PATH="+dataDir) + `
-EnvironmentFile=` + strconv.Quote(envFile) + `
-ExecStart=` + strconv.Quote(binary) + ` serve
+WorkingDirectory=` + workingDir + `
+Environment=` + "NARU_PATH=" + dataDir + `
+EnvironmentFile=` + envFile + `
+ExecStart=` + binary + ` serve
 Restart=on-failure
 RestartSec=5
 
