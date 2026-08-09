@@ -71,6 +71,12 @@ tests on its own.
 Keep the pull request focused. A refactor bundled with a fix takes far longer
 to review than the two apart.
 
+**Backtick `@everyone` and `@here` in commit messages and tag annotations.**
+Both are real GitHub accounts. Written bare they become mentions of two people
+who have never heard of this project, and unlike release notes, a commit
+message cannot be edited after it is merged. The same goes for any `@name` you
+did not mean as a mention.
+
 ## Reporting things
 
 Bugs and feature ideas go in issues. Security problems do not — see
