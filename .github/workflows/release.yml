@@ -64,6 +64,7 @@ jobs:
           set -euo pipefail
 
           git tag -l --format='%(body)' "$TAG" > notes.md
+          sed -i -E 's/(^|[^`])@(everyone|here)/\1`@\2`/g' notes.md
           if [ ! -s notes.md ]; then
             echo "tag has no annotation body, generating notes instead" >&2
             rm -f notes.md
