@@ -46,6 +46,21 @@ New behaviour needs a test. There is no mock provider type — tests stand up an
 `httptest.Server` that speaks SSE and point a provider's `BaseURL` at it. The
 existing tests in `core/` and `server/` show the pattern.
 
+## Branches
+
+`master` takes changes through pull requests. Branch from an up to date
+`master`, and give the branch a name that says what the change is.
+
+**A branch is used once.** When its pull request is merged or closed, that
+branch is finished — do not push more commits to it and do not check it out
+again for the next piece of work, even when the next piece is related. Start a
+new branch from `master` instead.
+
+Reusing a branch reopens a merged pull request's history, mixes review threads
+that were already resolved into a change nobody has read, and leaves the branch
+carrying commits that master reached by another route. A branch is free; the
+confusion is not.
+
 ## Commits and pull requests
 
 Conventional commits: `type(scope): subject`, with a body in prose that says

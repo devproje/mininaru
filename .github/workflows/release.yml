@@ -74,6 +74,12 @@ jobs:
             *-*) prerelease="--prerelease" ;;
           esac
 
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "release $TAG already exists, uploading assets to it" >&2
+            gh release upload "$TAG" --clobber dist/mininaru_"$TAG"_* dist/SHA256SUMS
+            exit 0
+          fi
+
           if [ -f notes.md ]; then
             gh release create "$TAG" --title "$TAG" --notes-file notes.md $prerelease \
               dist/mininaru_"$TAG"_* dist/SHA256SUMS
