@@ -9,6 +9,7 @@ import (
 	"github.com/devproje/mininaru/bot/discord/attachments"
 	"github.com/devproje/mininaru/core"
 	"github.com/devproje/mininaru/modules"
+	"github.com/devproje/mininaru/util"
 	"github.com/openai/openai-go"
 )
 
@@ -155,7 +156,8 @@ func (d *Discord) onMessage(gateway *discordgo.Session, message *discordgo.Messa
 	}
 	role, err = d.role(message.Author.ID)
 	if err != nil || role == "" {
-		sendReply(gateway, message.ChannelID, "you are not paired with this bot")
+		util.Log.Debug("ignoring a mention from an unpaired user",
+			"user", message.Author.ID, "channel", message.ChannelID, "error", err)
 		return
 	}
 	channelId = d.conversationChannel(message)
