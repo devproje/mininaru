@@ -173,6 +173,44 @@ and a listing of companion files. Running a script is still `bash_exec`, so the
 approval prompt and its sandbox apply unchanged.
 
 The tool is classified **safe**, so the Discord bot and the HTTP API get skills.
+
+**Creation is privileged, not dangerous.** `skill_create`
+([modules/skillcreate.go](../modules/skillcreate.go)) is grouped with `memory`,
+not with `file_write`. The reason is what the write does after it lands: the new
+bundle enters `SkillCatalog()` and therefore every later system prompt. That is
+durable state feeding the prompt, which is exactly the property that made
+`memory` privileged, and a skill carries more of it than a memory line does. The
+practical effect is that `SafeTools()` filters it out, so the HTTP API cannot
+reach it at all and no approval prompt has to stand in for that.
+
+It writes nothing the loader would reject. Name, description, and body are put
+through `skillNamePattern`, `skillDescription`, and `maxSkillBody` — the same
+functions `skillParse` uses on the way back in — and the frontmatter is produced
+by `yaml.Marshal`, not string concatenation, so a description containing a colon
+quotes itself. The round-trip test in
+[modules/skillcreate_test.go](../modules/skillcreate_test.go) is what keeps the
+writer and the reader from drifting apart. `skillName`'s fall back to the
+directory name is deliberately *not* reused here: at read time a usable fallback
+beats dropping a bundle, but at write time the caller should be told it asked for
+something impossible. Overwriting requires an explicit flag and cannot cross
+scopes, so a project write can never shadow-then-replace a user skill.
+
+**Usage is recorded in its own table.** `skill_uses`
+([util/migrations/0009_skill_uses.sql](../util/migrations/0009_skill_uses.sql))
+duplicates something `tool_calls` already half-holds, and that is on purpose.
+`tool_calls` has a foreign key to `messages`, so a tool call made through
+`core.Complete` — the HTTP API, the Discord user-app commands — has no row at
+all; `skill_uses` has no such key and records those. It also stores the
+**resolved** scope and bundle path, which the raw arguments cannot tell you when
+a project and a user skill share a name.
+
+The write happens in `executeTool`, the one point both front-end paths funnel
+through, gated on a completed status so a load of a skill that does not exist is
+not counted as use. `completionRun` carries a `SessionId` purely to give that row
+its session; `core.Complete` leaves it empty rather than inventing one. A failure
+to record is logged and swallowed: the skill has already been loaded and the
+answer is already in flight, so failing the turn over an audit row is the wrong
+trade.
 That looks like it contradicts `file_read` being dangerous, but the reachable set
 here is finite and enumerable — only the bundles the operator installed, whose
 names and summaries the same request already carries in its prompt. The tool does

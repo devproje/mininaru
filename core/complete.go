@@ -22,6 +22,7 @@ type completionRun struct {
 	AllowDangerous  bool
 	AllowPrivileged bool
 
+	SessionId   string
 	MessageId   string
 	OnContent   func(string)
 	OnReasoning func(string)
@@ -107,7 +108,7 @@ func (r *completionRun) dispatch(ctx context.Context, message openai.ChatComplet
 				Arguments: record.Arguments, Status: record.Status})
 		}
 
-		record, err = executeTool(ctx, record, r.Defs, r.AllowDangerous, r.AllowPrivileged, r.Approve)
+		record, err = executeTool(ctx, r.SessionId, record, r.Defs, r.AllowDangerous, r.AllowPrivileged, r.Approve)
 		if err != nil {
 			return err
 		}

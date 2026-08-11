@@ -5,7 +5,9 @@ package main
 
 import (
 	"fmt"
+	"strconv"
 
+	"github.com/devproje/mininaru/core"
 	"github.com/devproje/mininaru/modules"
 	"github.com/spf13/cobra"
 )
@@ -37,6 +39,18 @@ var skillShowCmd *cobra.Command = &cobra.Command{
 	Args:  usageArgs(cobra.ExactArgs(1)),
 	RunE:  skillShowExecute,
 }
+
+var skillUsesCmd *cobra.Command = &cobra.Command{
+	Use:     "uses",
+	Aliases: []string{"stats"},
+	Short:   "show which skills the model has loaded",
+	Example: `  mininaru skill uses
+  mininaru skill uses --session 4f1c2a9e`,
+	Args: usageArgs(cobra.NoArgs),
+	RunE: skillUsesExecute,
+}
+
+var skillUsesSessionRef string
 
 func skillListExecute(cmd *cobra.Command, args []string) error {
 	var all []modules.Skill
@@ -75,7 +89,45 @@ func skillShowExecute(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+func skillUsesExecute(cmd *cobra.Command, args []string) error {
+	var uses []*core.SkillUse
+	var current *core.SkillUse
+	var scope string
+	var rows *uiRows
+
+	var err error
+
+	uses, err = core.SkillUseStats(skillUsesSessionRef)
+	if err != nil {
+		return err
+	}
+
+	if len(uses) == 0 {
+		uiEmpty("no skill usage recorded")
+
+		return nil
+	}
+
+	rows = uiTable("NAME", "SCOPE", "USES", "LAST USED")
+
+	for _, current = range uses {
+		scope = current.Scope
+		if scope == "" {
+			scope = "removed"
+		}
+
+		rows.row(current.Skill, scope, strconv.Itoa(current.Count), current.LastUsed)
+	}
+
+	rows.flush()
+
+	return nil
+}
+
 func init() {
+	skillUsesCmd.Flags().StringVar(&skillUsesSessionRef, "session", "", "only count loads from this session id")
+
 	skillConfig.AddCommand(skillListCmd)
 	skillConfig.AddCommand(skillShowCmd)
+	skillConfig.AddCommand(skillUsesCmd)
 }

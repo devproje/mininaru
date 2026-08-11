@@ -22,7 +22,7 @@ func TestBuiltinServerExposesEveryTool(t *testing.T) {
 
 	expected = map[string]bool{
 		"current_time": true, "file_read": true, "file_write": true, "bash_exec": true, "web_search": true,
-		"skill": true, "web_fetch": true, "memory": true,
+		"skill": true, "skill_create": true, "web_fetch": true, "memory": true,
 	}
 
 	if len(builtinDefs()) == 0 {

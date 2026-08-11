@@ -194,6 +194,7 @@ mininaru tools off             # disable for models without tool support
 mininaru mcp list              # configured mcp servers and their connection state
 mininaru skill list            # installed skills and which root they came from
 mininaru skill show <name>     # exactly what the skill tool would return
+mininaru skill uses            # which skills the model has actually loaded
 mininaru web show              # search provider, endpoint, and masked api key
 mininaru bot list              # chat bot front ends the daemon starts
 mininaru --allow-dangerous-tools # expose file and shell tools for this run
@@ -275,7 +276,7 @@ agent what it runs on and you get the build that answered, not a guess.
 
 ## Tools
 
-Every tool reaches the model over MCP. The eight built-in tools are served by an
+Every tool reaches the model over MCP. The nine built-in tools are served by an
 MCP server running inside the mininaru process, and additional servers can be
 configured in `mcp.json`.
 
@@ -298,12 +299,19 @@ account; use it only in a dedicated working directory.
 whole process group killed, so a backgrounded child cannot outlive the call or
 hold the tool open past its timeout.
 
-`memory` is the eighth built-in tool and the only **privileged** one. It stores
-durable facts in a small global SQLite table shared by the interactive front
-ends, capped at 4096 characters in total. It runs without an approval prompt,
-because the front ends that can reach it are already trusted: the TUI and a
-paired Discord admin. It is refused outright anywhere else, so it is never
-offered over the HTTP API and a regular Discord user cannot call it.
+`memory` and `skill_create` are the two **privileged** built-ins. They run
+without an approval prompt, because the front ends that can reach them are
+already trusted: the TUI and a paired Discord admin. They are refused outright
+anywhere else, so neither is offered over the HTTP API and a regular Discord user
+cannot call them.
+
+`memory` stores durable facts in a small global SQLite table shared by the
+interactive front ends, capped at 4096 characters in total.
+
+`skill_create` writes a skill bundle to disk and reloads the catalog. It is
+privileged rather than dangerous because what it writes is not just a file: the
+new skill joins the catalog in every later system prompt, which is the same
+durable-state-feeding-the-prompt shape as `memory`, with more reach.
 
 Tool calls and results are recorded in SQLite and the model may perform at most
 eight tool rounds for one user request. The TUI prints a compact log when a tool
@@ -402,6 +410,39 @@ approval prompt as any other shell command.
 
 `mininaru skill show <name>` prints the exact string the model receives, so it
 doubles as an audit of what your skill is really sending.
+
+### Creating a skill from a conversation
+
+The privileged `skill_create` tool lets the model write a bundle for you. It
+takes `name`, `description`, and `body` — the frontmatter is generated, so the
+model never hand-writes the YAML — plus an optional `scope` (`project`, the
+default, or `user`) and `overwrite`.
+
+Every value is checked against the rules the loader itself uses, so the tool
+cannot produce a bundle that then fails to load: the name must match
+`^[a-zA-Z0-9_-]{1,64}$`, the description is collapsed to one line and truncated
+at 200 characters, and the body is capped at 64 KiB. Writing over an existing
+skill needs `overwrite`, and even then only within the same scope — a project
+skill cannot silently displace your personal one.
+
+After a successful write the catalog is reloaded, so the new skill is listed
+from the next turn onward without restarting anything.
+
+### Tracking which skills were used
+
+Every successful `skill` call is recorded with the resolved scope and bundle
+path, including calls made over the HTTP API where there is no session to attach
+them to.
+
+```sh
+mininaru skill uses                  # NAME / SCOPE / USES / LAST USED
+mininaru skill uses --session <id>   # only loads from one session
+```
+
+The scope column reads `removed` when a skill has been used in the past but no
+longer exists on disk. In the TUI and the `-p` log a skill load is labelled
+`skill - <name>` instead of the raw arguments, and reading a companion file
+shows as `skill - <name>/<file>`.
 
 ## MCP servers
 
@@ -620,8 +661,8 @@ instead of taking up to an hour to propagate globally.
 Regular users can only use safe daemon tools. Admins can also use dangerous
 tools, but each dangerous call requires an explicit Approve/Deny click in
 Discord and expires after five minutes. Only the admin who made the request can
-answer its approval prompt. Admins also reach the privileged `memory` tool,
-which regular users never see.
+answer its approval prompt. Admins also reach the privileged `memory` and
+`skill_create` tools, which regular users never see.
 
 When the Discord application has **User Install** enabled, two global message
 commands are available from a message's **Apps** context menu in guilds, bot
@@ -673,8 +714,8 @@ The server is stateless: it never reads or writes the SQLite session store, and
 so the `context` budget does not apply here.
 
 Only safe tools are exposed over HTTP. `current_time`, `web_search`, `web_fetch`,
-and `skill` run server-side and are invisible to the client; `file_read`, `file_write`, and
-`bash_exec` are never offered, because HTTP has no approval prompt and would
+and `skill` run server-side and are invisible to the client; `file_read`,
+`file_write`, `bash_exec`, `memory`, and `skill_create` are never offered, because HTTP has no approval prompt and would
 otherwise hand unattended shell access to any client that reaches the port.
 `--allow-dangerous-tools` does not affect the server. MCP tools follow the same
 rule: only ones classified safe are exposed, and a server configured with

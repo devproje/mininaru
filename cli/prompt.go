@@ -33,17 +33,21 @@ func promptContent(value string, in io.Reader) (string, error) {
 }
 
 func promptToolLog(logs io.Writer, event core.ToolEvent) {
+	var label string
+
+	label = core.ToolLabel(event.Name, event.Arguments)
+
 	if event.Phase == core.ToolEventStarted {
-		fmt.Fprintf(logs, "tool %s started\n", event.Name)
+		fmt.Fprintf(logs, "tool %s started\n", label)
 		return
 	}
 
 	if event.Error != "" {
-		fmt.Fprintf(logs, "tool %s failed: %s\n", event.Name, event.Error)
+		fmt.Fprintf(logs, "tool %s failed: %s\n", label, event.Error)
 		return
 	}
 
-	fmt.Fprintf(logs, "tool %s completed\n", event.Name)
+	fmt.Fprintf(logs, "tool %s completed\n", label)
 }
 
 func runPrompt(ctx context.Context, out, logs io.Writer, session *core.Session, agent *core.NaruAgent, content string) error {

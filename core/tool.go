@@ -6,7 +6,9 @@ package core
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/devproje/mininaru/modules"
 	"github.com/devproje/mininaru/util"
@@ -79,6 +81,36 @@ func toolParams(defs []modules.Def) []openai.ChatCompletionToolParam {
 	return tools
 }
 
+func ToolLabel(name, arguments string) string {
+	var payload struct {
+		Name string `json:"name"`
+		Path string `json:"path"`
+	}
+
+	var err error
+
+	if name != modules.SkillToolName {
+		return name
+	}
+
+	err = json.Unmarshal([]byte(arguments), &payload)
+	if err != nil {
+		return name
+	}
+
+	payload.Name = strings.TrimSpace(payload.Name)
+	if payload.Name == "" {
+		return name
+	}
+
+	payload.Path = strings.TrimSpace(payload.Path)
+	if payload.Path != "" {
+		return name + " - " + payload.Name + "/" + payload.Path
+	}
+
+	return name + " - " + payload.Name
+}
+
 func findTool(defs []modules.Def, name string) *modules.Def {
 	var index int
 
@@ -134,7 +166,7 @@ func toolCallStart(messageId string, call openai.ChatCompletionMessageToolCall) 
 	return &record, nil
 }
 
-func executeTool(ctx context.Context, record *ToolCall, defs []modules.Def, allowDangerous, allowPrivileged bool, approve ToolApprovalFunc) (*ToolCall, error) {
+func executeTool(ctx context.Context, sessionId string, record *ToolCall, defs []modules.Def, allowDangerous, allowPrivileged bool, approve ToolApprovalFunc) (*ToolCall, error) {
 	var def *modules.Def
 	var approved bool
 
@@ -167,6 +199,10 @@ func executeTool(ctx context.Context, record *ToolCall, defs []modules.Def, allo
 		record.Status = MessageFailed
 		record.Error = err.Error()
 		record.Result = "error: " + record.Error
+	}
+
+	if record.Status == MessageCompleted && record.Name == modules.SkillToolName {
+		skillUseRecord(sessionId, record)
 	}
 
 	if record.Id == "" {
