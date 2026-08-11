@@ -53,6 +53,8 @@ type client struct {
 	input   textarea.Model
 	spinner spinner.Model
 
+	notice string
+
 	pending    strings.Builder
 	thinking   strings.Builder
 	transcript []transcriptEntry
@@ -105,6 +107,7 @@ func newClient(session *core.Session, agent *core.NaruAgent, history []*core.Mes
 		agent:   agent,
 		input:   input,
 		spinner: sp,
+		notice:  updateNotice(),
 		width:   80,
 		height:  24,
 		stored:  len(history) > 0,
@@ -198,6 +201,11 @@ func (c *client) banner() string {
 	body.WriteString(metaStyle.Render(fmt.Sprintf("  %s · %s", c.agent.Name, c.agent.Model)))
 	body.WriteString("\n")
 	body.WriteString(metaStyle.Render("  session " + shortId(c.session.Id)))
+
+	if c.notice != "" {
+		body.WriteString("\n")
+		body.WriteString(metaStyle.Render("  " + c.notice))
+	}
 
 	return body.String()
 }

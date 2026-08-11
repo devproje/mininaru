@@ -442,6 +442,45 @@ inserts a new session in one transaction, so switching agents or running
 `/reset` starts a clean conversation while the old one keeps its history and
 merely stops being the channel's live session.
 
+## Self update
+
+`cli/update.go` swaps the running executable for a release build and, if the
+systemd unit exists, restarts it. The unit's `ExecStart` is the symlink-resolved
+absolute path written at install time, so replacing the file in place and
+restarting is all it takes — nothing rewrites the unit.
+
+**Verify, then swap; never the other way round.** The archive streams through an
+`io.TeeReader` into a `sha256.Hash` while it is being un-tarred, so the checksum
+from the release's `SHA256SUMS` is confirmed on the bytes that were actually
+read, not on a second download. The extracted file is staged **in the same
+directory as its target** and only then `os.Rename`d over it. Same directory
+because rename cannot cross filesystems; rename because it is atomic and works
+on a running binary, which a plain write cannot (`ETXTBSY`). Every failure path
+deletes the staged file and leaves the current executable untouched, so there is
+no half-written state to recover from and no `.old` backup to clean up.
+
+The extractor takes exactly one entry — a regular file whose `filepath.Base` is
+`mininaru` — and ignores everything else in the archive. Path traversal stops
+being a question you have to answer when you never join an archive-supplied path
+onto a directory.
+
+`modules/webguard.go`'s SSRF guard is deliberately **not** used here. That guard
+exists because the model chooses those URLs; this host is a constant in the
+source.
+
+**The check is one release behind on purpose.** `updateCheckStart` fires a
+goroutine after `bootstrap()` and nothing waits for it. It writes the latest tag
+to `update.json`, and the notice is rendered from that cache on a *later* run.
+Blocking startup on a network call to display a courtesy message is a bad trade,
+and the freshness that buys is worth nothing when the TTL is a day anyway. The
+check is skipped entirely for `update`, `serve`, and `daemon` — the first does
+its own lookup and the other two are long-running processes where a
+start-time check answers a question nobody asked.
+
+`--tag` never writes the cache. The cache means "the newest release that
+exists", so recording a deliberately pinned older tag there would silence the
+very notice it is meant to raise.
+
 ## Bots
 
 `bot/` holds front ends that run inside the daemon. They are not HTTP clients

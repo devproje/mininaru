@@ -264,8 +264,28 @@ func daemonActiveState(ctx context.Context) string {
 	return strings.TrimSpace(string(out))
 }
 
-func daemonReloadExecute(cmd *cobra.Command, args []string) error {
+func daemonInstalled() (bool, error) {
 	var unitPath string
+
+	var err error
+
+	unitPath, _, err = daemonPaths()
+	if err != nil {
+		return false, err
+	}
+
+	_, err = os.Stat(unitPath)
+	if err == nil {
+		return true, nil
+	}
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+
+	return false, err
+}
+
+func daemonRestart(ctx context.Context) error {
 	var state string
 
 	var err error
@@ -273,29 +293,40 @@ func daemonReloadExecute(cmd *cobra.Command, args []string) error {
 	if _, err = exec.LookPath("systemctl"); err != nil {
 		return fmt.Errorf("systemctl is required: %w", err)
 	}
-	unitPath, _, err = daemonPaths()
-	if err != nil {
+	if err = systemctlUser(ctx, "daemon-reload"); err != nil {
 		return err
 	}
-	if _, err = os.Stat(unitPath); err != nil {
-		if os.IsNotExist(err) {
-			return configErrorf("%s is not installed, run `mininaru daemon install` first", daemonUnitName)
-		}
-
-		return err
-	}
-	if err = systemctlUser(cmd.Context(), "daemon-reload"); err != nil {
-		return err
-	}
-	if err = systemctlUser(cmd.Context(), "restart", daemonUnitName); err != nil {
+	if err = systemctlUser(ctx, "restart", daemonUnitName); err != nil {
 		return err
 	}
 
-	state = daemonActiveState(cmd.Context())
+	state = daemonActiveState(ctx)
 	if state != "active" && state != "activating" {
 		uiNote("logs: journalctl --user -u %s -n 50", daemonUnitName)
 
 		return fmt.Errorf("%s is %s after the restart", daemonUnitName, state)
+	}
+
+	return nil
+}
+
+func daemonReloadExecute(cmd *cobra.Command, args []string) error {
+	var installed bool
+
+	var err error
+
+	if _, err = exec.LookPath("systemctl"); err != nil {
+		return fmt.Errorf("systemctl is required: %w", err)
+	}
+	installed, err = daemonInstalled()
+	if err != nil {
+		return err
+	}
+	if !installed {
+		return configErrorf("%s is not installed, run `mininaru daemon install` first", daemonUnitName)
+	}
+	if err = daemonRestart(cmd.Context()); err != nil {
+		return err
 	}
 
 	uiOk("restarted %s", daemonUnitName)
