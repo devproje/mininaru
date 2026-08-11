@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -62,16 +63,50 @@ const (
 )
 
 func bootstrapExecute(cmd *cobra.Command, args []string) error {
+	var err error
+
 	if versionRef {
+		resolveDataDir()
+
 		return nil
 	}
 
-	return bootstrap()
+	err = bootstrap()
+	if err != nil {
+		return err
+	}
+
+	updateCheckStart(cmd)
+
+	return nil
+}
+
+func dataDirPath() string {
+	var path string
+
+	path = os.Getenv("NARU_PATH")
+	if path == "" {
+		path = ".mininaru"
+	}
+
+	return path
+}
+
+func resolveDataDir() {
+	var abs string
+
+	var err error
+
+	abs, err = filepath.Abs(dataDirPath())
+	if err != nil {
+		return
+	}
+
+	util.RootDir = abs
 }
 
 func bootstrap() error {
 	var workingDir string
-	var path string
 
 	var err error
 
@@ -90,14 +125,9 @@ func bootstrap() error {
 		return fmt.Errorf("set working root %s: %w", workingDir, err)
 	}
 
-	path = os.Getenv("NARU_PATH")
-	if path == "" {
-		path = ".mininaru"
-	}
-
-	err = util.InitFS(path)
+	err = util.InitFS(dataDirPath())
 	if err != nil {
-		return fmt.Errorf("init data directory %s: %w", path, err)
+		return fmt.Errorf("init data directory %s: %w", dataDirPath(), err)
 	}
 
 	util.DB, err = util.InitDatabase(util.Path("mininaru.db"))
@@ -139,11 +169,18 @@ func bootstrap() error {
 }
 
 func showVersion() {
+	var notice string
+
 	fmt.Println()
 	fmt.Println(util.NaruLogoWithPad("  "))
 	fmt.Println()
 
 	fmt.Println(util.RuntimeIdentity())
+
+	notice = updateNotice()
+	if notice != "" {
+		fmt.Println(notice)
+	}
 }
 
 func resolveAgent() (*core.NaruAgent, error) {
@@ -298,6 +335,7 @@ func rootInit() {
 
 	serve.GroupID = groupService
 	daemonConfig.GroupID = groupService
+	updateCmd.GroupID = groupService
 
 	root.AddCommand(setup)
 	root.AddCommand(serve)
@@ -312,6 +350,7 @@ func rootInit() {
 	root.AddCommand(webConfig)
 	root.AddCommand(botConfig)
 	root.AddCommand(daemonConfig)
+	root.AddCommand(updateCmd)
 }
 
 func main() {

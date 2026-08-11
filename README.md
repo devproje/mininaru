@@ -103,6 +103,48 @@ Providers, agents, bots, and mcp servers are read once at startup, so changes
 made with the other commands need a `daemon reload` to take effect. The running
 service also reloads its configuration on `SIGHUP` without dropping connections.
 
+## Updating
+
+`mininaru update` replaces the running executable with a published release
+build, and restarts the user daemon afterwards if one is installed.
+
+```sh
+mininaru update                 # install the latest release
+mininaru update --check         # print the installed and latest versions only
+mininaru update --tag v0.3.0    # install a specific release
+mininaru update --force         # reinstall the version already running
+mininaru update --no-restart    # leave the daemon alone
+```
+
+The archive is checked against the release's `SHA256SUMS` **before** anything is
+replaced, and the verified file is moved into place with a rename. A failed
+download, a checksum mismatch, or a broken archive therefore leaves the current
+executable exactly as it was -- there is no window where the binary is half
+written.
+
+The new file is staged in the same directory as the executable it replaces, so
+updating a binary somewhere you cannot write (`/usr/local/bin` as a normal user)
+fails immediately with a permission error rather than half way through. Install
+it yourself in that case, or keep mininaru under `~/.local/bin`.
+
+Linux and macOS only. On Windows the command refuses and points at the releases
+page, because the daemon it would restart is a systemd unit anyway.
+
+### Update notices
+
+Once a day, at most, mininaru asks GitHub for the latest release tag in the
+background and caches the answer in `update.json` under your data directory. The
+check never blocks a command: the result is written for the *next* run, which is
+when the notice appears under `--version` and at the top of the chat client.
+
+```
+a newer version is available: v0.4.0 (run `mininaru update`)
+```
+
+Builds reporting `dev` never show it. To turn the check off entirely, set
+`update.check` to `false` in `client.json`, or export
+`MININARU_NO_UPDATE_CHECK=1` for a single environment such as CI.
+
 ## First run
 
 `setup` walks through the whole thing -- provider, agent, the thinking and tool
@@ -196,6 +238,7 @@ mininaru skill list            # installed skills and which root they came from
 mininaru skill show <name>     # exactly what the skill tool would return
 mininaru web show              # search provider, endpoint, and masked api key
 mininaru bot list              # chat bot front ends the daemon starts
+mininaru update --check        # compare the running build against the latest release
 mininaru --allow-dangerous-tools # expose file and shell tools for this run
 ```
 

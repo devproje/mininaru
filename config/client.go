@@ -24,13 +24,20 @@ type Tools struct {
 	Enabled bool `json:"enabled"`
 }
 
+type Update struct {
+	Check bool `json:"check"`
+}
+
 type ClientConfig struct {
 	Thinking Thinking `json:"thinking"`
 	Context  Context  `json:"context"`
 	Tools    Tools    `json:"tools"`
+	Update   Update   `json:"update"`
 }
 
 const CLIENT_PATH = "client.json"
+
+const NoUpdateCheckEnv = "MININARU_NO_UPDATE_CHECK"
 
 const (
 	ThinkingOff    = "off"
@@ -48,6 +55,7 @@ var defaultClient ClientConfig = ClientConfig{
 	Thinking: Thinking{Level: ThinkingOff, Show: true},
 	Context:  Context{MaxChars: 32768},
 	Tools:    Tools{Enabled: true},
+	Update:   Update{Check: true},
 }
 
 func ThinkingLevels() []string {
@@ -70,6 +78,14 @@ func ThinkingValid(level string) bool {
 
 func ThinkingEnabled() bool {
 	return Client.Thinking.Level != "" && Client.Thinking.Level != ThinkingOff
+}
+
+func UpdateCheckEnabled() bool {
+	if os.Getenv(NoUpdateCheckEnv) != "" {
+		return false
+	}
+
+	return Client.Update.Check
 }
 
 func ClientInit() error {
