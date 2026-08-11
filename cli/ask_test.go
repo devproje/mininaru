@@ -5,17 +5,22 @@ package main
 
 import (
 	"bytes"
+	"io"
 	"strings"
 	"testing"
 )
 
 func fakeSession(t *testing.T, input string) *bytes.Buffer {
 	var out bytes.Buffer
-	var previousIn = askIn
-	var previousOut = askOut
-	var previousInteractive = askInteractive
+	var previousIn io.Reader
+	var previousOut io.Writer
+	var previousInteractive func() bool
 
 	t.Helper()
+
+	previousIn = askIn
+	previousOut = askOut
+	previousInteractive = askInteractive
 
 	askIn = strings.NewReader(input)
 	askOut = &out
@@ -173,8 +178,11 @@ func TestAskPromptsGoToTheGivenWriterNotStdout(t *testing.T) {
 }
 
 func TestTerminalSessionIsFalseForAPipe(t *testing.T) {
-	var previousIn = askIn
-	var previousOut = askOut
+	var previousIn io.Reader
+	var previousOut io.Writer
+
+	previousIn = askIn
+	previousOut = askOut
 
 	t.Cleanup(func() {
 		askIn = previousIn

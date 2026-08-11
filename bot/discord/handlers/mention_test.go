@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/bwmarrin/discordgo"
 	"github.com/devproje/mininaru/core"
 	"github.com/devproje/mininaru/util"
 )
@@ -42,7 +43,9 @@ func TestMentionedIdsIgnoresRolesAndEveryone(t *testing.T) {
 }
 
 func TestSilentMentionsBlocksEverything(t *testing.T) {
-	var allowed = silentMentions()
+	var allowed *discordgo.MessageAllowedMentions
+
+	allowed = silentMentions()
 
 	if allowed.Parse == nil {
 		t.Fatal("Parse is nil, which lets Discord fall back to parsing every mention")
@@ -54,7 +57,9 @@ func TestSilentMentionsBlocksEverything(t *testing.T) {
 
 func TestAllowedMentionsPingsOnlyOptedInUsers(t *testing.T) {
 	var bot Discord
-	var allowed = silentMentions()
+	var allowed *discordgo.MessageAllowedMentions
+
+	allowed = silentMentions()
 	var id string
 
 	var err error
@@ -86,7 +91,9 @@ func TestAllowedMentionsPingsOnlyOptedInUsers(t *testing.T) {
 
 func TestAllowedMentionsStaySilentWithoutOptIn(t *testing.T) {
 	var bot Discord
-	var allowed = silentMentions()
+	var allowed *discordgo.MessageAllowedMentions
+
+	allowed = silentMentions()
 
 	var err error
 

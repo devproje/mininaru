@@ -13,6 +13,11 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+type uiRows struct {
+	buffer bytes.Buffer
+	writer *tabwriter.Writer
+}
+
 const (
 	accentColor = lipgloss.Color("#f0b060")
 	userColor   = lipgloss.Color("#e8e8e8")
@@ -41,11 +46,6 @@ var (
 	thinkTextStyle = lipgloss.NewStyle().Foreground(blushColor).Italic(true)
 	toolMarkStyle  = lipgloss.NewStyle().Foreground(accentColor)
 )
-
-type uiRows struct {
-	buffer bytes.Buffer
-	writer *tabwriter.Writer
-}
 
 func uiTable(headers ...string) *uiRows {
 	var rows *uiRows

@@ -72,12 +72,13 @@ func TestDiscordMentionRejectsAnUnpairedUser(t *testing.T) {
 
 func TestDiscordMentionUsersListsOnlyOptedInOnesForThisBot(t *testing.T) {
 	var opted map[string]bool
+	var pair [2]string
 
 	var err error
 
 	setupDiscordUsers(t)
 
-	for _, pair := range [][2]string{{"bot-1", "yes"}, {"bot-1", "no"}, {"bot-2", "other"}} {
+	for _, pair = range [][2]string{{"bot-1", "yes"}, {"bot-1", "no"}, {"bot-2", "other"}} {
 		err = DiscordUserAdd(pair[0], pair[1], DiscordRoleUser)
 		if err != nil {
 			t.Fatal(err)

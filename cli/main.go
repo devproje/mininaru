@@ -22,6 +22,12 @@ import (
 
 const latestSession = "@latest"
 
+const (
+	groupChat    = "chat"
+	groupConfig  = "configuration"
+	groupService = "service"
+)
+
 var (
 	version string
 	branch  string
@@ -55,12 +61,6 @@ providers, agents, tools and bots, and serve the OpenAI compatible API.`,
 	PersistentPreRunE: bootstrapExecute,
 	RunE:              execute,
 }
-
-const (
-	groupChat    = "chat"
-	groupConfig  = "configuration"
-	groupService = "service"
-)
 
 func bootstrapExecute(cmd *cobra.Command, args []string) error {
 	var err error

@@ -11,16 +11,16 @@ import (
 	"github.com/spf13/cobra"
 )
 
+type exitError struct {
+	code int
+	err  error
+}
+
 const (
 	exitFailure = 1
 	exitUsage   = 2
 	exitConfig  = 3
 )
-
-type exitError struct {
-	code int
-	err  error
-}
 
 func (e *exitError) Error() string {
 	return e.err.Error()

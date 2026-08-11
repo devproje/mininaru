@@ -14,17 +14,17 @@ import (
 	"golang.org/x/term"
 )
 
-var progressOut io.Writer = os.Stderr
-
-var progressFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
-
-const progressInterval = 90 * time.Millisecond
-
 type progress struct {
 	cancel context.CancelFunc
 	done   chan struct{}
 	once   sync.Once
 }
+
+const progressInterval = 90 * time.Millisecond
+
+var progressOut io.Writer = os.Stderr
+
+var progressFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
 func progressTerminal() bool {
 	var out *os.File
