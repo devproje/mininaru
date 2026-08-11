@@ -627,7 +627,7 @@ func (c *client) renderToolEvent(event core.ToolEvent) string {
 		detail = "  " + detail
 	}
 
-	return toolMarkStyle.Render("  "+mark+" "+event.Name) + hintStyle.Render(detail)
+	return toolMarkStyle.Render("  "+mark+" "+core.ToolLabel(event.Name, event.Arguments)) + hintStyle.Render(detail)
 }
 
 func (c *client) renderToolCall(call *core.ToolCall) string {

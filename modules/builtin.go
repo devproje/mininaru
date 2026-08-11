@@ -91,6 +91,13 @@ func builtinTools() []builtinTool {
 			},
 		},
 		{
+			Build:      SkillCreate,
+			Permission: PermissionPrivileged,
+			Annotations: mcp.ToolAnnotations{
+				Title: "create skill", ReadOnlyHint: false, DestructiveHint: hint(true), OpenWorldHint: hint(false),
+			},
+		},
+		{
 			Build:      Memory,
 			Permission: PermissionPrivileged,
 			Annotations: mcp.ToolAnnotations{

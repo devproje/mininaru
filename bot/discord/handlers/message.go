@@ -123,7 +123,7 @@ func (d *Discord) answerFor(ctx context.Context, channelId, sourceChannelId, sou
 	}
 	onTool = func(event core.ToolEvent) {
 		if event.Phase == core.ToolEventStarted {
-			status.show("🔧", "🔧 **Running a tool** · `"+event.Name+"`")
+			status.show("🔧", "🔧 **Running a tool** · `"+core.ToolLabel(event.Name, event.Arguments)+"`")
 		}
 	}
 	if role == core.DiscordRoleAdmin {

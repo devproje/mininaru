@@ -42,7 +42,7 @@ func TestPrivilegedToolRefusedWithoutInteractiveFrontEnd(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	record, err = executeTool(context.Background(), record, defs, true, false,
+	record, err = executeTool(context.Background(), "", record, defs, true, false,
 		func(context.Context, modules.Def, string) (bool, error) {
 			approvals++
 			return true, nil
@@ -85,7 +85,7 @@ func TestPrivilegedToolRunsForInteractiveFrontEnd(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	record, err = executeTool(context.Background(), record, defs, false, true,
+	record, err = executeTool(context.Background(), "", record, defs, false, true,
 		func(context.Context, modules.Def, string) (bool, error) {
 			approvals++
 			return true, nil

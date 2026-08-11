@@ -145,7 +145,7 @@ func TestDangerousToolRequiresApprovalOrBypass(t *testing.T) {
 	if len(calls) != 1 || calls[0].Status != MessagePending {
 		t.Fatalf("started tool call = %#v", calls)
 	}
-	record, err = executeTool(context.Background(), record, defs, false, true,
+	record, err = executeTool(context.Background(), "", record, defs, false, true,
 		func(context.Context, modules.Def, string) (bool, error) {
 			approvals++
 			return false, nil
@@ -163,7 +163,7 @@ func TestDangerousToolRequiresApprovalOrBypass(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	record, err = executeTool(context.Background(), record, defs, false, true,
+	record, err = executeTool(context.Background(), "", record, defs, false, true,
 		func(context.Context, modules.Def, string) (bool, error) {
 			approvals++
 			return true, nil
@@ -182,7 +182,7 @@ func TestDangerousToolRequiresApprovalOrBypass(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	record, err = executeTool(context.Background(), record, defs, true, true,
+	record, err = executeTool(context.Background(), "", record, defs, true, true,
 		func(context.Context, modules.Def, string) (bool, error) {
 			approved = true
 			return false, nil
