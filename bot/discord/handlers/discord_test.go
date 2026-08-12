@@ -5,6 +5,9 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -72,6 +75,63 @@ func TestCommandSetsKeepUserAppCommandsGlobal(t *testing.T) {
 	}
 	if !foundAnalyzer || !foundChat {
 		t.Fatalf("global commands missing analyzer=%v chat=%v", foundAnalyzer, foundChat)
+	}
+}
+
+func TestAgentCommandEnablesAutocomplete(t *testing.T) {
+	var global []*discordgo.ApplicationCommand
+	var command *discordgo.ApplicationCommand
+
+	_, global = commands.Sets("")
+	for _, command = range global {
+		if command.Name != "agent" {
+			continue
+		}
+		if len(command.Options) != 1 || !command.Options[0].Autocomplete {
+			t.Fatalf("agent command option = %#v, want autocomplete", command.Options)
+		}
+		return
+	}
+	t.Fatal("agent command missing")
+}
+
+func TestAgentChoicesFilterAndStayWithinDiscordLimit(t *testing.T) {
+	var instances []*core.Instance
+	var choices []*discordgo.ApplicationCommandOptionChoice
+	var index int
+
+	for index = 0; index < 30; index++ {
+		instances = append(instances, &core.Instance{Agent: &core.NaruAgent{Name: fmt.Sprintf("Agent-%02d", index)}})
+	}
+	choices = agentChoices(instances, "agent-")
+	if len(choices) != autocompleteLimit {
+		t.Fatalf("choices = %d, want %d", len(choices), autocompleteLimit)
+	}
+	choices = agentChoices(instances, "-07")
+	if len(choices) != 1 || choices[0].Value != "Agent-07" {
+		t.Fatalf("filtered choices = %#v", choices)
+	}
+	instances = append([]*core.Instance{{Agent: &core.NaruAgent{Name: strings.Repeat("x", autocompleteNameLimit+1)}}}, instances...)
+	choices = agentChoices(instances, strings.Repeat("x", autocompleteNameLimit))
+	if len(choices) != 0 {
+		t.Fatalf("overlong agent was offered: %#v", choices)
+	}
+}
+
+func TestResetConfirmationBindsControlsToRequester(t *testing.T) {
+	var encoded []byte
+	var text string
+
+	var err error
+
+	encoded, err = json.Marshal(resetConfirmationComponents("naru", "user-1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text = string(encoded)
+	if !strings.Contains(text, "cannot be undone") || !strings.Contains(text, "reset:yes:user-1") ||
+		!strings.Contains(text, "reset:no:user-1") {
+		t.Fatalf("reset confirmation = %s", text)
 	}
 }
 

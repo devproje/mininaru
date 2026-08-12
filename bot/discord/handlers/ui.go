@@ -103,7 +103,7 @@ func (s *executionStatus) finish(reaction, text string, allowed *discordgo.Messa
 	if text == "" {
 		text = emptyReply
 	}
-	chunks = splitMessage(text, messageLimit)
+	chunks = splitReply(text, messageLimit)
 
 	s.mu.Lock()
 	defer s.mu.Unlock()

@@ -4,6 +4,7 @@
 package handlers
 
 import (
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -20,6 +21,8 @@ type typing struct {
 }
 
 const messageLimit = 2000
+
+const replyChunkReserve = 64
 
 const typingInterval = 8 * time.Second
 
@@ -63,6 +66,62 @@ func splitMessage(text string, limit int) []string {
 	return chunks
 }
 
+func splitReply(text string, limit int) []string {
+	var raw []string
+	var chunks []string
+	var chunk string
+	var fence string
+	var prefix string
+	var index int
+
+	if limit <= replyChunkReserve {
+		return splitMessage(text, limit)
+	}
+	raw = splitMessage(text, limit-replyChunkReserve)
+	for _, chunk = range raw {
+		prefix = ""
+		if fence != "" {
+			prefix = fence + "\n"
+		}
+		fence = replyFenceAfter(fence, chunk)
+		chunk = prefix + chunk
+		if fence != "" {
+			chunk += "\n```"
+		}
+		chunks = append(chunks, chunk)
+	}
+	if len(chunks) == 1 {
+		return chunks
+	}
+	for index = range chunks {
+		chunks[index] += fmt.Sprintf("\n\n-# Part %d/%d", index+1, len(chunks))
+	}
+	return chunks
+}
+
+func replyFenceAfter(open, text string) string {
+	var lines []string
+	var line string
+	var marker string
+
+	lines = strings.Split(text, "\n")
+	for _, line = range lines {
+		marker = strings.TrimSpace(line)
+		if !strings.HasPrefix(marker, "```") {
+			continue
+		}
+		if open != "" {
+			open = ""
+			continue
+		}
+		open = marker
+		if len([]rune(open)) > 32 {
+			open = "```"
+		}
+	}
+	return open
+}
+
 func startTyping(gateway *discordgo.Session, channelId string) *typing {
 	var indicator typing
 
@@ -104,7 +163,7 @@ func (d *Discord) sendReply(channelId, text string) {
 		text = emptyReply
 	}
 
-	chunks = splitMessage(text, messageLimit)
+	chunks = splitReply(text, messageLimit)
 	d.sendChunks(channelId, chunks)
 }
 

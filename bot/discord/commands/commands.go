@@ -24,7 +24,10 @@ var slashCommands = []*discordgo.ApplicationCommand{
 	{
 		Name: "agent", Description: "Show or switch who answers in this channel",
 		Options: []*discordgo.ApplicationCommandOption{
-			{Type: discordgo.ApplicationCommandOptionString, Name: "name", Description: "Agent to switch to, or leave empty to see the current one", Required: false},
+			{
+				Type: discordgo.ApplicationCommandOptionString, Name: "name",
+				Description: "Agent to switch to, or leave empty to see the current one", Required: false, Autocomplete: true,
+			},
 		},
 	},
 	{
