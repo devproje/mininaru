@@ -27,6 +27,9 @@ type Discord struct {
 	registry  *core.Registry
 	gateway   *discordgo.Session
 	approvals map[string]*discordApproval
+	seen      map[string]struct{}
+	seenOrder []string
+	turns     map[string]chan struct{}
 	mu        sync.Mutex
 
 	lifetime context.Context
@@ -53,7 +56,10 @@ func New(cfg Config, registry *core.Registry) (*Discord, error) {
 		return nil, fmt.Errorf("registry is required")
 	}
 
-	bot = Discord{cfg: cfg, registry: registry, approvals: make(map[string]*discordApproval)}
+	bot = Discord{
+		cfg: cfg, registry: registry, approvals: make(map[string]*discordApproval),
+		seen: make(map[string]struct{}), turns: make(map[string]chan struct{}),
+	}
 	bot.lifetime, bot.shutdown = context.WithCancel(context.Background())
 
 	bot.gateway, err = discordgo.New("Bot " + cfg.Token)
