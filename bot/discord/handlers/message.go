@@ -7,6 +7,7 @@ import (
 	"context"
 	"strings"
 	"sync"
+	"unicode"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/devproje/mininaru/bot/discord/attachments"
@@ -15,6 +16,15 @@ import (
 	"github.com/devproje/mininaru/util"
 	"github.com/openai/openai-go"
 )
+
+type conversationTarget struct {
+	channelId string
+	created   bool
+	fallback  bool
+}
+
+const threadNameLimit = 100
+const seenMessageLimit = 2048
 
 func (d *Discord) addressed(message *discordgo.MessageCreate) (string, bool) {
 	var content string
@@ -61,29 +71,132 @@ func (d *Discord) ownedThread(channelId string) bool {
 	return channel.OwnerID == d.gateway.State.User.ID
 }
 
-func (d *Discord) conversationChannel(message *discordgo.MessageCreate) string {
+func (d *Discord) conversationChannel(message *discordgo.MessageCreate, content string) conversationTarget {
 	var channel *discordgo.Channel
 	var thread *discordgo.Channel
+	var target conversationTarget
 
 	var err error
 
+	target.channelId = message.ChannelID
 	if message.GuildID == "" {
-		return message.ChannelID
+		return target
 	}
 	channel, err = d.gateway.State.Channel(message.ChannelID)
+	if err != nil {
+		channel, err = d.gateway.Channel(message.ChannelID)
+	}
 	if err == nil && (channel.Type == discordgo.ChannelTypeGuildPublicThread ||
 		channel.Type == discordgo.ChannelTypeGuildPrivateThread || channel.Type == discordgo.ChannelTypeGuildNewsThread) {
-		return message.ChannelID
+		return target
 	}
-	thread, err = d.gateway.MessageThreadStart(message.ChannelID, message.ID, "mininaru", 60)
+	thread, err = d.gateway.MessageThreadStart(message.ChannelID, message.ID, threadName(content, len(message.Attachments) > 0), 60)
 	if err != nil {
-		return message.ChannelID
+		target.fallback = true
+		util.Log.Warn("creating discord conversation thread failed",
+			"channel", message.ChannelID, "message", message.ID, "error", err)
+		return target
 	}
-	return thread.ID
+	target.channelId = thread.ID
+	target.created = true
+	return target
+}
+
+func threadName(content string, attached bool) string {
+	var summary string
+	var name string
+	var runes []rune
+
+	summary = strings.Join(strings.Fields(content), " ")
+	summary = strings.Map(func(value rune) rune {
+		if unicode.IsControl(value) {
+			return -1
+		}
+		return value
+	}, summary)
+	summary = strings.Trim(summary, "#*_`>~ ")
+	if summary == "" && attached {
+		summary = "attachment"
+	}
+	if summary == "" {
+		summary = "conversation"
+	}
+	name = "mininaru · " + summary
+	runes = []rune(name)
+	if len(runes) > threadNameLimit {
+		name = string(runes[:threadNameLimit-1]) + "…"
+	}
+	return name
+}
+
+func (d *Discord) rememberMessage(messageId string) bool {
+	var oldest string
+	var found bool
+
+	if messageId == "" {
+		return true
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.seen == nil {
+		d.seen = make(map[string]struct{})
+	}
+	_, found = d.seen[messageId]
+	if found {
+		return false
+	}
+	if len(d.seenOrder) == seenMessageLimit {
+		oldest = d.seenOrder[0]
+		delete(d.seen, oldest)
+		d.seenOrder = d.seenOrder[1:]
+	}
+	d.seen[messageId] = struct{}{}
+	d.seenOrder = append(d.seenOrder, messageId)
+	return true
+}
+
+func (d *Discord) queueTurn(channelId string, run func()) {
+	var previous chan struct{}
+	var current chan struct{}
+
+	current = make(chan struct{})
+	d.mu.Lock()
+	if d.turns == nil {
+		d.turns = make(map[string]chan struct{})
+	}
+	previous = d.turns[channelId]
+	d.turns[channelId] = current
+	d.mu.Unlock()
+
+	go func() {
+		defer func() {
+			close(current)
+			d.mu.Lock()
+			if d.turns[channelId] == current {
+				delete(d.turns, channelId)
+			}
+			d.mu.Unlock()
+		}()
+		if previous != nil {
+			if d.lifetime == nil {
+				<-previous
+			} else {
+				select {
+				case <-previous:
+				case <-d.lifetime.Done():
+					return
+				}
+			}
+		}
+		if d.lifetime != nil && d.lifetime.Err() != nil {
+			return
+		}
+		run()
+	}()
 }
 
 func (d *Discord) answerFor(ctx context.Context, channelId, sourceChannelId, sourceMessageId, userId, role, content string,
-	sourceAttachments []*discordgo.MessageAttachment) {
+	sourceAttachments []*discordgo.MessageAttachment, newThread bool) {
 	var target *core.Instance
 	var session *core.Session
 	var indicator *typing
@@ -94,18 +207,22 @@ func (d *Discord) answerFor(ctx context.Context, channelId, sourceChannelId, sou
 	var onTool core.ToolEventFunc
 	var defs []modules.Def
 	var message *core.Message
+	var remaining []string
 
 	var err error
 
 	target, err = d.instance(channelId)
 	if err != nil {
-		d.sendReply(channelId, publicFailure("looking up the agent", err))
+		d.sendReply(channelId, conversationFailure("looking up the agent", err))
 		return
 	}
 	session, err = target.Bind(OriginDiscord, channelId, "discord "+channelId)
 	if err != nil {
-		d.sendReply(channelId, publicFailure("setting up the conversation", err))
+		d.sendReply(channelId, conversationFailure("setting up the conversation", err))
 		return
+	}
+	if newThread {
+		d.sendThreadWelcome(channelId, target.Agent.Name)
 	}
 	indicator = startTyping(d.gateway, channelId)
 	status = newExecutionStatus(d.gateway, channelId, sourceChannelId, sourceMessageId)
@@ -113,8 +230,8 @@ func (d *Discord) answerFor(ctx context.Context, channelId, sourceChannelId, sou
 		parts, err = attachments.Build(ctx, content, sourceAttachments)
 		if err != nil {
 			indicator.stop()
-			status.show("❌", "❌ **Could not read the attachment**")
-			d.sendReply(channelId, publicFailure("reading the attachment", err))
+			remaining = status.finish("❌", conversationFailure("reading the attachment", err), silentMentions())
+			d.sendChunks(channelId, remaining)
 			return
 		}
 	}
@@ -137,19 +254,19 @@ func (d *Discord) answerFor(ctx context.Context, channelId, sourceChannelId, sou
 	}
 	indicator.stop()
 	if err != nil {
-		status.show("❌", "❌ **That did not work**")
-		d.sendReply(channelId, publicFailure("answering", err))
+		remaining = status.finish("❌", conversationFailure("answering", err), silentMentions())
+		d.sendChunks(channelId, remaining)
 		return
 	}
-	status.show("✅", "✅ **Done**")
-	d.sendReply(channelId, message.Content)
+	remaining = status.finish("✅", message.Content, d.allowedMentions(message.Content))
+	d.sendChunks(channelId, remaining)
 }
 
 func (d *Discord) onMessage(gateway *discordgo.Session, message *discordgo.MessageCreate) {
 	var content string
 	var addressed bool
 	var role string
-	var channelId string
+	var target conversationTarget
 
 	var err error
 
@@ -158,21 +275,32 @@ func (d *Discord) onMessage(gateway *discordgo.Session, message *discordgo.Messa
 		return
 	}
 	role, err = d.role(message.Author.ID)
-	if err != nil || role == "" {
-		util.Log.Debug("ignoring a mention from an unpaired user",
-			"user", message.Author.ID, "channel", message.ChannelID, "error", err)
+	if err != nil {
+		d.sendReply(message.ChannelID, publicFailure("checking your access", err))
 		return
 	}
+	if role == "" {
+		util.Log.Debug("ignoring a mention from an unpaired user",
+			"user", message.Author.ID, "channel", message.ChannelID)
+		d.sendReply(message.ChannelID, accessDenied(d.cfg.BotId != ""))
+		return
+	}
+	if !d.rememberMessage(message.ID) {
+		util.Log.Debug("ignoring duplicate discord message", "message", message.ID, "channel", message.ChannelID)
+		return
+	}
+	target = d.conversationChannel(message, content)
+	if target.fallback {
+		d.sendThreadFallback(message.ChannelID)
+	}
 	content = withIdentity(message.Author.ID, role, content)
-	channelId = d.conversationChannel(message)
-
-	go func() {
+	d.queueTurn(target.channelId, func() {
 		var ctx context.Context
 		var cancel context.CancelFunc
 
 		ctx, cancel = d.turnContext()
 		defer cancel()
 
-		d.answerFor(ctx, channelId, message.ChannelID, message.ID, message.Author.ID, role, content, message.Attachments)
-	}()
+		d.answerFor(ctx, target.channelId, message.ChannelID, message.ID, message.Author.ID, role, content, message.Attachments, target.created)
+	})
 }

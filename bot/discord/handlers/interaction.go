@@ -4,9 +4,14 @@
 package handlers
 
 import (
+	"strings"
+
 	"github.com/bwmarrin/discordgo"
 	"github.com/devproje/mininaru/core"
 )
+
+const autocompleteLimit = 25
+const autocompleteNameLimit = 100
 
 func (d *Discord) respond(interaction *discordgo.InteractionCreate, text string) {
 	d.gateway.InteractionRespond(interaction.Interaction, &discordgo.InteractionResponse{
@@ -42,24 +47,93 @@ func (d *Discord) pairCommand(interaction *discordgo.InteractionCreate, user *di
 	d.respond(interaction, "You are the admin now.")
 }
 
-func (d *Discord) resetCommand(interaction *discordgo.InteractionCreate) {
-	var channelId string
+func (d *Discord) resetCommand(interaction *discordgo.InteractionCreate, user *discordgo.User) {
 	var target *core.Instance
+	var components []discordgo.MessageComponent
 
 	var err error
 
-	channelId = interaction.ChannelID
-	target, err = d.instance(channelId)
+	target, err = d.instance(interaction.ChannelID)
 	if err != nil {
 		d.respond(interaction, publicFailure("looking up the agent", err))
 		return
 	}
-	_, err = core.SessionAttach(target.Agent, OriginDiscord, channelId, "discord "+channelId)
+	components = resetConfirmationComponents(target.Agent.Name, user.ID)
+	d.gateway.InteractionRespond(interaction.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Flags: discordgo.MessageFlagsIsComponentsV2 | discordgo.MessageFlagsEphemeral, Components: components,
+			AllowedMentions: silentMentions(),
+		},
+	})
+}
+
+func resetConfirmationComponents(agentName, userId string) []discordgo.MessageComponent {
+	var shownName string
+
+	shownName = strings.ReplaceAll(agentName, "`", "ˋ")
+	return v2Container(approvalAccent,
+		discordgo.TextDisplay{Content: "### Start a fresh conversation?\nThis will forget the current conversation with `" + shownName + "` in this channel. This cannot be undone."},
+		discordgo.ActionsRow{Components: []discordgo.MessageComponent{
+			discordgo.Button{Label: "Start fresh", Style: discordgo.DangerButton, CustomID: "reset:yes:" + userId},
+			discordgo.Button{Label: "Keep conversation", Style: discordgo.SecondaryButton, CustomID: "reset:no:" + userId},
+		}},
+	)
+}
+
+func (d *Discord) resetInteraction(interaction *discordgo.InteractionCreate) {
+	var customId string
+	var parts []string
+	var user *discordgo.User
+	var role string
+	var target *core.Instance
+	var components []discordgo.MessageComponent
+
+	var err error
+
+	customId = interaction.MessageComponentData().CustomID
+	parts = strings.Split(customId, ":")
+	user = interactionUser(interaction)
+	if len(parts) != 3 || user == nil || parts[2] != user.ID {
+		d.respond(interaction, "That confirmation is not yours.")
+		return
+	}
+	if parts[1] == "no" {
+		components = v2Container(statusAccent, discordgo.TextDisplay{Content: "↩️ **Conversation kept**\nNothing was changed."})
+		d.updateInteraction(interaction, components)
+		return
+	}
+	if parts[1] != "yes" {
+		d.respond(interaction, "That confirmation is invalid or expired.")
+		return
+	}
+	role, err = d.role(user.ID)
+	if err != nil || role == "" {
+		d.respond(interaction, "You are not paired with this bot.")
+		return
+	}
+	target, err = d.instance(interaction.ChannelID)
+	if err != nil {
+		d.respond(interaction, publicFailure("looking up the agent", err))
+		return
+	}
+	_, err = core.SessionAttach(target.Agent, OriginDiscord, interaction.ChannelID, "discord "+interaction.ChannelID)
 	if err != nil {
 		d.respond(interaction, publicFailure("resetting the conversation", err))
 		return
 	}
-	d.respond(interaction, "Fresh start with "+target.Agent.Name+". I forgot what we were talking about.")
+	components = v2Container(statusAccent,
+		discordgo.TextDisplay{Content: "✅ **Fresh conversation started**\nThis channel now has a clean context with **" + target.Agent.Name + "**."})
+	d.updateInteraction(interaction, components)
+}
+
+func (d *Discord) updateInteraction(interaction *discordgo.InteractionCreate, components []discordgo.MessageComponent) {
+	d.gateway.InteractionRespond(interaction.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseUpdateMessage,
+		Data: &discordgo.InteractionResponseData{
+			Flags: discordgo.MessageFlagsIsComponentsV2, Components: components, AllowedMentions: silentMentions(),
+		},
+	})
 }
 
 func (d *Discord) agentCommand(interaction *discordgo.InteractionCreate) {
@@ -95,6 +169,56 @@ func (d *Discord) agentCommand(interaction *discordgo.InteractionCreate) {
 		return
 	}
 	d.respond(interaction, "This channel talks to "+name+" now, starting fresh.")
+}
+
+func (d *Discord) agentAutocomplete(interaction *discordgo.InteractionCreate) {
+	var data discordgo.ApplicationCommandInteractionData
+	var query string
+	var choices []*discordgo.ApplicationCommandOptionChoice
+	var user *discordgo.User
+	var role string
+
+	var err error
+
+	data = interaction.ApplicationCommandData()
+	user = interactionUser(interaction)
+	if user != nil {
+		role, err = d.role(user.ID)
+	}
+	if err == nil && role != "" && data.Name == "agent" && len(data.Options) > 0 {
+		query = data.Options[0].StringValue()
+		choices = agentChoices(d.registry.List(), query)
+	}
+	d.gateway.InteractionRespond(interaction.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionApplicationCommandAutocompleteResult,
+		Data: &discordgo.InteractionResponseData{Choices: choices},
+	})
+}
+
+func agentChoices(instances []*core.Instance, query string) []*discordgo.ApplicationCommandOptionChoice {
+	var choices []*discordgo.ApplicationCommandOptionChoice
+	var instance *core.Instance
+	var normalized string
+	var name string
+
+	normalized = strings.ToLower(strings.TrimSpace(query))
+	for _, instance = range instances {
+		if instance == nil || instance.Agent == nil {
+			continue
+		}
+		name = instance.Agent.Name
+		if len([]rune(name)) > autocompleteNameLimit {
+			continue
+		}
+		if normalized != "" && !strings.Contains(strings.ToLower(name), normalized) {
+			continue
+		}
+		choices = append(choices, &discordgo.ApplicationCommandOptionChoice{Name: name, Value: name})
+		if len(choices) == autocompleteLimit {
+			break
+		}
+	}
+	return choices
 }
 
 func (d *Discord) mentionCommand(interaction *discordgo.InteractionCreate, user *discordgo.User) {
@@ -177,7 +301,16 @@ func (d *Discord) onInteraction(gateway *discordgo.Session, interaction *discord
 	var err error
 
 	if interaction.Type == discordgo.InteractionMessageComponent {
-		d.approvalInteraction(interaction)
+		if strings.HasPrefix(interaction.MessageComponentData().CustomID, "hil:") {
+			d.approvalInteraction(interaction)
+		}
+		if strings.HasPrefix(interaction.MessageComponentData().CustomID, "reset:") {
+			d.resetInteraction(interaction)
+		}
+		return
+	}
+	if interaction.Type == discordgo.InteractionApplicationCommandAutocomplete {
+		d.agentAutocomplete(interaction)
 		return
 	}
 	if interaction.Type != discordgo.InteractionApplicationCommand {
@@ -201,14 +334,18 @@ func (d *Discord) onInteraction(gateway *discordgo.Session, interaction *discord
 		return
 	}
 	role, err = d.role(user.ID)
-	if err != nil || role == "" {
-		d.respond(interaction, "You are not paired with this bot.")
+	if err != nil {
+		d.respond(interaction, publicFailure("checking your access", err))
+		return
+	}
+	if role == "" {
+		d.respond(interaction, accessDenied(d.cfg.BotId != ""))
 		return
 	}
 
 	switch data.Name {
 	case "reset":
-		d.resetCommand(interaction)
+		d.resetCommand(interaction, user)
 	case "agent":
 		d.agentCommand(interaction)
 	case "mention":

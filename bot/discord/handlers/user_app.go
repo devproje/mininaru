@@ -53,11 +53,29 @@ Do not invent citations. Answer in the message's language.`
 	return prompt, defs
 }
 
+func userAppView(name string, private bool) userAppPresentation {
+	var view userAppPresentation
+
+	switch name {
+	case "Message Analyzer":
+		view = userAppPresentation{title: "Message analysis", note: "Private one-time result · Not saved to conversation history"}
+	case "Content Search":
+		view = userAppPresentation{title: "Content search", note: "Private one-time result · Uses the public web · Not saved to conversation history"}
+	default:
+		view = userAppPresentation{title: "One-time chat", note: "Visible in this channel · Not saved to conversation history"}
+		if private {
+			view.note = "Private one-time result · Not saved to conversation history"
+		}
+	}
+	return view
+}
+
 func (d *Discord) contextCommand(interaction *discordgo.InteractionCreate, user *discordgo.User) {
 	var selected *discordgo.Message
 	var target *core.Instance
 	var flags discordgo.MessageFlags
 	var title string
+	var view userAppPresentation
 
 	var err error
 
@@ -77,9 +95,13 @@ func (d *Discord) contextCommand(interaction *discordgo.InteractionCreate, user 
 	}
 	flags = discordgo.MessageFlagsIsComponentsV2 | discordgo.MessageFlagsEphemeral
 	title = interaction.ApplicationCommandData().Name
+	view = userAppView(title, true)
 	err = d.gateway.InteractionRespond(interaction.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseChannelMessageWithSource,
-		Data: &discordgo.InteractionResponseData{Flags: flags, Components: contextResultComponents(title, "💡 **Working on it**")},
+		Data: &discordgo.InteractionResponseData{
+			Flags: flags, Components: userAppComponents(view, userAppWorking, "Working on the selected message…"),
+			AllowedMentions: silentMentions(),
+		},
 	})
 	if err == nil {
 		go func() {
@@ -97,6 +119,7 @@ func (d *Discord) contextCommand(interaction *discordgo.InteractionCreate, user 
 func (d *Discord) runContextCommand(ctx context.Context, interaction *discordgo.InteractionCreate, target *core.Instance, content string,
 	files []*discordgo.MessageAttachment) {
 	var title string
+	var view userAppPresentation
 	var prompt string
 	var defs []modules.Def
 	var parts []openai.ChatCompletionContentPartUnionParam
@@ -107,13 +130,16 @@ func (d *Discord) runContextCommand(ctx context.Context, interaction *discordgo.
 	var err error
 
 	title = interaction.ApplicationCommandData().Name
+	view = userAppView(title, true)
 	prompt, defs = contextPrompt(title)
 	if len(files) > 0 {
 		parts, err = attachments.Build(ctx, content, files)
 		if err != nil {
 			publicFailure("reading the attachment", err)
-			components = contextResultComponents(title, "❌ Could not read the attachment")
-			d.gateway.InteractionResponseEdit(interaction.Interaction, &discordgo.WebhookEdit{Components: &components})
+			components = userAppComponents(view, userAppFailed, "I could not read the attachment. Check the file and try again.")
+			d.gateway.InteractionResponseEdit(interaction.Interaction, &discordgo.WebhookEdit{
+				Components: &components, AllowedMentions: silentMentions(),
+			})
 			return
 		}
 		messages = []openai.ChatCompletionMessageParamUnion{openai.SystemMessage(prompt), openai.UserMessage(parts)}
@@ -123,11 +149,13 @@ func (d *Discord) runContextCommand(ctx context.Context, interaction *discordgo.
 	result, err = core.Complete(ctx, target.Agent, messages, defs, "", nil, nil)
 	if err != nil {
 		publicFailure("running that command", err)
-		components = contextResultComponents(title, "❌ That did not work")
+		components = userAppComponents(view, userAppFailed, "I could not finish this one-time request. Please try again.")
 	} else {
-		components = contextResultComponents(title, result.Content)
+		components = userAppComponents(view, userAppDone, result.Content)
 	}
-	d.gateway.InteractionResponseEdit(interaction.Interaction, &discordgo.WebhookEdit{Components: &components})
+	d.gateway.InteractionResponseEdit(interaction.Interaction, &discordgo.WebhookEdit{
+		Components: &components, AllowedMentions: silentMentions(),
+	})
 }
 
 func (d *Discord) chatCommand(interaction *discordgo.InteractionCreate, user *discordgo.User) {
@@ -141,6 +169,7 @@ func (d *Discord) chatCommand(interaction *discordgo.InteractionCreate, user *di
 	var target *core.Instance
 	var flags discordgo.MessageFlags
 	var files []*discordgo.MessageAttachment
+	var view userAppPresentation
 
 	var err error
 
@@ -178,9 +207,13 @@ func (d *Discord) chatCommand(interaction *discordgo.InteractionCreate, user *di
 	if ephemeral {
 		flags |= discordgo.MessageFlagsEphemeral
 	}
+	view = userAppView("chat", ephemeral)
 	err = d.gateway.InteractionRespond(interaction.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseChannelMessageWithSource,
-		Data: &discordgo.InteractionResponseData{Flags: flags, Components: contextResultComponents("Stateless Chat", "💡 **Working on it**")},
+		Data: &discordgo.InteractionResponseData{
+			Flags: flags, Components: userAppComponents(view, userAppWorking, "Working on your one-time request…"),
+			AllowedMentions: silentMentions(),
+		},
 	})
 	if err == nil {
 		if attachment != nil {
@@ -193,26 +226,30 @@ func (d *Discord) chatCommand(interaction *discordgo.InteractionCreate, user *di
 			ctx, cancel = d.turnContext()
 			defer cancel()
 
-			d.runStatelessChat(ctx, interaction, target, content, files)
+			d.runStatelessChat(ctx, interaction, target, content, files, ephemeral)
 		}()
 	}
 }
 
 func (d *Discord) runStatelessChat(ctx context.Context, interaction *discordgo.InteractionCreate, target *core.Instance, content string,
-	files []*discordgo.MessageAttachment) {
+	files []*discordgo.MessageAttachment, private bool) {
 	var parts []openai.ChatCompletionContentPartUnionParam
 	var components []discordgo.MessageComponent
 	var messages []openai.ChatCompletionMessageParamUnion
 	var result *core.Completion
+	var view userAppPresentation
 
 	var err error
 
+	view = userAppView("chat", private)
 	if len(files) > 0 {
 		parts, err = attachments.Build(ctx, content, files)
 		if err != nil {
 			publicFailure("reading the attachment", err)
-			components = contextResultComponents("Stateless Chat", "❌ Could not read the attachment")
-			d.gateway.InteractionResponseEdit(interaction.Interaction, &discordgo.WebhookEdit{Components: &components})
+			components = userAppComponents(view, userAppFailed, "I could not read the attachment. Check the file and try again.")
+			d.gateway.InteractionResponseEdit(interaction.Interaction, &discordgo.WebhookEdit{
+				Components: &components, AllowedMentions: silentMentions(),
+			})
 			return
 		}
 		messages = []openai.ChatCompletionMessageParamUnion{openai.UserMessage(parts)}
@@ -222,9 +259,11 @@ func (d *Discord) runStatelessChat(ctx context.Context, interaction *discordgo.I
 	result, err = core.Complete(ctx, target.Agent, messages, nil, "", nil, nil)
 	if err != nil {
 		publicFailure("answering", err)
-		components = contextResultComponents("Stateless Chat", "❌ That did not work")
+		components = userAppComponents(view, userAppFailed, "I could not finish this one-time request. Please try again.")
 	} else {
-		components = contextResultComponents("Stateless Chat", result.Content)
+		components = userAppComponents(view, userAppDone, result.Content)
 	}
-	d.gateway.InteractionResponseEdit(interaction.Interaction, &discordgo.WebhookEdit{Components: &components})
+	d.gateway.InteractionResponseEdit(interaction.Interaction, &discordgo.WebhookEdit{
+		Components: &components, AllowedMentions: silentMentions(),
+	})
 }
