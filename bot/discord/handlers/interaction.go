@@ -201,8 +201,12 @@ func (d *Discord) onInteraction(gateway *discordgo.Session, interaction *discord
 		return
 	}
 	role, err = d.role(user.ID)
-	if err != nil || role == "" {
-		d.respond(interaction, "You are not paired with this bot.")
+	if err != nil {
+		d.respond(interaction, publicFailure("checking your access", err))
+		return
+	}
+	if role == "" {
+		d.respond(interaction, accessDenied(d.cfg.BotId != ""))
 		return
 	}
 

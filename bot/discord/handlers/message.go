@@ -94,17 +94,18 @@ func (d *Discord) answerFor(ctx context.Context, channelId, sourceChannelId, sou
 	var onTool core.ToolEventFunc
 	var defs []modules.Def
 	var message *core.Message
+	var remaining []string
 
 	var err error
 
 	target, err = d.instance(channelId)
 	if err != nil {
-		d.sendReply(channelId, publicFailure("looking up the agent", err))
+		d.sendReply(channelId, conversationFailure("looking up the agent", err))
 		return
 	}
 	session, err = target.Bind(OriginDiscord, channelId, "discord "+channelId)
 	if err != nil {
-		d.sendReply(channelId, publicFailure("setting up the conversation", err))
+		d.sendReply(channelId, conversationFailure("setting up the conversation", err))
 		return
 	}
 	indicator = startTyping(d.gateway, channelId)
@@ -113,8 +114,8 @@ func (d *Discord) answerFor(ctx context.Context, channelId, sourceChannelId, sou
 		parts, err = attachments.Build(ctx, content, sourceAttachments)
 		if err != nil {
 			indicator.stop()
-			status.show("❌", "❌ **Could not read the attachment**")
-			d.sendReply(channelId, publicFailure("reading the attachment", err))
+			remaining = status.finish("❌", conversationFailure("reading the attachment", err), silentMentions())
+			d.sendChunks(channelId, remaining)
 			return
 		}
 	}
@@ -137,12 +138,12 @@ func (d *Discord) answerFor(ctx context.Context, channelId, sourceChannelId, sou
 	}
 	indicator.stop()
 	if err != nil {
-		status.show("❌", "❌ **That did not work**")
-		d.sendReply(channelId, publicFailure("answering", err))
+		remaining = status.finish("❌", conversationFailure("answering", err), silentMentions())
+		d.sendChunks(channelId, remaining)
 		return
 	}
-	status.show("✅", "✅ **Done**")
-	d.sendReply(channelId, message.Content)
+	remaining = status.finish("✅", message.Content, d.allowedMentions(message.Content))
+	d.sendChunks(channelId, remaining)
 }
 
 func (d *Discord) onMessage(gateway *discordgo.Session, message *discordgo.MessageCreate) {
@@ -158,9 +159,14 @@ func (d *Discord) onMessage(gateway *discordgo.Session, message *discordgo.Messa
 		return
 	}
 	role, err = d.role(message.Author.ID)
-	if err != nil || role == "" {
+	if err != nil {
+		d.sendReply(message.ChannelID, publicFailure("checking your access", err))
+		return
+	}
+	if role == "" {
 		util.Log.Debug("ignoring a mention from an unpaired user",
-			"user", message.Author.ID, "channel", message.ChannelID, "error", err)
+			"user", message.Author.ID, "channel", message.ChannelID)
+		d.sendReply(message.ChannelID, accessDenied(d.cfg.BotId != ""))
 		return
 	}
 	content = withIdentity(message.Author.ID, role, content)

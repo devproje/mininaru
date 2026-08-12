@@ -99,13 +99,17 @@ func (t *typing) stop() {
 
 func (d *Discord) sendReply(channelId, text string) {
 	var chunks []string
-	var chunk string
 
 	if strings.TrimSpace(text) == "" {
 		text = emptyReply
 	}
 
 	chunks = splitMessage(text, messageLimit)
+	d.sendChunks(channelId, chunks)
+}
+
+func (d *Discord) sendChunks(channelId string, chunks []string) {
+	var chunk string
 
 	for _, chunk = range chunks {
 		d.gateway.ChannelMessageSendComplex(channelId, &discordgo.MessageSend{

@@ -93,6 +93,46 @@ func (s *executionStatus) show(reaction, text string) {
 	}
 }
 
+func (s *executionStatus) finish(reaction, text string, allowed *discordgo.MessageAllowedMentions) []string {
+	var chunks []string
+	var components []discordgo.MessageComponent
+	var accent int
+
+	var err error
+
+	if text == "" {
+		text = emptyReply
+	}
+	chunks = splitMessage(text, messageLimit)
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.current = chunks[0]
+	if s.messageId == "" {
+		return chunks
+	}
+	accent = statusAccent
+	if reaction == "❌" {
+		accent = approvalAccent
+	}
+	components = v2Container(accent, discordgo.TextDisplay{Content: chunks[0]})
+	_, err = s.gateway.ChannelMessageEditComplex(&discordgo.MessageEdit{
+		ID: s.messageId, Channel: s.channelId, Flags: discordgo.MessageFlagsIsComponentsV2, Components: &components,
+		AllowedMentions: allowed,
+	})
+	if err != nil {
+		return chunks
+	}
+	if s.sourceMessageId != "" && reaction != s.currentReaction {
+		if s.currentReaction != "" {
+			s.gateway.MessageReactionRemove(s.sourceChannelId, s.sourceMessageId, s.currentReaction, "@me")
+		}
+		s.gateway.MessageReactionAdd(s.sourceChannelId, s.sourceMessageId, reaction)
+		s.currentReaction = reaction
+	}
+	return chunks[1:]
+}
+
 func interactionUser(interaction *discordgo.InteractionCreate) *discordgo.User {
 	if interaction == nil {
 		return nil
