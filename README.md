@@ -642,8 +642,19 @@ own failure notice when an interaction goes unanswered. A guild
 mention starts a thread when Discord permits it and falls back to the current
 channel if thread creation fails. Messages inside a thread created by the bot
 do not need to mention it again. It shows Discord's typing indicator while
-generating, then sends the completed reply split across Discord's 2000 character
-limit. A single reply is capped at ten minutes, and stopping the daemon cancels
+generating, then sends the completed reply as an ordinary message, split across
+Discord's 2000 character limit when it has to be. When the answer lands in the
+same channel as the question -- a DM, or a follow-up inside a thread -- it is
+sent as a reply to that message, without pinging its author. A reply that opens
+a new thread has no reference to make: the question is already the thread's
+first message.
+
+Alongside the reply the bot keeps one **execution card** per turn. Its heading
+is what the agent is doing right now -- thinking, reasoning, or the tool it is
+running -- and underneath it a line is added for each tool as it finishes, with
+the reason when one fails. When the turn ends the heading becomes its outcome
+and the card stays as the record of what happened. The answer itself is never
+put inside the card: a reply is a normal message so it reads like one. A single reply is capped at ten minutes, and stopping the daemon cancels
 whatever turns are still running instead of leaving them to finish unobserved.
 
 Discord messages can include up to four supported attachments. PNG, JPEG, GIF,

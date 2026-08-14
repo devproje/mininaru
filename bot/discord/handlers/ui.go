@@ -4,11 +4,18 @@
 package handlers
 
 import (
+	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/bwmarrin/discordgo"
 )
+
+type statusStep struct {
+	icon string
+	text string
+}
 
 type executionStatus struct {
 	gateway         *discordgo.Session
@@ -16,7 +23,13 @@ type executionStatus struct {
 	messageId       string
 	sourceChannelId string
 	sourceMessageId string
-	current         string
+	note            string
+	stateIcon       string
+	stateText       string
+	steps           []statusStep
+	footer          string
+	rendered        string
+	started         time.Time
 	currentReaction string
 	mu              sync.Mutex
 }
@@ -32,6 +45,15 @@ const userAppContentLimit = 3400
 const userAppWorking = "working"
 const userAppDone = "done"
 const userAppFailed = "failed"
+
+const maxStatusSteps = 20
+
+const statusThinkingIcon = "⏳"
+const statusThinkingText = "Thinking"
+
+const threadStartedNote = "This thread keeps its own context. Continue here without mentioning me, or use `/reset` for a fresh one."
+
+const threadFallbackNote = "I could not start a thread, so this conversation shares the channel's context. Check that the bot can create public threads here."
 
 func v2Container(accent int, components ...discordgo.MessageComponent) []discordgo.MessageComponent {
 	return []discordgo.MessageComponent{discordgo.Container{AccentColor: &accent, Components: components}}
@@ -68,126 +90,161 @@ func userAppComponents(view userAppPresentation, state, content string) []discor
 	return v2Container(accent, body...)
 }
 
-func (d *Discord) sendThreadWelcome(channelId, agentName string) {
-	d.gateway.ChannelMessageSendComplex(channelId, &discordgo.MessageSend{
-		Flags:           discordgo.MessageFlagsIsComponentsV2,
-		Components:      threadWelcomeComponents(agentName),
-		AllowedMentions: silentMentions(),
-	})
-}
-
-func threadWelcomeComponents(agentName string) []discordgo.MessageComponent {
-	var shownName string
-
-	shownName = strings.ReplaceAll(agentName, "`", "ˋ")
-	return v2Container(statusAccent,
-		discordgo.TextDisplay{Content: "### 👋 Conversation started\nThis thread keeps its own context with `" + shownName + "`. You can continue here without mentioning me."},
-		discordgo.TextDisplay{Content: "-# Use `/reset` for a fresh context or `/agent` to view and switch agents."},
-	)
-}
-
-func (d *Discord) sendThreadFallback(channelId string) {
-	d.gateway.ChannelMessageSendComplex(channelId, &discordgo.MessageSend{
-		Flags:           discordgo.MessageFlagsIsComponentsV2,
-		Components:      threadFallbackComponents(),
-		AllowedMentions: silentMentions(),
-	})
-}
-
-func threadFallbackComponents() []discordgo.MessageComponent {
-	return v2Container(approvalAccent,
-		discordgo.TextDisplay{Content: "### ⚠️ Could not start a conversation thread\nI will answer in this channel instead, so later messages here may share the same conversation context."},
-		discordgo.TextDisplay{Content: "-# Check that the bot can create public threads in this channel."},
-	)
-}
-
-func newExecutionStatus(gateway *discordgo.Session, channelId, sourceChannelId, sourceMessageId string) *executionStatus {
+func newExecutionStatus(gateway *discordgo.Session, channelId, sourceChannelId, sourceMessageId, note string) *executionStatus {
 	var status *executionStatus
+	var components []discordgo.MessageComponent
 	var message *discordgo.Message
 
 	var err error
 
 	status = &executionStatus{
 		gateway: gateway, channelId: channelId, sourceChannelId: sourceChannelId, sourceMessageId: sourceMessageId,
-		current: "💡 **Picking a skill**", currentReaction: "💡",
+		note: note, stateIcon: statusThinkingIcon, stateText: statusThinkingText, started: time.Now(),
 	}
+	status.rendered = status.render()
+
+	components = v2Container(statusAccent, discordgo.TextDisplay{Content: status.rendered})
 	message, err = gateway.ChannelMessageSendComplex(channelId, &discordgo.MessageSend{
 		Flags:           discordgo.MessageFlagsIsComponentsV2,
-		Components:      v2Container(statusAccent, discordgo.TextDisplay{Content: status.current}),
+		Components:      components,
 		AllowedMentions: silentMentions(),
 	})
 	if err == nil {
 		status.messageId = message.ID
 	}
-	if sourceMessageId != "" {
-		gateway.MessageReactionAdd(sourceChannelId, sourceMessageId, status.currentReaction)
-	}
+
+	status.react(statusThinkingIcon)
+
 	return status
 }
 
-func (s *executionStatus) show(reaction, text string) {
-	var components []discordgo.MessageComponent
+func (s *executionStatus) render() string {
+	var lines []string
+	var steps []statusStep
+	var step statusStep
+	var hidden int
+	var text string
+	var runes []rune
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.current == text {
-		return
+	lines = append(lines, "### "+s.stateIcon+" "+s.stateText)
+	if s.note != "" {
+		lines = append(lines, "-# "+s.note)
 	}
-	s.current = text
-	if s.messageId != "" {
-		components = v2Container(statusAccent, discordgo.TextDisplay{Content: text})
-		s.gateway.ChannelMessageEditComplex(&discordgo.MessageEdit{
-			ID: s.messageId, Channel: s.channelId, Flags: discordgo.MessageFlagsIsComponentsV2, Components: &components,
-			AllowedMentions: silentMentions(),
-		})
+
+	steps = s.steps
+	if len(steps) > maxStatusSteps {
+		hidden = len(steps) - maxStatusSteps
+		steps = steps[len(steps)-maxStatusSteps:]
 	}
-	if s.sourceMessageId != "" && reaction != s.currentReaction {
-		if s.currentReaction != "" {
-			s.gateway.MessageReactionRemove(s.sourceChannelId, s.sourceMessageId, s.currentReaction, "@me")
-		}
-		s.gateway.MessageReactionAdd(s.sourceChannelId, s.sourceMessageId, reaction)
-		s.currentReaction = reaction
+
+	if hidden > 0 {
+		lines = append(lines, "", "-# "+strconv.Itoa(hidden)+" earlier steps hidden")
+	} else if len(steps) > 0 {
+		lines = append(lines, "")
 	}
+
+	for _, step = range steps {
+		lines = append(lines, step.icon+" "+step.text)
+	}
+
+	if s.footer != "" {
+		lines = append(lines, "-# "+s.footer)
+	}
+
+	text = strings.Join(lines, "\n")
+
+	runes = []rune(text)
+	if len(runes) > messageLimit {
+		return string(runes[:messageLimit])
+	}
+
+	return text
 }
 
-func (s *executionStatus) finish(reaction, text string, allowed *discordgo.MessageAllowedMentions) []string {
-	var chunks []string
+func (s *executionStatus) publish() {
+	var text string
 	var accent int
 	var components []discordgo.MessageComponent
 
-	var err error
-
-	if text == "" {
-		text = emptyReply
-	}
-	chunks = splitReply(text, messageLimit)
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.current = chunks[0]
 	if s.messageId == "" {
-		return chunks
+		return
 	}
+
+	text = s.render()
+	if text == s.rendered {
+		return
+	}
+	s.rendered = text
+
 	accent = statusAccent
-	if reaction == "❌" {
+	if s.stateIcon == "❌" {
 		accent = approvalAccent
 	}
-	components = v2Container(accent, discordgo.TextDisplay{Content: chunks[0]})
-	_, err = s.gateway.ChannelMessageEditComplex(&discordgo.MessageEdit{
-		ID: s.messageId, Channel: s.channelId, Flags: discordgo.MessageFlagsIsComponentsV2, Components: &components,
-		AllowedMentions: allowed,
+
+	components = v2Container(accent, discordgo.TextDisplay{Content: text})
+	s.gateway.ChannelMessageEditComplex(&discordgo.MessageEdit{
+		ID: s.messageId, Channel: s.channelId, Flags: discordgo.MessageFlagsIsComponentsV2,
+		Components: &components, AllowedMentions: silentMentions(),
 	})
-	if err != nil {
-		return chunks
+}
+
+func (s *executionStatus) react(reaction string) {
+	if s.sourceMessageId == "" || reaction == "" || reaction == s.currentReaction {
+		return
 	}
-	if s.sourceMessageId != "" && reaction != s.currentReaction {
-		if s.currentReaction != "" {
-			s.gateway.MessageReactionRemove(s.sourceChannelId, s.sourceMessageId, s.currentReaction, "@me")
-		}
-		s.gateway.MessageReactionAdd(s.sourceChannelId, s.sourceMessageId, reaction)
-		s.currentReaction = reaction
+
+	if s.currentReaction != "" {
+		s.gateway.MessageReactionRemove(s.sourceChannelId, s.sourceMessageId, s.currentReaction, "@me")
 	}
-	return chunks[1:]
+
+	s.gateway.MessageReactionAdd(s.sourceChannelId, s.sourceMessageId, reaction)
+	s.currentReaction = reaction
+}
+
+func (s *executionStatus) progress(icon, text string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.stateIcon = icon
+	s.stateText = text
+	s.publish()
+	s.react(icon)
+}
+
+func (s *executionStatus) log(icon, text string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.steps = append(s.steps, statusStep{icon: icon, text: text})
+	s.stateIcon = statusThinkingIcon
+	s.stateText = statusThinkingText
+	s.publish()
+}
+
+func statusFooter(elapsed time.Duration, steps int) string {
+	var parts []string
+
+	parts = append(parts, elapsed.Truncate(100*time.Millisecond).String())
+
+	if steps == 1 {
+		parts = append(parts, "1 tool")
+	}
+	if steps > 1 {
+		parts = append(parts, strconv.Itoa(steps)+" tools")
+	}
+
+	return strings.Join(parts, " · ")
+}
+
+func (s *executionStatus) finish(icon, text string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.stateIcon = icon
+	s.stateText = text
+	s.footer = statusFooter(time.Since(s.started), len(s.steps))
+	s.publish()
+	s.react(icon)
 }
 
 func interactionUser(interaction *discordgo.InteractionCreate) *discordgo.User {

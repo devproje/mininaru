@@ -498,6 +498,22 @@ isolated in [bot/reply.go](../bot/reply.go):
   prefers to break on a newline in the second half of a chunk before sending
   the remaining chunks as follow-up messages.
 
+**The answer is a plain message; the card is a log.** v0.5.0 tried the opposite
+— it edited the progress card into the answer to save a message — and the
+result was worse in every way that mattered. A Components V2 container renders
+as a bordered, tinted box, so every reply stopped looking like chat; and since
+only the first chunk could be an edit, a long answer came out half in a box and
+half not. `executionStatus` in
+[bot/discord/handlers/ui.go](../bot/discord/handlers/ui.go) now owns only the
+card: a heading holding the current state, a line appended per finished tool,
+and a footer with the elapsed time. `render` rebuilds the whole card from that
+state and `publish` skips the edit when the result is byte-identical, which is
+what keeps a tool-heavy turn from spending its rate limit on redundant edits.
+
+The thread welcome and the thread-creation failure notice used to be their own
+messages, which put three cards in a channel for one question. They are now a
+single `note` line inside the card, chosen by `conversationTarget.note`.
+
 Each incoming message is answered on its own goroutine, and per-session locking
 in `Instance.Chat` is what keeps two messages in the same channel from
 interleaving.

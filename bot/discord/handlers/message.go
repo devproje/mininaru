@@ -24,7 +24,44 @@ type conversationTarget struct {
 }
 
 const threadNameLimit = 100
+
+const toolReasonLimit = 120
+
 const seenMessageLimit = 2048
+
+func (t conversationTarget) note() string {
+	if t.fallback {
+		return threadFallbackNote
+	}
+	if t.created {
+		return threadStartedNote
+	}
+
+	return ""
+}
+
+func replyTarget(channelId, sourceChannelId, sourceMessageId string) string {
+	if sourceChannelId != channelId {
+		return ""
+	}
+
+	return sourceMessageId
+}
+
+func toolFailureReason(text string) string {
+	var reason string
+
+	reason = strings.Join(strings.Fields(text), " ")
+	if reason == "" {
+		return "failed"
+	}
+
+	if len([]rune(reason)) > toolReasonLimit {
+		reason = string([]rune(reason)[:toolReasonLimit]) + "…"
+	}
+
+	return reason
+}
 
 func (d *Discord) addressed(message *discordgo.MessageCreate) (string, bool) {
 	var content string
@@ -196,7 +233,7 @@ func (d *Discord) queueTurn(channelId string, run func()) {
 }
 
 func (d *Discord) answerFor(ctx context.Context, channelId, sourceChannelId, sourceMessageId, userId, role, content string,
-	sourceAttachments []*discordgo.MessageAttachment, newThread bool) {
+	sourceAttachments []*discordgo.MessageAttachment, note string) {
 	var target *core.Instance
 	var session *core.Session
 	var indicator *typing
@@ -207,9 +244,11 @@ func (d *Discord) answerFor(ctx context.Context, channelId, sourceChannelId, sou
 	var onTool core.ToolEventFunc
 	var defs []modules.Def
 	var message *core.Message
-	var remaining []string
+	var replyTo string
 
 	var err error
+
+	replyTo = replyTarget(channelId, sourceChannelId, sourceMessageId)
 
 	target, err = d.instance(channelId)
 	if err != nil {
@@ -221,27 +260,36 @@ func (d *Discord) answerFor(ctx context.Context, channelId, sourceChannelId, sou
 		d.sendReply(channelId, conversationFailure("setting up the conversation", err))
 		return
 	}
-	if newThread {
-		d.sendThreadWelcome(channelId, target.Agent.Name)
-	}
 	indicator = startTyping(d.gateway, channelId)
-	status = newExecutionStatus(d.gateway, channelId, sourceChannelId, sourceMessageId)
+	status = newExecutionStatus(d.gateway, channelId, sourceChannelId, sourceMessageId, note)
 	if len(sourceAttachments) > 0 {
 		parts, err = attachments.Build(ctx, content, sourceAttachments)
 		if err != nil {
 			indicator.stop()
-			remaining = status.finish("❌", conversationFailure("reading the attachment", err), silentMentions())
-			d.sendChunks(channelId, remaining)
+			status.finish("❌", "Failed")
+			d.sendReplyTo(channelId, replyTo, conversationFailure("reading the attachment", err))
 			return
 		}
 	}
 	onReasoning = func(text string) {
-		reasoningOnce.Do(func() { status.show("⚡", "⚡ **Thinking**") })
+		reasoningOnce.Do(func() { status.progress("⚡", "Reasoning") })
 	}
 	onTool = func(event core.ToolEvent) {
+		var label string
+
+		label = core.ToolLabel(event.Name, event.Arguments)
+
 		if event.Phase == core.ToolEventStarted {
-			status.show("🔧", "🔧 **Running a tool** · `"+core.ToolLabel(event.Name, event.Arguments)+"`")
+			status.progress("🔧", "Running `"+label+"`")
+			return
 		}
+
+		if event.Status == core.MessageCompleted {
+			status.log("✓", "`"+label+"`")
+			return
+		}
+
+		status.log("✗", "`"+label+"` — "+toolFailureReason(event.Error))
 	}
 	if role == core.DiscordRoleAdmin {
 		defs = modules.DefaultTools()
@@ -254,12 +302,12 @@ func (d *Discord) answerFor(ctx context.Context, channelId, sourceChannelId, sou
 	}
 	indicator.stop()
 	if err != nil {
-		remaining = status.finish("❌", conversationFailure("answering", err), silentMentions())
-		d.sendChunks(channelId, remaining)
+		status.finish("❌", "Failed")
+		d.sendReplyTo(channelId, replyTo, conversationFailure("answering", err))
 		return
 	}
-	remaining = status.finish("✅", message.Content, d.allowedMentions(message.Content))
-	d.sendChunks(channelId, remaining)
+	status.finish("✅", "Answered")
+	d.sendReplyTo(channelId, replyTo, message.Content)
 }
 
 func (d *Discord) onMessage(gateway *discordgo.Session, message *discordgo.MessageCreate) {
@@ -290,9 +338,6 @@ func (d *Discord) onMessage(gateway *discordgo.Session, message *discordgo.Messa
 		return
 	}
 	target = d.conversationChannel(message, content)
-	if target.fallback {
-		d.sendThreadFallback(message.ChannelID)
-	}
 	content = withIdentity(message.Author.ID, role, content)
 	d.queueTurn(target.channelId, func() {
 		var ctx context.Context
@@ -301,6 +346,6 @@ func (d *Discord) onMessage(gateway *discordgo.Session, message *discordgo.Messa
 		ctx, cancel = d.turnContext()
 		defer cancel()
 
-		d.answerFor(ctx, target.channelId, message.ChannelID, message.ID, message.Author.ID, role, content, message.Attachments, target.created)
+		d.answerFor(ctx, target.channelId, message.ChannelID, message.ID, message.Author.ID, role, content, message.Attachments, target.note())
 	})
 }

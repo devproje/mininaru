@@ -209,27 +209,23 @@ func TestQueueTurnPreservesArrivalOrder(t *testing.T) {
 	}
 }
 
-func TestThreadNoticesExplainContextAndFallback(t *testing.T) {
-	var encoded []byte
-	var text string
+func TestConversationNotesExplainContextAndFallback(t *testing.T) {
+	var target conversationTarget
 
-	var err error
+	target = conversationTarget{created: true}
+	if !strings.Contains(target.note(), "own context") || !strings.Contains(target.note(), "`/reset`") {
+		t.Fatalf("new thread note = %q", target.note())
+	}
 
-	encoded, err = json.Marshal(threadWelcomeComponents("naru"))
-	if err != nil {
-		t.Fatal(err)
+	target = conversationTarget{fallback: true}
+	if !strings.Contains(target.note(), "could not start a thread") ||
+		!strings.Contains(target.note(), "create public threads") {
+		t.Fatalf("fallback note = %q", target.note())
 	}
-	text = string(encoded)
-	if !strings.Contains(text, "own context") || !strings.Contains(text, "`/reset`") {
-		t.Fatalf("thread welcome = %s", text)
-	}
-	encoded, err = json.Marshal(threadFallbackComponents())
-	if err != nil {
-		t.Fatal(err)
-	}
-	text = string(encoded)
-	if !strings.Contains(text, "Could not start") || !strings.Contains(text, "create public threads") {
-		t.Fatalf("thread fallback = %s", text)
+
+	target = conversationTarget{}
+	if target.note() != "" {
+		t.Fatalf("an existing thread should carry no note, got %q", target.note())
 	}
 }
 
