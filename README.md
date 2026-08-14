@@ -319,8 +319,8 @@ agent what it runs on and you get the build that answered, not a guess.
 
 ## Tools
 
-Every tool reaches the model over MCP. The twelve built-in tools are served by an
-MCP server running inside the mininaru process, and additional servers can be
+Every tool reaches the model over MCP. The thirteen built-in tools are served by
+an MCP server running inside the mininaru process, and additional servers can be
 configured in `mcp.json`.
 
 Safe built-in tools are exposed through the OpenAI-compatible function-calling
@@ -353,14 +353,28 @@ account; use it only in a dedicated working directory.
 whole process group killed, so a backgrounded child cannot outlive the call or
 hold the tool open past its timeout.
 
-`memory` and `skill_create` are the two **privileged** built-ins. They run
-without an approval prompt, because the front ends that can reach them are
-already trusted: the TUI and a paired Discord admin. They are refused outright
-anywhere else, so neither is offered over the HTTP API and a regular Discord user
-cannot call them.
+`memory`, `skill_create`, and `agent_call` are the three **privileged** built-ins.
+They run without an approval prompt, because the front ends that can reach them
+are already trusted: the TUI and a paired Discord admin. They are refused
+outright anywhere else, so none is offered over the HTTP API and a regular
+Discord user cannot call them.
 
 `memory` stores durable facts in a small global SQLite table shared by the
 interactive front ends, capped at 4096 characters in total.
+
+`agent_call` hands one self-contained task to another agent you have configured
+and returns its answer as the tool result. The named agent answers with its own
+model, role and soul, which is the point: a cheap model can hold the
+conversation and hand the parts that need a stronger one over to it, or a
+reviewer persona can look at something without the main agent's history
+colouring it.
+
+The subagent starts with **no memory of the conversation** — it sees only the
+prompt it is given, so that prompt has to carry everything it needs. It inherits
+the calling turn's tools and approval policy unchanged, so a dangerous tool it
+reaches still raises the same prompt the caller would have raised. The one tool
+it does not inherit is `agent_call` itself: delegation is one level deep, and an
+agent cannot delegate to itself.
 
 `skill_create` writes a skill bundle to disk and reloads the catalog. It is
 privileged rather than dangerous because what it writes is not just a file: the
@@ -780,8 +794,8 @@ so the `context` budget does not apply here.
 
 Only safe tools are exposed over HTTP. `current_time`, `web_search`, `web_fetch`,
 and `skill` run server-side and are invisible to the client; `file_read`,
-`file_write`, `file_edit`, `glob`, `grep`, `bash_exec`, `memory`, and
-`skill_create` are never offered, because HTTP has no approval prompt and would
+`file_write`, `file_edit`, `glob`, `grep`, `bash_exec`, `memory`, `skill_create`,
+and `agent_call` are never offered, because HTTP has no approval prompt and would
 otherwise hand unattended shell access to any client that reaches the port.
 `--allow-dangerous-tools` does not affect the server. MCP tools follow the same
 rule: only ones classified safe are exposed, and a server configured with

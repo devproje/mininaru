@@ -22,6 +22,9 @@ type completionRun struct {
 	AllowDangerous  bool
 	AllowPrivileged bool
 
+	AgentId string
+	Depth   int
+
 	SessionId   string
 	MessageId   string
 	OnContent   func(string)
@@ -96,6 +99,12 @@ func (r *completionRun) dispatch(ctx context.Context, message openai.ChatComplet
 	var err error
 
 	r.Params.Messages = append(r.Params.Messages, assistantToolCallMessage(message))
+
+	ctx = subagentContext(ctx, subagentPolicy{
+		CallerId: r.AgentId, Defs: r.Defs,
+		AllowDangerous: r.AllowDangerous, AllowPrivileged: r.AllowPrivileged,
+		Approve: r.Approve, Depth: r.Depth,
+	})
 
 	for _, call = range message.ToolCalls {
 		record, err = toolCallStart(r.MessageId, call)
@@ -198,7 +207,8 @@ func Complete(ctx context.Context, agent *NaruAgent, messages []openai.ChatCompl
 		params.ReasoningEffort = openai.ReasoningEffort(thinking)
 	}
 
-	run = completionRun{AI: agent.AI, Params: params, Defs: defs, OnContent: onContent, OnReasoning: onReasoning}
+	run = completionRun{AI: agent.AI, Params: params, Defs: defs, AgentId: agent.Id,
+		OnContent: onContent, OnReasoning: onReasoning}
 
 	return run.execute(ctx)
 }

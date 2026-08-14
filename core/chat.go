@@ -323,6 +323,7 @@ func chatWithToolPolicy(ctx context.Context, session *Session, agent *NaruAgent,
 
 	run = completionRun{
 		AI: agent.AI, Params: params, Defs: defs, AllowDangerous: allowDangerous, AllowPrivileged: true,
+		AgentId:   agent.Id,
 		SessionId: session.Id, MessageId: pending.Id,
 		OnContent: onContent, OnReasoning: onReasoning, OnTool: onTool, Approve: approve,
 	}

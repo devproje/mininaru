@@ -165,6 +165,8 @@ func bootstrap() error {
 		return fmt.Errorf("load bots: %w", err)
 	}
 
+	core.InstallAgentTool()
+
 	return nil
 }
 
