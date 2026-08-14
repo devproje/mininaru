@@ -49,4 +49,21 @@ func TestDefaultToolPermissions(t *testing.T) {
 	if permissions["file_read"] != PermissionDangerous || permissions["file_write"] != PermissionDangerous || permissions["bash_exec"] != PermissionDangerous {
 		t.Fatalf("filesystem tool permissions = %#v", permissions)
 	}
+	if permissions["file_edit"] != PermissionDangerous || permissions["grep"] != PermissionDangerous || permissions["glob"] != PermissionDangerous {
+		t.Fatalf("coding tool permissions = %#v", permissions)
+	}
+}
+
+func TestSafeToolsExcludeCodingTools(t *testing.T) {
+	var def Def
+	var offered map[string]bool
+
+	offered = map[string]bool{}
+	for _, def = range SafeTools() {
+		offered[def.Name] = true
+	}
+
+	if offered["grep"] || offered["glob"] || offered["file_edit"] {
+		t.Fatalf("safe tools offered a coding tool: %#v", offered)
+	}
 }

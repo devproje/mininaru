@@ -319,7 +319,7 @@ agent what it runs on and you get the build that answered, not a guess.
 
 ## Tools
 
-Every tool reaches the model over MCP. The nine built-in tools are served by an
+Every tool reaches the model over MCP. The twelve built-in tools are served by an
 MCP server running inside the mininaru process, and additional servers can be
 configured in `mcp.json`.
 
@@ -327,11 +327,22 @@ Safe built-in tools are exposed through the OpenAI-compatible function-calling
 protocol: `current_time`, `web_search`, `web_fetch`, and `skill`. See Web tools
 below for the two network ones.
 
-`file_read`, `file_write`, and `bash_exec` are rooted at the directory where the
-process started. They reject lexical and symlink path escapes where applicable.
-Without a flag, each dangerous call pauses the TUI and asks for approval: press
-`y` to execute or `n`/`esc` to deny it. A denied call is returned to the model as
-a tool error so the conversation can continue.
+`file_read`, `file_write`, `file_edit`, `glob`, `grep`, and `bash_exec` are rooted
+at the directory where the process started. They reject lexical and symlink path
+escapes where applicable. Without a flag, each dangerous call pauses the TUI and
+asks for approval: press `y` to execute or `n`/`esc` to deny it. A denied call is
+returned to the model as a tool error so the conversation can continue.
+
+`file_edit` replaces one exact string with another. The string has to occur
+exactly once in the file, otherwise the call is refused and the model is asked for
+more surrounding context; `replace_all` lifts that restriction. `file_read` takes
+`offset` and `limit` to read a range of lines rather than a whole file.
+
+`glob` lists files by path pattern, where `**` matches across directories, as in
+`**/*.go`. `grep` searches file contents by regular expression and answers with
+`path:line:text`. Both walk from the startup directory, never follow a symlink out
+of it, and skip dot-directories, `node_modules`, `vendor`, binaries, and anything
+over 5 MB.
 
 Passing `--allow-dangerous-tools` bypasses every approval prompt for that run.
 Treat this flag as unattended access to files and shell commands under your user
@@ -769,7 +780,8 @@ so the `context` budget does not apply here.
 
 Only safe tools are exposed over HTTP. `current_time`, `web_search`, `web_fetch`,
 and `skill` run server-side and are invisible to the client; `file_read`,
-`file_write`, `bash_exec`, `memory`, and `skill_create` are never offered, because HTTP has no approval prompt and would
+`file_write`, `file_edit`, `glob`, `grep`, `bash_exec`, `memory`, and
+`skill_create` are never offered, because HTTP has no approval prompt and would
 otherwise hand unattended shell access to any client that reaches the port.
 `--allow-dangerous-tools` does not affect the server. MCP tools follow the same
 rule: only ones classified safe are exposed, and a server configured with

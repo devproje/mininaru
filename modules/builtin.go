@@ -63,6 +63,27 @@ func builtinTools() []builtinTool {
 			},
 		},
 		{
+			Build:      func() Def { return FileEdit(builtinRoot()) },
+			Permission: PermissionDangerous,
+			Annotations: mcp.ToolAnnotations{
+				Title: "edit file", ReadOnlyHint: false, DestructiveHint: hint(true), OpenWorldHint: hint(false),
+			},
+		},
+		{
+			Build:      func() Def { return Glob(builtinRoot()) },
+			Permission: PermissionDangerous,
+			Annotations: mcp.ToolAnnotations{
+				Title: "find files by path", ReadOnlyHint: true, IdempotentHint: true, OpenWorldHint: hint(false),
+			},
+		},
+		{
+			Build:      func() Def { return Grep(builtinRoot()) },
+			Permission: PermissionDangerous,
+			Annotations: mcp.ToolAnnotations{
+				Title: "search file contents", ReadOnlyHint: true, IdempotentHint: true, OpenWorldHint: hint(false),
+			},
+		},
+		{
 			Build:      func() Def { return BashExec(builtinRoot()) },
 			Permission: PermissionDangerous,
 			Annotations: mcp.ToolAnnotations{
