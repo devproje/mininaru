@@ -173,10 +173,10 @@ func (d *Discord) agentCommand(interaction *discordgo.InteractionCreate) {
 
 func (d *Discord) agentAutocomplete(interaction *discordgo.InteractionCreate) {
 	var data discordgo.ApplicationCommandInteractionData
-	var query string
-	var choices []*discordgo.ApplicationCommandOptionChoice
 	var user *discordgo.User
 	var role string
+	var query string
+	var choices []*discordgo.ApplicationCommandOptionChoice
 
 	var err error
 
@@ -196,10 +196,10 @@ func (d *Discord) agentAutocomplete(interaction *discordgo.InteractionCreate) {
 }
 
 func agentChoices(instances []*core.Instance, query string) []*discordgo.ApplicationCommandOptionChoice {
-	var choices []*discordgo.ApplicationCommandOptionChoice
-	var instance *core.Instance
 	var normalized string
+	var instance *core.Instance
 	var name string
+	var choices []*discordgo.ApplicationCommandOptionChoice
 
 	normalized = strings.ToLower(strings.TrimSpace(query))
 	for _, instance = range instances {

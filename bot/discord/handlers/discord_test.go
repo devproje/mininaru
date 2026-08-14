@@ -97,9 +97,9 @@ func TestAgentCommandEnablesAutocomplete(t *testing.T) {
 }
 
 func TestAgentChoicesFilterAndStayWithinDiscordLimit(t *testing.T) {
+	var index int
 	var instances []*core.Instance
 	var choices []*discordgo.ApplicationCommandOptionChoice
-	var index int
 
 	for index = 0; index < 30; index++ {
 		instances = append(instances, &core.Instance{Agent: &core.NaruAgent{Name: fmt.Sprintf("Agent-%02d", index)}})

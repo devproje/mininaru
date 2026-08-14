@@ -87,9 +87,9 @@ func TestSplitMessageKeepsShortTextIntact(t *testing.T) {
 }
 
 func TestExecutionStatusWithoutMessageReturnsWholeReply(t *testing.T) {
+	var text string
 	var status executionStatus
 	var chunks []string
-	var text string
 
 	text = strings.Repeat("a", 2500)
 	status = executionStatus{}
@@ -102,10 +102,10 @@ func TestExecutionStatusWithoutMessageReturnsWholeReply(t *testing.T) {
 
 func TestExecutionStatusReplacesProgressWithFirstReplyChunk(t *testing.T) {
 	var gateway *discordgo.Session
+	var requestBody string
+	var text string
 	var status executionStatus
 	var chunks []string
-	var text string
-	var requestBody string
 
 	var err error
 

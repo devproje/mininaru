@@ -72,9 +72,9 @@ func (d *Discord) ownedThread(channelId string) bool {
 }
 
 func (d *Discord) conversationChannel(message *discordgo.MessageCreate, content string) conversationTarget {
+	var target conversationTarget
 	var channel *discordgo.Channel
 	var thread *discordgo.Channel
-	var target conversationTarget
 
 	var err error
 
@@ -130,8 +130,8 @@ func threadName(content string, attached bool) string {
 }
 
 func (d *Discord) rememberMessage(messageId string) bool {
-	var oldest string
 	var found bool
+	var oldest string
 
 	if messageId == "" {
 		return true
@@ -156,8 +156,8 @@ func (d *Discord) rememberMessage(messageId string) bool {
 }
 
 func (d *Discord) queueTurn(channelId string, run func()) {
-	var previous chan struct{}
 	var current chan struct{}
+	var previous chan struct{}
 
 	current = make(chan struct{})
 	d.mu.Lock()
