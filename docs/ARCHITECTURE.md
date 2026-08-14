@@ -39,7 +39,7 @@ to `maxToolRounds` (8) times.
 | Context budget | `trimHistory` applies | client's responsibility |
 
 Both tool sets are a snapshot of what was discovered over live MCP sessions —
-the builtin seven plus every enabled `mcp.json` server. There is no non-MCP path
+the builtin twelve plus every enabled `mcp.json` server. There is no non-MCP path
 to a tool. The `core.Chat` row is also gated on `config.Client.Tools.Enabled`:
 when tools are off, `defs` is empty and the loop degenerates to one round.
 
@@ -93,7 +93,7 @@ the catalog can silently eat the context budget.
 
 ## MCP
 
-Every tool reaches the model through an MCP client session. The seven builtin
+Every tool reaches the model through an MCP client session. The twelve builtin
 tools are served by an in-process MCP server wired to the client over
 `mcp.NewInMemoryTransports()` — no subprocess, no socket, but the same code path
 external servers take. It bootstraps lazily on the first `DefaultTools()` call,
@@ -384,10 +384,17 @@ the model as a tool error.
 For external MCP tools, safe versus dangerous is derived from the tool's
 `ToolAnnotations.readOnlyHint` and can be overridden per server (`permission`)
 or per tool (`tool_permission`) in `mcp.json`; a tool with no annotations is
-dangerous. The builtin seven are classified by a fixed table in
+dangerous. The builtin twelve are classified by a fixed table in
 [modules/builtin.go](../modules/builtin.go) and are **not** overridable —
 `file_read` is honestly read-only and annotated as such, but classifying it safe
 would put arbitrary filesystem reads on the HTTP API with no human in the loop.
+
+`grep` and `glob` are dangerous for the same reason, and `grep` is the sharper
+case: it is annotated `readOnlyHint`, but the pattern `.` turns it into a whole
+file dump, so classifying it safe would reopen through the search tool exactly
+what keeping `file_read` dangerous closes. `glob` leaks names rather than
+contents and is held to the same line so the filesystem has one classification
+and not two.
 
 `readOnlyHint` is the remote server's own claim about itself, so adding an entry
 to `mcp.json` is a trust decision. `"daemon": false` keeps a server's tools in
