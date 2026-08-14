@@ -17,7 +17,8 @@ type Thinking struct {
 }
 
 type Context struct {
-	MaxChars int `json:"max_chars"`
+	MaxChars int  `json:"max_chars"`
+	Compact  bool `json:"compact"`
 }
 
 type Tools struct {
@@ -53,7 +54,7 @@ var AllowDangerousTools bool
 
 var defaultClient ClientConfig = ClientConfig{
 	Thinking: Thinking{Level: ThinkingOff, Show: true},
-	Context:  Context{MaxChars: 32768},
+	Context:  Context{MaxChars: 32768, Compact: true},
 	Tools:    Tools{Enabled: true},
 	Update:   Update{Check: true},
 }

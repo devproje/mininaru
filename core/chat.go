@@ -261,6 +261,7 @@ func chatWithToolPolicy(ctx context.Context, session *Session, agent *NaruAgent,
 	var history []*Message
 	var calls map[string][]*ToolCall
 	var prompt string
+	var summary string
 	var messages []openai.ChatCompletionMessageParamUnion
 	var params openai.ChatCompletionNewParams
 	var pending *Message
@@ -294,9 +295,12 @@ func chatWithToolPolicy(ctx context.Context, session *Session, agent *NaruAgent,
 
 	prompt = systemPrompt(agent, defs)
 
-	messages = append(messages, openai.SystemMessage(prompt))
-	history = trimHistory(history, calls, config.Client.Context.MaxChars, len(prompt)+len(content))
+	summary, history = compactHistory(ctx, agent, session, history, calls, len(prompt)+len(content))
+	if summary != "" {
+		prompt = prompt + "\n\n" + summaryBlock(summary)
+	}
 
+	messages = append(messages, openai.SystemMessage(prompt))
 	messages = append(messages, historyMessages(history, calls)...)
 	if len(parts) > 0 {
 		messages = append(messages, openai.UserMessage(parts))
