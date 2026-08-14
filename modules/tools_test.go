@@ -49,4 +49,7 @@ func TestDefaultToolPermissions(t *testing.T) {
 	if permissions["file_read"] != PermissionDangerous || permissions["file_write"] != PermissionDangerous || permissions["bash_exec"] != PermissionDangerous {
 		t.Fatalf("filesystem tool permissions = %#v", permissions)
 	}
+	if permissions["file_edit"] != PermissionDangerous {
+		t.Fatalf("file_edit permission = %#v", permissions)
+	}
 }

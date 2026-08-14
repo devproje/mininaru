@@ -110,14 +110,41 @@ func writePath(root, path string) (string, error) {
 	return filepath.Join(resolvedParent, filepath.Base(target)), nil
 }
 
+func sliceLines(text string, offset, limit int) string {
+	var lines []string
+
+	if offset <= 0 && limit <= 0 {
+		return text
+	}
+
+	lines = strings.Split(text, "\n")
+
+	if offset > 0 {
+		if offset > len(lines) {
+			return ""
+		}
+
+		lines = lines[offset-1:]
+	}
+
+	if limit > 0 && limit < len(lines) {
+		lines = lines[:limit]
+	}
+
+	return strings.Join(lines, "\n")
+}
+
 func FileRead(root string) Def {
 	return Def{
-		Name:        "file_read",
-		Description: "Read a UTF-8 text file relative to the process startup directory.",
+		Name: "file_read",
+		Description: "Read a UTF-8 text file relative to the process startup directory. " +
+			"Pass offset and limit to read a range of lines instead of the whole file.",
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"path":      map[string]any{"type": "string"},
+				"offset":    map[string]any{"type": "integer", "minimum": 1},
+				"limit":     map[string]any{"type": "integer", "minimum": 1},
 				"max_chars": map[string]any{"type": "integer", "minimum": 1, "maximum": maxReadChars},
 			},
 			"required":             []string{"path"},
@@ -127,10 +154,13 @@ func FileRead(root string) Def {
 		Execute: func(ctx context.Context, arguments string) (string, error) {
 			var payload struct {
 				Path     string `json:"path"`
+				Offset   int    `json:"offset"`
+				Limit    int    `json:"limit"`
 				MaxChars int    `json:"max_chars"`
 			}
 			var target string
 			var buf []byte
+			var text string
 
 			var err error
 
@@ -159,11 +189,13 @@ func FileRead(root string) Def {
 			if err != nil {
 				return "", err
 			}
-			if len(buf) > payload.MaxChars {
-				return string(buf[:payload.MaxChars]) + "\n[truncated]", nil
+
+			text = sliceLines(string(buf), payload.Offset, payload.Limit)
+			if len(text) > payload.MaxChars {
+				return text[:payload.MaxChars] + "\n[truncated]", nil
 			}
 
-			return string(buf), nil
+			return text, nil
 		},
 	}
 }
@@ -226,6 +258,93 @@ func FileWrite(root string) Def {
 			}
 
 			return fmt.Sprintf("wrote %d bytes to %s", len(payload.Content), payload.Path), nil
+		},
+	}
+}
+
+func FileEdit(root string) Def {
+	return Def{
+		Name: "file_edit",
+		Description: "Replace an exact string in a text file relative to the process startup directory. " +
+			"The string must appear exactly once unless replace_all is set.",
+		Parameters: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"path":        map[string]any{"type": "string"},
+				"old_string":  map[string]any{"type": "string"},
+				"new_string":  map[string]any{"type": "string"},
+				"replace_all": map[string]any{"type": "boolean"},
+			},
+			"required":             []string{"path", "old_string", "new_string"},
+			"additionalProperties": false,
+		},
+		Permission: PermissionDangerous,
+		Execute: func(ctx context.Context, arguments string) (string, error) {
+			var payload struct {
+				Path       string `json:"path"`
+				OldString  string `json:"old_string"`
+				NewString  string `json:"new_string"`
+				ReplaceAll bool   `json:"replace_all"`
+			}
+			var source string
+			var buf []byte
+			var count int
+			var target string
+			var info os.FileInfo
+
+			var err error
+
+			if err = ctx.Err(); err != nil {
+				return "", err
+			}
+			err = json.Unmarshal([]byte(arguments), &payload)
+			if err != nil {
+				return "", fmt.Errorf("invalid arguments: %w", err)
+			}
+			if payload.Path == "" {
+				return "", fmt.Errorf("path is required")
+			}
+			if payload.OldString == "" {
+				return "", fmt.Errorf("old_string is required")
+			}
+			if payload.OldString == payload.NewString {
+				return "", fmt.Errorf("old_string and new_string are identical")
+			}
+
+			source, err = readPath(root, payload.Path)
+			if err != nil {
+				return "", err
+			}
+			buf, err = os.ReadFile(source)
+			if err != nil {
+				return "", err
+			}
+
+			count = strings.Count(string(buf), payload.OldString)
+			if count == 0 {
+				return "", fmt.Errorf("old_string not found in %s", payload.Path)
+			}
+			if count > 1 && !payload.ReplaceAll {
+				return "", fmt.Errorf("old_string matches %d times in %s, pass more surrounding context or set replace_all",
+					count, payload.Path)
+			}
+
+			target, err = writePath(root, payload.Path)
+			if err != nil {
+				return "", err
+			}
+			info, err = os.Stat(target)
+			if err != nil {
+				return "", err
+			}
+
+			err = os.WriteFile(target, []byte(strings.Replace(string(buf), payload.OldString, payload.NewString, count)),
+				info.Mode().Perm())
+			if err != nil {
+				return "", err
+			}
+
+			return fmt.Sprintf("replaced %d occurrence(s) in %s", count, payload.Path), nil
 		},
 	}
 }
