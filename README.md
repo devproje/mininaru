@@ -230,6 +230,7 @@ mininaru --session <id>        # resume a specific session
 mininaru --agent coder         # chat with an agent other than the global one
 mininaru thinking high --show
 mininaru context 32768         # approximate character budget for history
+mininaru context compact off   # drop old turns instead of summarising them
 mininaru tools list            # list every available tool and where it came from
 mininaru tools on              # enable tool calling (default)
 mininaru tools off             # disable for models without tool support
@@ -296,8 +297,17 @@ kept in SQLite with their status and error for diagnostics, but are excluded
 from replay and future model requests. Resuming a session also replays the tool
 calls and results of each turn, so the model remembers what it already looked
 up. When history exceeds the configured context character budget, the oldest
-complete turns are omitted; tool arguments and results count toward that budget
-because they are sent to the model.
+complete turns leave the replay; tool arguments and results count toward that
+budget because they are sent to the model.
+
+Those turns are **summarised before they go**. The summary is one running
+paragraph per conversation, rewritten rather than appended to each time more
+turns fall out, and it rides in the system prompt so what was decided earlier
+survives even though the wording does not. It costs one extra model call, and
+only on a turn where something actually falls out of the budget. `mininaru
+context compact off` turns that off and goes back to dropping the turns
+outright; a summary already saved for a conversation keeps being used either
+way. Summaries live in their own table and are deleted with their session.
 
 The first agent you create becomes the global agent and is the default for the
 interactive client. `--agent <name>` chats with any other agent, and sessions
