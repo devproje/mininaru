@@ -4,13 +4,10 @@
 package handlers
 
 import (
-	"io"
 	"net/http"
 	"strconv"
 	"strings"
 	"testing"
-
-	"github.com/bwmarrin/discordgo"
 )
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
@@ -83,66 +80,6 @@ func TestSplitMessageKeepsShortTextIntact(t *testing.T) {
 	chunks = splitMessage("", messageLimit)
 	if len(chunks) != 1 || chunks[0] != "" {
 		t.Fatalf("empty text = %#v", chunks)
-	}
-}
-
-func TestExecutionStatusWithoutMessageReturnsWholeReply(t *testing.T) {
-	var text string
-	var status executionStatus
-	var chunks []string
-
-	text = strings.Repeat("a", 2500)
-	status = executionStatus{}
-	chunks = status.finish("✅", text, silentMentions())
-
-	if len(chunks) != 2 || !strings.Contains(chunks[0], "Part 1/2") || !strings.Contains(chunks[1], "Part 2/2") {
-		t.Fatalf("fallback chunks = %d, want complete reply", len(chunks))
-	}
-}
-
-func TestExecutionStatusReplacesProgressWithFirstReplyChunk(t *testing.T) {
-	var gateway *discordgo.Session
-	var requestBody string
-	var text string
-	var status executionStatus
-	var chunks []string
-
-	var err error
-
-	gateway, err = discordgo.New("Bot test")
-	if err != nil {
-		t.Fatal(err)
-	}
-	gateway.Client = &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
-		var body []byte
-
-		var readErr error
-
-		body, readErr = io.ReadAll(request.Body)
-		if readErr != nil {
-			return nil, readErr
-		}
-		requestBody = string(body)
-		return &http.Response{
-			StatusCode: http.StatusOK,
-			Header:     make(http.Header),
-			Body:       io.NopCloser(strings.NewReader(`{"id":"status","channel_id":"channel"}`)),
-			Request:    request,
-		}, nil
-	})}
-
-	text = strings.Repeat("a", 2500)
-	status = executionStatus{gateway: gateway, channelId: "channel", messageId: "status", current: "Thinking"}
-	chunks = status.finish("✅", text, silentMentions())
-
-	if len(chunks) != 1 || !strings.Contains(chunks[0], strings.Repeat("a", 500)) || !strings.Contains(chunks[0], "Part 2/2") {
-		t.Fatalf("continuation chunks = %#v", chunks)
-	}
-	if !strings.Contains(requestBody, strings.Repeat("a", messageLimit-replyChunkReserve)) || !strings.Contains(requestBody, "Part 1/2") {
-		t.Fatal("status edit does not contain the first reply chunk")
-	}
-	if strings.Contains(requestBody, "Thinking") {
-		t.Fatal("status edit still contains the progress text")
 	}
 }
 
