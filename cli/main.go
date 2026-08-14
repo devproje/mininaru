@@ -359,9 +359,17 @@ func main() {
 
 	var err error
 
-	util.AppVersion = version
-	util.AppBranch = branch
-	util.AppHash = hash
+	if version != "" {
+		util.AppVersion = version
+	}
+
+	if branch != "" {
+		util.AppBranch = branch
+	}
+
+	if hash != "" {
+		util.AppHash = hash
+	}
 
 	rootInit()
 

@@ -38,6 +38,11 @@ var NaruArt = []string{
 }
 
 func RuntimeIdentity() string {
+	if AppVersion == AppBranch {
+		return fmt.Sprintf("mininaru %s-%s %s/%s",
+			AppVersion, AppHash, runtime.GOOS, runtime.GOARCH)
+	}
+
 	return fmt.Sprintf("mininaru %s-%s (branch: %s) %s/%s",
 		AppVersion, AppHash, AppBranch, runtime.GOOS, runtime.GOARCH)
 }
