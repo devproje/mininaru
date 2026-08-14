@@ -23,6 +23,11 @@ in `core` imports its callers, and `server` and `bot` do not import each other �
 it imports `util` and the MCP SDK and nothing else in the tree. MCP process
 lifetime is owned by `cli`; `core` never starts or stops anything.
 
+One tool needs to point the other way, and does it without an import.
+`agent_call` lives in `core` because it drives the completion loop, and reaches
+the model by calling `modules.RegisterBuiltin` rather than by `modules` knowing
+anything about it — see Delegation.
+
 ## Two chat paths, one engine
 
 Every front end drives the same tool-calling loop, `completionRun` in
@@ -39,7 +44,7 @@ to `maxToolRounds` (8) times.
 | Context budget | `trimHistory` applies | client's responsibility |
 
 Both tool sets are a snapshot of what was discovered over live MCP sessions —
-the builtin twelve plus every enabled `mcp.json` server. There is no non-MCP path
+the builtin thirteen plus every enabled `mcp.json` server. There is no non-MCP path
 to a tool. The `core.Chat` row is also gated on `config.Client.Tools.Enabled`:
 when tools are off, `defs` is empty and the loop degenerates to one round.
 
@@ -93,7 +98,7 @@ the catalog can silently eat the context budget.
 
 ## MCP
 
-Every tool reaches the model through an MCP client session. The twelve builtin
+Every tool reaches the model through an MCP client session. The thirteen builtin
 tools are served by an in-process MCP server wired to the client over
 `mcp.NewInMemoryTransports()` — no subprocess, no socket, but the same code path
 external servers take. It bootstraps lazily on the first `DefaultTools()` call,
@@ -226,6 +231,42 @@ would need a `sync.Once` reachable from `core` for no benefit. `SIGHUP` re-scans
 The slice is behind a `sync.RWMutex` rather than being a bare global like
 `modules.MCP`, because a reload rewrites it while request goroutines are building
 prompts from it.
+
+## Delegation
+
+`agent_call` in [core/subagent.go](../core/subagent.go) runs one turn of another
+configured agent and returns its answer as a tool result. It is the one builtin
+that does not live in `modules`, and it cannot: it needs `AgentByName` and the
+completion loop, and `modules` is a leaf that must not import `core`.
+
+The way out is that `modules` owns the *table* and `core` owns the *tool*.
+`modules.RegisterBuiltin` appends to the builtin list, `core.InstallAgentTool`
+calls it, and `cli/main.go` calls that from `bootstrap` before anything asks for
+a tool. From there `agent_call` is served by the same in-process MCP server as
+the other twelve, so the "no non-MCP path to a tool" rule still holds and the
+leaf invariant is intact. Registration after the builtin server has started is
+refused with an error log rather than silently dropped, and the ordering is
+pinned by a `TestMain` in the `core` tests that installs before any test runs.
+
+A subagent is deliberately not a session. It gets a fresh system prompt built
+for the target agent, one user message, and nothing else — no history, no
+`tool_calls` rows, no session id. That keeps delegation cheap and keeps a
+subagent from inheriting a conversation it was never meant to see, at the cost
+of making the prompt the caller writes the whole of the subagent's context.
+
+What it *does* inherit is the calling turn's execution policy: the same defs,
+the same `AllowDangerous` and `AllowPrivileged`, and the same approval callback.
+A dangerous tool reached through a subagent therefore raises the same prompt it
+would have raised in the parent turn, rather than quietly running because it is
+one level down.
+
+Recursion is stopped twice over. `childDefs` strips `agent_call` from what the
+subagent is offered, so it is not advertised a tool it may not use, and
+`completionRun.Depth` carries a counter that refuses a second level even if a
+def slips through another way. The depth lives on the run rather than only in
+the context because `dispatch` rebuilds the context policy on every round, and a
+counter read back from the context it just wrote would always be zero. An agent
+is also refused delegation to itself, compared by id.
 
 ## Memory
 
@@ -384,8 +425,9 @@ the model as a tool error.
 For external MCP tools, safe versus dangerous is derived from the tool's
 `ToolAnnotations.readOnlyHint` and can be overridden per server (`permission`)
 or per tool (`tool_permission`) in `mcp.json`; a tool with no annotations is
-dangerous. The builtin twelve are classified by a fixed table in
-[modules/builtin.go](../modules/builtin.go) and are **not** overridable —
+dangerous. Twelve of the builtins are classified by a fixed table in
+[modules/builtin.go](../modules/builtin.go), and `agent_call` carries its own
+classification in from `core` when it registers; neither is overridable —
 `file_read` is honestly read-only and annotated as such, but classifying it safe
 would put arbitrary filesystem reads on the HTTP API with no human in the loop.
 
