@@ -108,12 +108,18 @@ func (d *Discord) instance(channelId string) (*core.Instance, error) {
 }
 
 func (d *Discord) onReady(session *discordgo.Session, ready *discordgo.Ready) {
+	var act string
 	var err error
+
+	act = fmt.Sprintf("mininaru %s-%s (%s)", util.AppVersion, util.AppBranch, util.AppHash)
+	if util.AppVersion == util.AppBranch {
+		act = fmt.Sprintf("mininaru %s (%s)", util.AppVersion, util.AppHash)
+	}
 
 	err = session.UpdateStatusComplex(discordgo.UpdateStatusData{
 		Status: string(discordgo.StatusOnline),
 		Activities: []*discordgo.Activity{{
-			Name: fmt.Sprintf("mininaru %s-%s (%s)", util.AppVersion, util.AppBranch, util.AppHash),
+			Name: act,
 			Type: discordgo.ActivityTypeListening,
 		}},
 	})
