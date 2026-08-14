@@ -157,6 +157,10 @@ func (t *typing) stop() {
 }
 
 func (d *Discord) sendReply(channelId, text string) {
+	d.sendReplyTo(channelId, "", text)
+}
+
+func (d *Discord) sendReplyTo(channelId, replyToId, text string) {
 	var chunks []string
 
 	if strings.TrimSpace(text) == "" {
@@ -164,16 +168,22 @@ func (d *Discord) sendReply(channelId, text string) {
 	}
 
 	chunks = splitReply(text, messageLimit)
-	d.sendChunks(channelId, chunks)
+	d.sendChunks(channelId, replyToId, chunks)
 }
 
-func (d *Discord) sendChunks(channelId string, chunks []string) {
-	var chunk string
+func (d *Discord) sendChunks(channelId, replyToId string, chunks []string) {
+	var index int
+	var send *discordgo.MessageSend
 
-	for _, chunk = range chunks {
-		d.gateway.ChannelMessageSendComplex(channelId, &discordgo.MessageSend{
-			Content:         chunk,
-			AllowedMentions: d.allowedMentions(chunk),
-		})
+	for index = range chunks {
+		send = &discordgo.MessageSend{
+			Content:         chunks[index],
+			AllowedMentions: d.allowedMentions(chunks[index]),
+		}
+		if index == 0 && replyToId != "" {
+			send.Reference = &discordgo.MessageReference{MessageID: replyToId, ChannelID: channelId}
+		}
+
+		d.gateway.ChannelMessageSendComplex(channelId, send)
 	}
 }

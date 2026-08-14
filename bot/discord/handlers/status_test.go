@@ -275,6 +275,73 @@ func TestReplyIsSentAsAPlainMessage(t *testing.T) {
 	}
 }
 
+func TestReplyPointsAtTheMessageItAnswersWithoutPinging(t *testing.T) {
+	var sent []string
+	var bot Discord
+	var payload map[string]any
+	var reference map[string]any
+	var allowed map[string]any
+	var ok bool
+
+	bot = Discord{gateway: recordingGateway(t, &sent)}
+	bot.sendReplyTo("channel", "source", "an answer")
+
+	payload = sentBody(t, sent[0])
+
+	reference, ok = payload["message_reference"].(map[string]any)
+	if !ok {
+		t.Fatalf("the answer is not a reply: %v", payload)
+	}
+	if reference["message_id"] != "source" {
+		t.Fatalf("reply points at %v", reference["message_id"])
+	}
+
+	allowed, ok = payload["allowed_mentions"].(map[string]any)
+	if !ok {
+		t.Fatalf("no allowed mentions: %v", payload)
+	}
+	if allowed["replied_user"] != false {
+		t.Fatalf("the reply pings the author: %v", allowed["replied_user"])
+	}
+}
+
+func TestOnlyTheFirstChunkRepliesToTheSource(t *testing.T) {
+	var sent []string
+	var bot Discord
+	var index int
+	var payload map[string]any
+
+	bot = Discord{gateway: recordingGateway(t, &sent)}
+	bot.sendReplyTo("channel", "source", strings.Repeat("a", 2500))
+
+	if len(sent) != 2 {
+		t.Fatalf("requests = %d, want 2", len(sent))
+	}
+
+	for index = range sent {
+		payload = sentBody(t, sent[index])
+
+		if index == 0 && payload["message_reference"] == nil {
+			t.Fatalf("the first chunk is not a reply: %v", payload)
+		}
+		if index > 0 && payload["message_reference"] != nil {
+			t.Fatalf("chunk %d repeats the reply: %v", index, payload)
+		}
+	}
+}
+
+func TestReplyTargetOnlyWhenTheSourceSharesTheChannel(t *testing.T) {
+	if replyTarget("channel", "channel", "source") != "source" {
+		t.Fatal("a same-channel answer should reply to the message")
+	}
+	if replyTarget("thread", "channel", "source") != "" {
+		t.Fatal("a new thread cannot reply across channels")
+	}
+	if replyTarget("channel", "channel", "") != "" {
+		t.Fatal("no source message means no reply")
+	}
+}
+
 func TestStatusCardKeepsUsingComponents(t *testing.T) {
 	var sent []string
 	var status *executionStatus

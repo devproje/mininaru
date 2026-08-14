@@ -40,6 +40,14 @@ func (t conversationTarget) note() string {
 	return ""
 }
 
+func replyTarget(channelId, sourceChannelId, sourceMessageId string) string {
+	if sourceChannelId != channelId {
+		return ""
+	}
+
+	return sourceMessageId
+}
+
 func toolFailureReason(text string) string {
 	var reason string
 
@@ -236,8 +244,11 @@ func (d *Discord) answerFor(ctx context.Context, channelId, sourceChannelId, sou
 	var onTool core.ToolEventFunc
 	var defs []modules.Def
 	var message *core.Message
+	var replyTo string
 
 	var err error
+
+	replyTo = replyTarget(channelId, sourceChannelId, sourceMessageId)
 
 	target, err = d.instance(channelId)
 	if err != nil {
@@ -256,7 +267,7 @@ func (d *Discord) answerFor(ctx context.Context, channelId, sourceChannelId, sou
 		if err != nil {
 			indicator.stop()
 			status.finish("❌", "Failed")
-			d.sendReply(channelId, conversationFailure("reading the attachment", err))
+			d.sendReplyTo(channelId, replyTo, conversationFailure("reading the attachment", err))
 			return
 		}
 	}
@@ -292,11 +303,11 @@ func (d *Discord) answerFor(ctx context.Context, channelId, sourceChannelId, sou
 	indicator.stop()
 	if err != nil {
 		status.finish("❌", "Failed")
-		d.sendReply(channelId, conversationFailure("answering", err))
+		d.sendReplyTo(channelId, replyTo, conversationFailure("answering", err))
 		return
 	}
 	status.finish("✅", "Answered")
-	d.sendReply(channelId, message.Content)
+	d.sendReplyTo(channelId, replyTo, message.Content)
 }
 
 func (d *Discord) onMessage(gateway *discordgo.Session, message *discordgo.MessageCreate) {
