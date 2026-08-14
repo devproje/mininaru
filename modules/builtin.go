@@ -18,14 +18,41 @@ type builtinTool struct {
 	Annotations mcp.ToolAnnotations
 }
 
+type BuiltinHints struct {
+	Title       string
+	ReadOnly    bool
+	Destructive bool
+	OpenWorld   bool
+}
+
 var builtinOnce sync.Once
 
 var builtinSession *mcp.ClientSession
 
 var builtinCache []Def
 
+var registered []builtinTool
+
 func hint(value bool) *bool {
 	return &value
+}
+
+func RegisterBuiltin(build func() Def, hints BuiltinHints) {
+	if builtinCache != nil {
+		util.Log.Error("a builtin tool was registered after the builtin server started", "tool", hints.Title)
+		return
+	}
+
+	registered = append(registered, builtinTool{
+		Build:      build,
+		Permission: build().Permission,
+		Annotations: mcp.ToolAnnotations{
+			Title:           hints.Title,
+			ReadOnlyHint:    hints.ReadOnly,
+			DestructiveHint: hint(hints.Destructive),
+			OpenWorldHint:   hint(hints.OpenWorld),
+		},
+	})
 }
 
 func builtinRoot() string {
@@ -40,7 +67,9 @@ func builtinRoot() string {
 }
 
 func builtinTools() []builtinTool {
-	return []builtinTool{
+	var fixed []builtinTool
+
+	fixed = []builtinTool{
 		{
 			Build:      CurrentTime,
 			Permission: PermissionSafe,
@@ -126,6 +155,8 @@ func builtinTools() []builtinTool {
 			},
 		},
 	}
+
+	return append(fixed, registered...)
 }
 
 func builtinHandler(tool builtinTool) mcp.ToolHandler {

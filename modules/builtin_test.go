@@ -136,3 +136,70 @@ func findBuiltin(t *testing.T, name string) *Def {
 	t.Fatalf("builtin tool %q not found", name)
 	return nil
 }
+
+func TestRegisterBuiltinExtendsTheBuiltinTable(t *testing.T) {
+	var previousRegistered []builtinTool
+	var previousCache []Def
+	var tool builtinTool
+	var found bool
+	var permission Permission
+	var annotations mcp.ToolAnnotations
+
+	previousRegistered = registered
+	previousCache = builtinCache
+
+	t.Cleanup(func() {
+		registered = previousRegistered
+		builtinCache = previousCache
+	})
+
+	builtinCache = nil
+	registered = nil
+
+	RegisterBuiltin(func() Def {
+		return Def{Name: "probe", Description: "probe", Permission: PermissionPrivileged,
+			Parameters: map[string]any{"type": "object"}}
+	}, BuiltinHints{Title: "probe", OpenWorld: true})
+
+	for _, tool = range builtinTools() {
+		if tool.Build().Name != "probe" {
+			continue
+		}
+
+		found = true
+		permission = tool.Permission
+		annotations = tool.Annotations
+	}
+
+	if !found {
+		t.Fatal("a registered tool did not reach the builtin table")
+	}
+	if permission != PermissionPrivileged {
+		t.Fatalf("registered permission = %v, it should come from the def", permission)
+	}
+	if annotations.Title != "probe" || annotations.OpenWorldHint == nil || !*annotations.OpenWorldHint {
+		t.Fatalf("registered annotations = %#v", annotations)
+	}
+}
+
+func TestRegisterBuiltinRefusesAfterTheServerStarted(t *testing.T) {
+	var previousRegistered []builtinTool
+	var previousCache []Def
+
+	previousRegistered = registered
+	previousCache = builtinCache
+
+	t.Cleanup(func() {
+		registered = previousRegistered
+		builtinCache = previousCache
+	})
+
+	builtinCache = []Def{{Name: "already"}}
+	registered = nil
+
+	RegisterBuiltin(func() Def { return Def{Name: "late"} }, BuiltinHints{Title: "late"})
+
+	if len(registered) != 0 {
+		t.Fatal("a tool registered after the builtin server had already started")
+	}
+}
