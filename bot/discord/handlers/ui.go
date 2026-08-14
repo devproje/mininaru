@@ -39,9 +39,9 @@ func v2Container(accent int, components ...discordgo.MessageComponent) []discord
 
 func userAppComponents(view userAppPresentation, state, content string) []discordgo.MessageComponent {
 	var runes []rune
-	var body []discordgo.MessageComponent
 	var icon string
 	var accent int
+	var body []discordgo.MessageComponent
 
 	if strings.TrimSpace(content) == "" {
 		content = emptyReply
@@ -152,8 +152,8 @@ func (s *executionStatus) show(reaction, text string) {
 
 func (s *executionStatus) finish(reaction, text string, allowed *discordgo.MessageAllowedMentions) []string {
 	var chunks []string
-	var components []discordgo.MessageComponent
 	var accent int
+	var components []discordgo.MessageComponent
 
 	var err error
 

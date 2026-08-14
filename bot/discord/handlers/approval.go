@@ -171,8 +171,8 @@ func approvalString(payload map[string]any, key string) string {
 }
 
 func approvalRequestComponents(id, userId string, view approvalPresentation) []discordgo.MessageComponent {
-	var body []discordgo.MessageComponent
 	var summary string
+	var body []discordgo.MessageComponent
 
 	summary = "### 🔐 " + view.title
 	if view.target != "" {

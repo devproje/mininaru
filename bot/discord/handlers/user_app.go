@@ -168,8 +168,8 @@ func (d *Discord) chatCommand(interaction *discordgo.InteractionCreate, user *di
 	var attachment *discordgo.MessageAttachment
 	var target *core.Instance
 	var flags discordgo.MessageFlags
-	var files []*discordgo.MessageAttachment
 	var view userAppPresentation
+	var files []*discordgo.MessageAttachment
 
 	var err error
 
@@ -233,11 +233,11 @@ func (d *Discord) chatCommand(interaction *discordgo.InteractionCreate, user *di
 
 func (d *Discord) runStatelessChat(ctx context.Context, interaction *discordgo.InteractionCreate, target *core.Instance, content string,
 	files []*discordgo.MessageAttachment, private bool) {
+	var view userAppPresentation
 	var parts []openai.ChatCompletionContentPartUnionParam
 	var components []discordgo.MessageComponent
 	var messages []openai.ChatCompletionMessageParamUnion
 	var result *core.Completion
-	var view userAppPresentation
 
 	var err error
 

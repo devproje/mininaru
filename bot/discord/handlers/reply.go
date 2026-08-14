@@ -68,10 +68,10 @@ func splitMessage(text string, limit int) []string {
 
 func splitReply(text string, limit int) []string {
 	var raw []string
-	var chunks []string
 	var chunk string
-	var fence string
 	var prefix string
+	var fence string
+	var chunks []string
 	var index int
 
 	if limit <= replyChunkReserve {
