@@ -104,7 +104,7 @@ func summaryTranscript(previous string, dropped []*Message) string {
 	return builder.String()
 }
 
-func summarize(ctx context.Context, agent *NaruAgent, previous string, dropped []*Message) (string, error) {
+func summarize(ctx context.Context, agent *NaruAgent, previous string, dropped []*Message) (string, openai.CompletionUsage, error) {
 	var messages []openai.ChatCompletionMessageParamUnion
 	var result *Completion
 	var text string
@@ -116,12 +116,12 @@ func summarize(ctx context.Context, agent *NaruAgent, previous string, dropped [
 
 	result, err = Complete(ctx, agent, messages, nil, config.ThinkingOff, nil, nil)
 	if err != nil {
-		return "", err
+		return "", openai.CompletionUsage{}, err
 	}
 
 	text = strings.TrimSpace(result.Content)
 	if text == "" {
-		return "", fmt.Errorf("the model returned an empty summary")
+		return "", result.Usage, fmt.Errorf("the model returned an empty summary")
 	}
 
 	runes = []rune(text)
@@ -129,7 +129,7 @@ func summarize(ctx context.Context, agent *NaruAgent, previous string, dropped [
 		text = string(runes[:maxSummaryChars])
 	}
 
-	return text, nil
+	return text, result.Usage, nil
 }
 
 func CompactNow(ctx context.Context, agent *NaruAgent, session *Session) (bool, error) {
@@ -138,6 +138,7 @@ func CompactNow(ctx context.Context, agent *NaruAgent, session *Session) (bool, 
 	var text string
 	var tail []*Message
 	var updated string
+	var usage openai.CompletionUsage
 
 	var err error
 
@@ -165,7 +166,9 @@ func CompactNow(ctx context.Context, agent *NaruAgent, session *Session) (bool, 
 		return false, nil
 	}
 
-	updated, err = summarize(ctx, agent, text, tail)
+	updated, usage, err = summarize(ctx, agent, text, tail)
+	usageRecord(session.Id, "", UsageCompaction, usage)
+
 	if err != nil {
 		return false, err
 	}
@@ -189,6 +192,7 @@ func compactHistory(ctx context.Context, agent *NaruAgent, session *Session, his
 	var kept []*Message
 	var dropped []*Message
 	var updated string
+	var usage openai.CompletionUsage
 
 	var err error
 
@@ -210,7 +214,9 @@ func compactHistory(ctx context.Context, agent *NaruAgent, session *Session, his
 
 	dropped = tail[:len(tail)-len(kept)]
 
-	updated, err = summarize(ctx, agent, text, dropped)
+	updated, usage, err = summarize(ctx, agent, text, dropped)
+	usageRecord(session.Id, "", UsageCompaction, usage)
+
 	if err != nil {
 		util.Log.Warn("compacting the conversation failed, dropping its oldest turns instead",
 			"session", session.Id, "turns", len(dropped), "error", err)

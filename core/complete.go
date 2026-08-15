@@ -101,7 +101,7 @@ func (r *completionRun) dispatch(ctx context.Context, message openai.ChatComplet
 	r.Params.Messages = append(r.Params.Messages, assistantToolCallMessage(message))
 
 	ctx = subagentContext(ctx, subagentPolicy{
-		CallerId: r.AgentId, Defs: r.Defs,
+		CallerId: r.AgentId, SessionId: r.SessionId, Defs: r.Defs,
 		AllowDangerous: r.AllowDangerous, AllowPrivileged: r.AllowPrivileged,
 		Approve: r.Approve, Depth: r.Depth,
 	})
@@ -155,9 +155,9 @@ func (r *completionRun) execute(ctx context.Context) (*Completion, error) {
 			return nil, err
 		}
 
-		if accumulator.Usage.TotalTokens != 0 {
-			result.Usage = accumulator.Usage
-		}
+		result.Usage.PromptTokens += accumulator.Usage.PromptTokens
+		result.Usage.CompletionTokens += accumulator.Usage.CompletionTokens
+		result.Usage.TotalTokens += accumulator.Usage.TotalTokens
 
 		message = accumulator.Choices[0].Message
 		if len(message.ToolCalls) == 0 {
