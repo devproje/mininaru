@@ -132,6 +132,55 @@ func summarize(ctx context.Context, agent *NaruAgent, previous string, dropped [
 	return text, nil
 }
 
+func CompactNow(ctx context.Context, agent *NaruAgent, session *Session) (bool, error) {
+	var history []*Message
+	var previous *Summary
+	var text string
+	var tail []*Message
+	var updated string
+
+	var err error
+
+	if agent == nil || session == nil {
+		return false, fmt.Errorf("agent and session are required to compact")
+	}
+
+	history, err = MessageList(session.Id)
+	if err != nil {
+		return false, err
+	}
+
+	previous, err = SummaryLoad(session.Id)
+	if err != nil {
+		return false, err
+	}
+
+	tail = history
+	if previous != nil {
+		text = previous.Content
+		tail = summaryTail(history, previous.ThroughMessageId)
+	}
+
+	if len(tail) == 0 {
+		return false, nil
+	}
+
+	updated, err = summarize(ctx, agent, text, tail)
+	if err != nil {
+		return false, err
+	}
+
+	err = SummarySave(session.Id, updated, tail[len(tail)-1].Id)
+	if err != nil {
+		return false, err
+	}
+
+	util.Log.Debug("compacted the conversation on request",
+		"session", session.Id, "turns", len(tail), "summary_chars", len(updated))
+
+	return true, nil
+}
+
 func compactHistory(ctx context.Context, agent *NaruAgent, session *Session, history []*Message,
 	calls map[string][]*ToolCall, reserved int) (string, []*Message) {
 	var previous *Summary
