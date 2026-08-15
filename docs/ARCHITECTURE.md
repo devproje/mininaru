@@ -305,6 +305,12 @@ providers under arbitrary model names, so any table of rates would be a guess
 that goes stale; the tokens are reported and the conversion is left to whoever
 knows their own contract.
 
+The Discord `/usage` command reads the same totals and is admin-only and
+channel-scoped, resolving its session with `SessionByExternal` exactly as
+`/compact` does. Unlike `/compact` it answers straight away rather than
+acknowledging and editing: it is a database read, so there is no model call to
+outrun the three-second interaction deadline.
+
 ## Memory
 
 Durable memory is a small, global SQLite store shared by trusted interactive

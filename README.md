@@ -760,6 +760,11 @@ in the list a non-admin's turn is given.
   and it only ever touches the conversation bound to the channel it was run in,
   so there is no way to reach another channel's history with it. A channel that
   has no conversation yet is told so rather than having one created.
+- `/usage` shows what that channel's conversation has spent, itemised by turns,
+  compaction, and delegation. **Admin only**, scoped to the channel the same way
+  `/compact` is, and the reply is only visible to whoever asked. See
+  [What a conversation costs](#what-a-conversation-costs) — these are tokens,
+  not money.
 
 ### Pings
 
