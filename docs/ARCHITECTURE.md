@@ -41,7 +41,7 @@ to `maxToolRounds` (8) times.
 | Persistence | messages and tool calls written | nothing written |
 | Tools | `modules.DefaultTools()` | `modules.SafeTools()` |
 | Dangerous tools | approval callback, or `--allow-dangerous-tools` | never offered |
-| Context budget | `trimHistory` applies | client's responsibility |
+| Context budget | `compactHistory` then `trimHistory` | client's responsibility |
 
 Both tool sets are a snapshot of what was discovered over live MCP sessions —
 the builtin thirteen plus every enabled `mcp.json` server. There is no non-MCP path
@@ -395,6 +395,49 @@ request.
 `context.max_chars`. It charges tool names, arguments, and results to the
 budget, since those are sent. It does not charge reasoning text, which is not.
 The budget counts bytes, so non-ASCII text costs more than its character count.
+
+## Compaction
+
+`trimHistory` on its own loses whatever those turns held, silently. `compactHistory`
+in [core/compact.go](../core/compact.go) wraps it: it still decides what leaves,
+but summarises the departing turns into the conversation first and carries the
+result in the system prompt as a `<mininaru-summary>` block. `trimHistory` itself
+is untouched and remains the only place that decides what fits.
+
+The summary is one row per session in `session_summaries`, rewritten in place
+rather than appended to, with `through_message_id` marking the newest message it
+covers. **It is deliberately not a row in `messages`.** A summary living in the
+history would be charged to the budget by the very function it exists to soften,
+and could be trimmed away — the failure mode would be losing the compression of
+the thing you were trying not to lose. Keeping it out also leaves `MessageList`
+meaning "what was actually said", which is what the TUI replays.
+
+The marker is a message id rather than a rowid because `MessageList` does not
+select rowids and `Message` should not grow a storage detail to carry one. If the
+marker is not found in the history, the tail is treated as uncovered and every
+turn is replayed: a duplicated turn is a cheaper failure than a silently dropped
+one, and it is logged.
+
+Budgeting is charged the summary's **current** length, not a reserve for the one
+about to be written. Charging a fixed reserve up front would make every
+conversation hit the budget earlier than it does today, including ones that never
+compact. The turn where compaction happens is therefore slightly off — the new
+summary may differ in length from the old — and the next turn corrects it. A cap
+of `maxSummaryChars` keeps that drift bounded, enforced both in the instruction
+and by truncating what comes back.
+
+Summarising uses `Complete` with no tool definitions, so the summary turn cannot
+reach a tool: `Complete` leaves `AllowPrivileged` false and passes no defs. It
+runs on the conversation's own agent and model.
+
+**Failure never breaks the user's turn.** A summary call that errors, a context
+that cancels, an empty answer, a failed write — each is logged at warn and falls
+through to today's behaviour of dropping the turns. Compaction is an improvement
+on a lossy path, not a new way for a chat to fail.
+
+`context.compact` turns new summarisation off. An existing summary keeps being
+applied, because it is already paid for and dropping it would lose more than it
+saves.
 
 ## The daemon and agent instances
 
