@@ -372,8 +372,25 @@ below for the two network ones.
 `file_read`, `file_write`, `file_edit`, `glob`, `grep`, and `bash_exec` are rooted
 at the directory where the process started. They reject lexical and symlink path
 escapes where applicable. Without a flag, each dangerous call pauses the TUI and
-asks for approval: press `y` to execute or `n`/`esc` to deny it. A denied call is
-returned to the model as a tool error so the conversation can continue.
+asks for approval. Move with the arrow keys and choose with `enter`:
+
+```
+  approve bash_exec?  {"command":"go test ./..."}
+  ▸ Allow once
+    Allow bash_exec for the rest of this session
+    Deny
+```
+
+`esc` denies without moving. A denied call is returned to the model as a tool
+error so the conversation can continue.
+
+The middle choice is what stops a long turn from asking ten times for the same
+thing. **It is scoped to the tool, not to the arguments**, so allowing
+`bash_exec` for the session means every later shell command runs unattended —
+the same reach as `--allow-dangerous-tools`, narrowed to that one tool. The
+choice names the tool so it is clear what is being handed over. It lasts as long
+as the process does and is never written to disk, so a new `mininaru` starts by
+asking again.
 
 `file_edit` replaces one exact string with another. The string has to occur
 exactly once in the file, otherwise the call is refused and the model is asked for

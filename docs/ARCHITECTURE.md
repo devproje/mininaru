@@ -524,6 +524,30 @@ dangerous tools have no safe path. `Chat` passes a `nil` approval callback, so
 if a dangerous tool ever is configured it is denied and the denial goes back to
 the model as a tool error.
 
+### The approval menu
+
+The TUI asks with a three-way menu — allow once, allow that tool for the rest of
+the session, deny — rather than a yes/no, because yes/no left no middle ground:
+a turn editing ten files asked ten times, and the only escape from that was
+`--allow-dangerous-tools`, which opens everything. The middle choice is the
+narrow version of that flag.
+
+It is keyed on the **tool name**, not the arguments. Argument-scoped grants would
+be safer and nearly useless, since one changed byte asks again and the repetition
+this exists to remove comes straight back. The consequence is that allowing
+`bash_exec` for a session hands over arbitrary commands for that session, so the
+choice renders the tool name inside the label rather than saying "this tool".
+
+The list lives on the `client` behind a `sync.Mutex` and never touches disk. The
+mutex is not decorative: the approval callback runs on the goroutine `sendPrompt`
+started, while `Update` runs on the bubbletea loop, and before this the two only
+ever met through the decision channel. A grant lasts as long as the process, so a
+new `mininaru` asks again.
+
+The decision travels as an `approvalDecision` rather than a `bool`, since "allow
+once" and "allow for the session" are the same answer to `executeTool` and
+different answers to the client that has to remember one of them.
+
 For external MCP tools, safe versus dangerous is derived from the tool's
 `ToolAnnotations.readOnlyHint` and can be overridden per server (`permission`)
 or per tool (`tool_permission`) in `mcp.json`; a tool with no annotations is
