@@ -4,6 +4,7 @@
 package handlers
 
 import (
+	"context"
 	"strings"
 
 	"github.com/bwmarrin/discordgo"
@@ -66,6 +67,73 @@ func (d *Discord) resetCommand(interaction *discordgo.InteractionCreate, user *d
 			AllowedMentions: silentMentions(),
 		},
 	})
+}
+
+func compactOutcome(compacted bool, err error) string {
+	if err != nil {
+		return publicFailure("compacting the conversation", err)
+	}
+
+	if !compacted {
+		return "There is nothing to compact in this channel yet."
+	}
+
+	return "Done. This channel's conversation is a summary from here on."
+}
+
+func (d *Discord) runCompact(interaction *discordgo.InteractionCreate, agent *core.NaruAgent, session *core.Session) {
+	var ctx context.Context
+	var cancel context.CancelFunc
+	var compacted bool
+	var outcome string
+
+	var err error
+
+	ctx, cancel = d.turnContext()
+	defer cancel()
+
+	compacted, err = core.CompactNow(ctx, agent, session)
+	outcome = compactOutcome(compacted, err)
+
+	d.gateway.InteractionResponseEdit(interaction.Interaction, &discordgo.WebhookEdit{Content: &outcome})
+}
+
+func (d *Discord) compactCommand(interaction *discordgo.InteractionCreate, role string) {
+	var bound *core.Session
+	var target *core.Instance
+
+	var err error
+
+	if role != core.DiscordRoleAdmin {
+		d.respond(interaction, "Only the admin can do that.")
+		return
+	}
+
+	bound, err = core.SessionByExternal(OriginDiscord, interaction.ChannelID)
+	if err != nil {
+		d.respond(interaction, publicFailure("looking up this channel's conversation", err))
+		return
+	}
+	if bound == nil {
+		d.respond(interaction, "There is no conversation in this channel yet.")
+		return
+	}
+
+	target, err = d.instance(interaction.ChannelID)
+	if err != nil {
+		d.respond(interaction, publicFailure("looking up the agent", err))
+		return
+	}
+
+	err = d.gateway.InteractionRespond(interaction.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{Content: "Compacting…", Flags: discordgo.MessageFlagsEphemeral},
+	})
+	if err != nil {
+		return
+	}
+
+	go d.runCompact(interaction, target.Agent, bound)
 }
 
 func resetConfirmationComponents(agentName, userId string) []discordgo.MessageComponent {
@@ -346,6 +414,8 @@ func (d *Discord) onInteraction(gateway *discordgo.Session, interaction *discord
 	switch data.Name {
 	case "reset":
 		d.resetCommand(interaction, user)
+	case "compact":
+		d.compactCommand(interaction, role)
 	case "agent":
 		d.agentCommand(interaction)
 	case "mention":

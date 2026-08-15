@@ -6,6 +6,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -337,5 +338,48 @@ func TestTurnContextCarriesADeadline(t *testing.T) {
 	}
 	if time.Until(deadline) > replyTimeout+time.Second {
 		t.Fatalf("deadline is %v away, want at most %v", time.Until(deadline), replyTimeout)
+	}
+}
+
+func TestCompactIsAGuildCommandAndNotAUserAppOne(t *testing.T) {
+	var guild []*discordgo.ApplicationCommand
+	var global []*discordgo.ApplicationCommand
+	var command *discordgo.ApplicationCommand
+	var inGuild bool
+	var inGlobal bool
+
+	guild, global = commands.Sets("guild-1")
+
+	for _, command = range guild {
+		inGuild = inGuild || command.Name == "compact"
+	}
+	for _, command = range global {
+		inGlobal = inGlobal || command.Name == "compact"
+	}
+
+	if !inGuild {
+		t.Fatal("compact is not registered to the guild")
+	}
+	if inGlobal {
+		t.Fatal("compact leaked into the user-installable global set")
+	}
+}
+
+func TestCompactOutcomeWording(t *testing.T) {
+	var text string
+
+	text = compactOutcome(true, nil)
+	if !strings.Contains(text, "summary") {
+		t.Fatalf("success outcome = %q", text)
+	}
+
+	text = compactOutcome(false, nil)
+	if !strings.Contains(text, "nothing to compact") {
+		t.Fatalf("empty outcome = %q", text)
+	}
+
+	text = compactOutcome(false, errors.New("upstream exploded"))
+	if strings.Contains(text, "upstream exploded") {
+		t.Fatalf("failure outcome leaked the internal error: %q", text)
 	}
 }

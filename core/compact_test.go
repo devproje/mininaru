@@ -338,3 +338,161 @@ func TestSummaryIsRemovedWithItsSession(t *testing.T) {
 		t.Fatalf("summary rows left after the session was deleted = %d", count)
 	}
 }
+
+func TestCompactNowFoldsTheWholeConversation(t *testing.T) {
+	var requests []string
+	var srv *httptest.Server
+	var session *Session
+	var agent *NaruAgent
+	var compacted bool
+	var saved *Summary
+	var history []*Message
+
+	var err error
+
+	srv = compactServer(t, &requests)
+	defer srv.Close()
+
+	session, agent = compactSetup(t, srv.URL, 100000, true)
+	seedTurns(t, session.Id, 2)
+
+	compacted, err = CompactNow(context.Background(), agent, session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !compacted {
+		t.Fatal("CompactNow reported nothing to do for a seeded conversation")
+	}
+
+	if len(requests) != 1 || !strings.Contains(requests[0], "turns-to-fold-in") {
+		t.Fatalf("requests = %#v, want one summary call", requests)
+	}
+
+	history, err = MessageList(session.Id)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	saved = summaryRow(t, session.Id)
+	if saved == nil {
+		t.Fatal("no summary was saved")
+	}
+	if saved.ThroughMessageId != history[len(history)-1].Id {
+		t.Fatal("the summary does not reach the newest message")
+	}
+	if len(summaryTail(history, saved.ThroughMessageId)) != 0 {
+		t.Fatal("turns were left outside the summary")
+	}
+}
+
+func TestCompactNowDoesNothingOnAnEmptyConversation(t *testing.T) {
+	var requests []string
+	var srv *httptest.Server
+	var session *Session
+	var agent *NaruAgent
+	var compacted bool
+
+	var err error
+
+	srv = compactServer(t, &requests)
+	defer srv.Close()
+
+	session, agent = compactSetup(t, srv.URL, 100000, true)
+
+	compacted, err = CompactNow(context.Background(), agent, session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if compacted {
+		t.Fatal("CompactNow compacted an empty conversation")
+	}
+	if len(requests) != 0 {
+		t.Fatalf("CompactNow called the model %d times with nothing to fold", len(requests))
+	}
+}
+
+func TestCompactNowIgnoresTheAutomaticToggle(t *testing.T) {
+	var requests []string
+	var srv *httptest.Server
+	var session *Session
+	var agent *NaruAgent
+	var compacted bool
+
+	var err error
+
+	srv = compactServer(t, &requests)
+	defer srv.Close()
+
+	session, agent = compactSetup(t, srv.URL, 100000, false)
+	seedTurns(t, session.Id, 1)
+
+	compacted, err = CompactNow(context.Background(), agent, session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !compacted {
+		t.Fatal("an explicit compact request was refused because automatic compaction is off")
+	}
+	if summaryRow(t, session.Id) == nil {
+		t.Fatal("no summary was saved with automatic compaction off")
+	}
+}
+
+func TestCompactNowFoldsAnExistingSummaryIn(t *testing.T) {
+	var requests []string
+	var srv *httptest.Server
+	var session *Session
+	var agent *NaruAgent
+
+	var err error
+
+	srv = compactServer(t, &requests)
+	defer srv.Close()
+
+	session, agent = compactSetup(t, srv.URL, 100000, true)
+	seedTurns(t, session.Id, 1)
+
+	_, err = CompactNow(context.Background(), agent, session)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	seedTurns(t, session.Id, 1)
+	requests = nil
+
+	_, err = CompactNow(context.Background(), agent, session)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(requests) != 1 {
+		t.Fatalf("second compact made %d requests, want 1", len(requests))
+	}
+	if !strings.Contains(requests[0], "summary-so-far") {
+		t.Fatalf("the second compact did not fold the first summary in: %s", requests[0])
+	}
+}
+
+func TestCompactNowReturnsTheFailureInsteadOfSwallowingIt(t *testing.T) {
+	var srv *httptest.Server
+	var session *Session
+	var agent *NaruAgent
+
+	var err error
+
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	session, agent = compactSetup(t, srv.URL, 100000, true)
+	seedTurns(t, session.Id, 1)
+
+	_, err = CompactNow(context.Background(), agent, session)
+	if err == nil {
+		t.Fatal("CompactNow swallowed a failed summary call")
+	}
+	if summaryRow(t, session.Id) != nil {
+		t.Fatal("a summary was saved even though the call failed")
+	}
+}

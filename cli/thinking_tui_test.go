@@ -203,3 +203,110 @@ func TestFullScreenViewAndTranscriptScrolling(t *testing.T) {
 		t.Fatal("end did not return to the latest transcript line")
 	}
 }
+
+func quitCmd(t *testing.T, c *client, text string) bool {
+	var cmd tea.Cmd
+	var msg tea.Msg
+
+	t.Helper()
+
+	c.input.SetValue(text)
+	_, cmd = c.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil {
+		return false
+	}
+
+	msg = cmd()
+	_, quit := msg.(tea.QuitMsg)
+
+	return quit
+}
+
+func TestSlashExitAndQuitLeaveWithoutSending(t *testing.T) {
+	var c *client
+
+	c = tuiClient(t)
+	if !quitCmd(t, c, "/exit") {
+		t.Fatal("/exit did not quit")
+	}
+	if c.sending {
+		t.Fatal("/exit was sent to the model")
+	}
+	if !c.quitting {
+		t.Fatal("/exit did not mark the client as quitting")
+	}
+
+	c = tuiClient(t)
+	if !quitCmd(t, c, "/quit") {
+		t.Fatal("/quit did not quit")
+	}
+}
+
+func TestSlashCompactStartsWorkAndIsNotSentToTheModel(t *testing.T) {
+	var c *client
+	var entry transcriptEntry
+
+	c = tuiClient(t)
+	typeEnter(c, "/compact")
+
+	if !c.sending {
+		t.Fatal("/compact did not start working")
+	}
+	if c.cancel == nil {
+		t.Fatal("/compact left no way to interrupt it")
+	}
+
+	for _, entry = range c.transcript {
+		if entry.kind == transcriptMessage && entry.role == "user" {
+			t.Fatal("/compact was recorded as a user message")
+		}
+	}
+}
+
+func TestSlashCompactIsIgnoredWhileAnAnswerIsInFlight(t *testing.T) {
+	var c *client
+
+	c = tuiClient(t)
+	c.sending = true
+
+	typeEnter(c, "/compact")
+
+	if c.cancel != nil {
+		t.Fatal("/compact started while an answer was in flight")
+	}
+	if len(c.transcript) != 0 {
+		t.Fatalf("transcript = %#v, want the key ignored like every other command in flight", c.transcript)
+	}
+}
+
+func TestCompactOutcomeNotices(t *testing.T) {
+	var c *client
+
+	c = tuiClient(t)
+
+	c.finishCompact(compactDoneMsg{compacted: true})
+	if !strings.Contains(c.transcript[len(c.transcript)-1].content, "compacted the conversation") {
+		t.Fatalf("success notice = %q", c.transcript[len(c.transcript)-1].content)
+	}
+	if c.sending {
+		t.Fatal("finishCompact left the client sending")
+	}
+
+	c.finishCompact(compactDoneMsg{compacted: false})
+	if !strings.Contains(c.transcript[len(c.transcript)-1].content, "nothing to compact") {
+		t.Fatalf("empty notice = %q", c.transcript[len(c.transcript)-1].content)
+	}
+}
+
+func TestHelpListsTheNewCommands(t *testing.T) {
+	var c *client
+	var body string
+
+	c = tuiClient(t)
+	typeEnter(c, "/help")
+
+	body = c.transcript[len(c.transcript)-1].content
+	if !strings.Contains(body, "/compact") || !strings.Contains(body, "/exit") {
+		t.Fatalf("help = %q", body)
+	}
+}
