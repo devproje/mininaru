@@ -21,6 +21,7 @@ var slashCommands = []*discordgo.ApplicationCommand{
 		},
 	},
 	{Name: "reset", Description: "Forget this channel's conversation and start over"},
+	{Name: "compact", Description: "Fold this channel's conversation into a summary (admin only)"},
 	{
 		Name: "agent", Description: "Show or switch who answers in this channel",
 		Options: []*discordgo.ApplicationCommandOption{
