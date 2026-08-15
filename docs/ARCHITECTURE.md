@@ -42,6 +42,7 @@ to `maxToolRounds` (8) times.
 | Tools | `modules.DefaultTools()` | `modules.SafeTools()` |
 | Dangerous tools | approval callback, or `--allow-dangerous-tools` | never offered |
 | Context budget | `compactHistory` then `trimHistory` | client's responsibility |
+| Token accounting | recorded against the session | returned in the response |
 
 Both tool sets are a snapshot of what was discovered over live MCP sessions —
 the builtin thirteen plus every enabled `mcp.json` server. There is no non-MCP path
@@ -267,6 +268,42 @@ def slips through another way. The depth lives on the run rather than only in
 the context because `dispatch` rebuilds the context policy on every round, and a
 counter read back from the context it just wrote would always be zero. An agent
 is also refused delegation to itself, compared by id.
+
+## Token accounting
+
+Three of the last four features spend tokens the user did not directly ask for —
+a delegated turn, a summarising call, a tool result large enough to matter — and
+none of them were visible. `core/usage.go` records every model call made on a
+session's behalf into `token_usage`, tagged with what spent it: `turn`,
+`compaction`, or `subagent`.
+
+**Rounds are summed, not overwritten.** `completionRun.execute` used to assign
+`result.Usage` each round, so a turn that took three tool rounds reported only
+the third. Each round resends the whole conversation and each is billed, so the
+sum is the honest number. This also changes what the HTTP API returns: `usage` in
+a response now covers every round the server ran on the caller's behalf, which is
+not what OpenAI means by the field but is what the caller actually caused.
+
+**Usage has to be asked for.** `stream_options.include_usage` was set only in
+`Complete`, so the session path and the delegation path never received usage at
+all. Both now set it; without that the table stays empty on exactly the paths
+this exists for.
+
+**It is a table, not columns on `messages`.** A compaction call happens before
+the turn's message row exists — `compactHistory` runs ahead of `messageStart` —
+and a turn can delegate more than once, so one set of columns cannot hold it.
+`message_id` is a plain column with an empty default for the rows that have no
+message, the same shape and for the same reason as `skill_uses`.
+
+**Recording never fails a turn.** `usageRecord` logs and swallows, like the
+`skill_uses` write: the answer is already in flight and losing an accounting row
+is the cheaper failure. It also writes nothing when the session id is empty (the
+stateless API) or the provider reported no tokens.
+
+No prices are stored or computed. mininaru talks to arbitrary OpenAI-compatible
+providers under arbitrary model names, so any table of rates would be a guess
+that goes stale; the tokens are reported and the conversion is left to whoever
+knows their own contract.
 
 ## Memory
 

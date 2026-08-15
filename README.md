@@ -223,6 +223,8 @@ mininaru agent default [id-or-name]   # show or set the global agent
 mininaru agent remove <id-or-name>    # also deletes that agent's sessions
 mininaru session list
 mininaru session list --agent coder
+mininaru session usage         # what the latest session has spent
+mininaru session usage <id>
 mininaru session remove <id> --agent coder
 mininaru session rename <id> --name 'New name'
 mininaru --session             # resume the latest non-empty session
@@ -268,7 +270,7 @@ Dangerous tools are denied in this mode because there is nobody to approve them
 — the denial is returned to the model as a tool error so it can carry on. Pass
 `--allow-dangerous-tools` to let them run unattended.
 
-Inside the TUI, use `/help`, `/thinking`, or `ctrl+t`. `/compact` folds the
+Inside the TUI, use `/help`, `/thinking`, `/usage`, or `ctrl+t`. `/compact` folds the
 conversation so far into a summary straight away, without waiting for the
 context budget to force it. Press `esc` to interrupt the current response, and
 `/exit`, `/quit`, or `ctrl+c` to leave. The client runs in the terminal's
@@ -310,6 +312,34 @@ only on a turn where something actually falls out of the budget. `mininaru
 context compact off` turns that off and goes back to dropping the turns
 outright; a summary already saved for a conversation keeps being used either
 way. Summaries live in their own table and are deleted with their session.
+
+### What a conversation costs
+
+Every model call made on a session's behalf is recorded against it, so
+`session list` carries a `TOKENS` column and `mininaru session usage` breaks the
+total down by what spent it. `/usage` reports the running total inside the TUI.
+
+```
+KIND         PROMPT   COMPLETION   TOTAL
+turn        120,411        8,204  128,615
+compaction    6,890          412    7,302
+subagent     31,204        2,110   33,314
+total       158,505       10,726  169,231
+```
+
+`turn` is the answers you asked for, `compaction` is the summarising above, and
+`subagent` is one agent delegating to another — the two things that spend tokens
+without you asking directly, which is exactly why they are itemised.
+
+A turn that takes several tool rounds sends the whole conversation again on each
+one, and each is billed, so its total is the sum of every round rather than the
+last. The same applies to what the HTTP API reports back: the `usage` in a
+response covers every round the server ran on the caller's behalf.
+
+**These are tokens, not money.** mininaru talks to whatever provider you point it
+at and has no idea what yours charges, so the conversion is yours to do. Usage
+rows are deleted with their session, and a provider that does not report usage
+simply records nothing.
 
 The first agent you create becomes the global agent and is the default for the
 interactive client. `--agent <name>` chats with any other agent, and sessions
