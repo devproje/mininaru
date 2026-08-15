@@ -439,6 +439,22 @@ on a lossy path, not a new way for a chat to fail.
 applied, because it is already paid for and dropping it would lose more than it
 saves.
 
+`CompactNow` is the same machinery behind an explicit request — `/compact` in the
+TUI, `/compact` in Discord — and differs from the automatic path in three ways
+that all follow from the user having asked for it. It does not consult the
+budget: everything not already covered by the summary is folded in, leaving
+nothing to replay. It ignores `context.compact`, because that toggle governs
+compaction the user did not ask for. And it returns its error instead of logging
+and falling back, because a request that failed should say so rather than
+silently do nothing.
+
+The Discord command is admin-only and resolves its session with
+`SessionByExternal(OriginDiscord, channelID)`, so it can only ever act on the
+conversation bound to the channel it was run in. A channel with no conversation
+is refused rather than having one created. Summarising is a model call and would
+blow the three-second interaction deadline, so the handler acknowledges first and
+edits the reply from a goroutine, the same shape `chatCommand` uses.
+
 ## The daemon and agent instances
 
 `serve` is a long-running process, which changes two assumptions the one-shot

@@ -268,8 +268,10 @@ Dangerous tools are denied in this mode because there is nobody to approve them
 — the denial is returned to the model as a tool error so it can carry on. Pass
 `--allow-dangerous-tools` to let them run unattended.
 
-Inside the TUI, use `/help`, `/thinking`, or `ctrl+t`. Press `esc` to interrupt
-the current response and `ctrl+c` to quit. The client runs in the terminal's
+Inside the TUI, use `/help`, `/thinking`, or `ctrl+t`. `/compact` folds the
+conversation so far into a summary straight away, without waiting for the
+context budget to force it. Press `esc` to interrupt the current response, and
+`/exit`, `/quit`, or `ctrl+c` to leave. The client runs in the terminal's
 alternate full-screen buffer; use `PageUp` and `PageDown` to scroll the
 transcript and `End` to return to the latest message.
 
@@ -724,6 +726,10 @@ in the list a non-admin's turn is given.
 - `/reset` starts a fresh conversation in the channel
 - `/agent` shows which agent answers there, `/agent <name>` switches it
 - `/mention` shows whether the bot may ping you, `/mention on|off` sets it
+- `/compact` folds that channel's conversation into a summary. **Admin only**,
+  and it only ever touches the conversation bound to the channel it was run in,
+  so there is no way to reach another channel's history with it. A channel that
+  has no conversation yet is told so rather than having one created.
 
 ### Pings
 
