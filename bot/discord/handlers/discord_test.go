@@ -383,3 +383,67 @@ func TestCompactOutcomeWording(t *testing.T) {
 		t.Fatalf("failure outcome leaked the internal error: %q", text)
 	}
 }
+
+func TestUsageIsAGuildCommandAndNotAUserAppOne(t *testing.T) {
+	var guild []*discordgo.ApplicationCommand
+	var global []*discordgo.ApplicationCommand
+	var command *discordgo.ApplicationCommand
+	var inGuild bool
+	var inGlobal bool
+
+	guild, global = commands.Sets("guild-1")
+
+	for _, command = range guild {
+		inGuild = inGuild || command.Name == "usage"
+	}
+	for _, command = range global {
+		inGlobal = inGlobal || command.Name == "usage"
+	}
+
+	if !inGuild {
+		t.Fatal("usage is not registered to the guild")
+	}
+	if inGlobal {
+		t.Fatal("usage leaked into the user-installable global set")
+	}
+}
+
+func TestUsageReportItemisesEveryKind(t *testing.T) {
+	var totals core.UsageTotals
+	var text string
+
+	totals = core.UsageTotals{
+		Lines: []core.UsageLine{
+			{Kind: "compaction", PromptTokens: 50, CompletionTokens: 5, TotalTokens: 55},
+			{Kind: "subagent", PromptTokens: 30, CompletionTokens: 3, TotalTokens: 33},
+			{Kind: "turn", PromptTokens: 100, CompletionTokens: 10, TotalTokens: 110},
+		},
+		PromptTokens: 180, CompletionTokens: 18, TotalTokens: 198,
+	}
+
+	text = usageReport(&totals)
+
+	if !strings.Contains(text, "compaction") || !strings.Contains(text, "subagent") ||
+		!strings.Contains(text, "turn") {
+		t.Fatalf("report dropped a kind: %s", text)
+	}
+	if !strings.Contains(text, "198") {
+		t.Fatalf("report has no total: %s", text)
+	}
+	if !strings.Contains(text, "not money") {
+		t.Fatalf("report does not say these are tokens rather than money: %s", text)
+	}
+}
+
+func TestUsageReportSaysWhenNothingIsRecorded(t *testing.T) {
+	var text string
+
+	text = usageReport(&core.UsageTotals{})
+
+	if !strings.Contains(text, "Nothing recorded") {
+		t.Fatalf("empty report = %q", text)
+	}
+	if strings.Contains(text, "```") {
+		t.Fatalf("empty report should not draw a table: %q", text)
+	}
+}
