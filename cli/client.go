@@ -32,6 +32,11 @@ type chatDoneMsg struct {
 	err     error
 }
 
+type compactDoneMsg struct {
+	compacted bool
+	err       error
+}
+
 type toolApprovalMsg struct {
 	name      string
 	arguments string
@@ -368,6 +373,66 @@ func (c *client) thinkingCommand(arg string) tea.Cmd {
 	return c.saveThinking()
 }
 
+func (c *client) compactRun(ctx context.Context) tea.Cmd {
+	return func() tea.Msg {
+		var compacted bool
+
+		var err error
+
+		compacted, err = core.CompactNow(ctx, c.agent, c.session)
+
+		return compactDoneMsg{compacted: compacted, err: err}
+	}
+}
+
+func (c *client) compactCommand() tea.Cmd {
+	var ctx context.Context
+	var cancel context.CancelFunc
+
+	ctx, cancel = context.WithCancel(context.Background())
+
+	c.cancel = cancel
+	c.sending = true
+	c.err = nil
+	c.input.Blur()
+	c.scrollOffset = 0
+
+	return tea.Batch(c.spinner.Tick, c.compactRun(ctx))
+}
+
+func (c *client) finishCompact(msg compactDoneMsg) tea.Cmd {
+	var notice string
+
+	c.sending = false
+	c.cancel = nil
+	c.input.Focus()
+
+	notice = "compacted the conversation into a summary"
+
+	if msg.err != nil {
+		notice = "could not compact: " + msg.err.Error()
+		if errors.Is(msg.err, context.Canceled) {
+			notice = "compacting was interrupted"
+		}
+	} else if !msg.compacted {
+		notice = "nothing to compact yet"
+	}
+
+	c.transcript = append(c.transcript, transcriptEntry{kind: transcriptNotice, content: notice})
+
+	return textarea.Blink
+}
+
+func (c *client) exitCommand() tea.Cmd {
+	if c.cancel != nil {
+		c.cancel()
+	}
+
+	c.quitting = true
+
+	return tea.Quit
+}
+
 func (c *client) helpCommand() tea.Cmd {
 	var body strings.Builder
 
@@ -376,6 +441,10 @@ func (c *client) helpCommand() tea.Cmd {
 	body.WriteString(hintStyle.Render("  /thinking <" + strings.Join(config.ThinkingLevels(), "|") + ">  set how hard the model thinks"))
 	body.WriteString("\n")
 	body.WriteString(hintStyle.Render("  /thinking <show|hide>     toggle the thinking stream"))
+	body.WriteString("\n")
+	body.WriteString(hintStyle.Render("  /compact                  fold this conversation into a summary now"))
+	body.WriteString("\n")
+	body.WriteString(hintStyle.Render("  /exit, /quit              leave the chat"))
 	body.WriteString("\n")
 	body.WriteString(hintStyle.Render("  /help                     this list"))
 	body.WriteString("\n")
@@ -404,6 +473,14 @@ func (c *client) runCommand(input string) tea.Cmd {
 		return c.thinkingCommand(arg)
 	}
 
+	if name == "compact" {
+		return c.compactCommand()
+	}
+
+	if name == "exit" || name == "quit" {
+		return c.exitCommand()
+	}
+
 	if name == "help" {
 		return c.helpCommand()
 	}
@@ -425,6 +502,7 @@ func (c *client) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var eventMsg toolEventMsg
 	var approvalMsg toolApprovalMsg
 	var doneMsg chatDoneMsg
+	var compactMsg compactDoneMsg
 	var tickMsg spinner.TickMsg
 	var cmd tea.Cmd
 	var cmds []tea.Cmd
@@ -555,6 +633,10 @@ func (c *client) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case chatDoneMsg:
 		doneMsg = msg.(chatDoneMsg)
 		return c, c.finish(doneMsg)
+
+	case compactDoneMsg:
+		compactMsg = msg.(compactDoneMsg)
+		return c, c.finishCompact(compactMsg)
 
 	case spinner.TickMsg:
 		tickMsg = msg.(spinner.TickMsg)
