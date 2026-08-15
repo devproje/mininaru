@@ -5,6 +5,7 @@ package handlers
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/bwmarrin/discordgo"
@@ -134,6 +135,59 @@ func (d *Discord) compactCommand(interaction *discordgo.InteractionCreate, role 
 	}
 
 	go d.runCompact(interaction, target.Agent, bound)
+}
+
+func usageReport(totals *core.UsageTotals) string {
+	var builder strings.Builder
+	var index int
+
+	if totals.TotalTokens == 0 {
+		return "Nothing recorded for this channel's conversation yet."
+	}
+
+	builder.WriteString("```\nKIND         PROMPT  COMPLETION       TOTAL\n")
+
+	for index = range totals.Lines {
+		fmt.Fprintf(&builder, "%-10s %8d    %8d    %8d\n", totals.Lines[index].Kind,
+			totals.Lines[index].PromptTokens, totals.Lines[index].CompletionTokens,
+			totals.Lines[index].TotalTokens)
+	}
+
+	fmt.Fprintf(&builder, "%-10s %8d    %8d    %8d\n```", "total",
+		totals.PromptTokens, totals.CompletionTokens, totals.TotalTokens)
+	builder.WriteString("\nTokens, not money — mininaru does not know what your provider charges.")
+
+	return builder.String()
+}
+
+func (d *Discord) usageCommand(interaction *discordgo.InteractionCreate, role string) {
+	var bound *core.Session
+	var totals *core.UsageTotals
+
+	var err error
+
+	if role != core.DiscordRoleAdmin {
+		d.respond(interaction, "Only the admin can do that.")
+		return
+	}
+
+	bound, err = core.SessionByExternal(OriginDiscord, interaction.ChannelID)
+	if err != nil {
+		d.respond(interaction, publicFailure("looking up this channel's conversation", err))
+		return
+	}
+	if bound == nil {
+		d.respond(interaction, "There is no conversation in this channel yet.")
+		return
+	}
+
+	totals, err = core.SessionUsage(bound.Id)
+	if err != nil {
+		d.respond(interaction, publicFailure("reading the token usage", err))
+		return
+	}
+
+	d.respond(interaction, usageReport(totals))
 }
 
 func resetConfirmationComponents(agentName, userId string) []discordgo.MessageComponent {
@@ -416,6 +470,8 @@ func (d *Discord) onInteraction(gateway *discordgo.Session, interaction *discord
 		d.resetCommand(interaction, user)
 	case "compact":
 		d.compactCommand(interaction, role)
+	case "usage":
+		d.usageCommand(interaction, role)
 	case "agent":
 		d.agentCommand(interaction)
 	case "mention":
