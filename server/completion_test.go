@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -292,5 +293,63 @@ func TestCompletionsReportUpstreamFailureWithoutStream(t *testing.T) {
 	}
 	if strings.Contains(recorder.Body.String(), "upstream down") {
 		t.Fatalf("response leaked upstream error: %s", recorder.Body.String())
+	}
+}
+
+func usageStreamChunk(prompt, completion int) string {
+	return `data: {"id":"x","object":"chat.completion.chunk","created":1,"model":"m","choices":[],` +
+		`"usage":{"prompt_tokens":` + strconv.Itoa(prompt) + `,"completion_tokens":` + strconv.Itoa(completion) +
+		`,"total_tokens":` + strconv.Itoa(prompt+completion) + `}}` + "\n\n"
+}
+
+func TestCompletionsReportUsageSummedAcrossToolRounds(t *testing.T) {
+	var rounds int
+	var upstream *httptest.Server
+	var reg *core.Registry
+	var recorder *httptest.ResponseRecorder
+	var payload ChatResponse
+
+	var err error
+
+	upstream = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rounds++
+		w.Header().Set("Content-Type", "text/event-stream")
+
+		if rounds == 1 {
+			io.WriteString(w, streamChunk(
+				`{"role":"assistant","tool_calls":[{"index":0,"id":"c1","type":"function","function":{"name":"current_time","arguments":"{}"}}]}`,
+				`"tool_calls"`))
+			io.WriteString(w, usageStreamChunk(100, 10))
+		} else {
+			io.WriteString(w, streamChunk(`{"role":"assistant","content":"done"}`, `"stop"`))
+			io.WriteString(w, usageStreamChunk(200, 20))
+		}
+
+		io.WriteString(w, streamDone)
+	}))
+	defer upstream.Close()
+
+	reg = setupAgent(t, upstream.URL)
+
+	recorder = request(t, routes("k", reg), http.MethodPost, pathCompletions, "k",
+		`{"model":"naru","messages":[{"role":"user","content":"hi"}]}`)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d", recorder.Code)
+	}
+
+	err = json.Unmarshal(recorder.Body.Bytes(), &payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if rounds != 2 {
+		t.Fatalf("upstream rounds = %d, want 2", rounds)
+	}
+	if payload.Usage == nil {
+		t.Fatal("response carried no usage")
+	}
+	if payload.Usage.PromptTokens != 300 || payload.Usage.CompletionTokens != 30 ||
+		payload.Usage.TotalTokens != 330 {
+		t.Fatalf("usage = %+v, want every round the server ran on the caller's behalf", payload.Usage)
 	}
 }

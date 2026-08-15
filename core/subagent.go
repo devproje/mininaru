@@ -12,12 +12,14 @@ import (
 	"github.com/devproje/mininaru/modules"
 	"github.com/devproje/mininaru/util"
 	"github.com/openai/openai-go"
+	"github.com/openai/openai-go/packages/param"
 )
 
 type subagentKey struct{}
 
 type subagentPolicy struct {
 	CallerId        string
+	SessionId       string
 	Defs            []modules.Def
 	AllowDangerous  bool
 	AllowPrivileged bool
@@ -70,6 +72,7 @@ func runSubagent(ctx context.Context, policy subagentPolicy, target *NaruAgent, 
 	defs = childDefs(policy.Defs)
 
 	params.Model = target.Model
+	params.StreamOptions.IncludeUsage = param.NewOpt(true)
 	params.Messages = append(params.Messages, openai.SystemMessage(systemPrompt(target, defs)))
 	params.Messages = append(params.Messages, openai.UserMessage(prompt))
 
@@ -80,7 +83,7 @@ func runSubagent(ctx context.Context, policy subagentPolicy, target *NaruAgent, 
 	run = completionRun{
 		AI: target.AI, Params: params, Defs: defs,
 		AllowDangerous: policy.AllowDangerous, AllowPrivileged: policy.AllowPrivileged,
-		AgentId: target.Id, Depth: policy.Depth + 1,
+		AgentId: target.Id, SessionId: policy.SessionId, Depth: policy.Depth + 1,
 		Approve: policy.Approve,
 	}
 
@@ -88,6 +91,8 @@ func runSubagent(ctx context.Context, policy subagentPolicy, target *NaruAgent, 
 	if err != nil {
 		return "", err
 	}
+
+	usageRecord(policy.SessionId, "", UsageSubagent, result.Usage)
 
 	return strings.TrimSpace(result.Content), nil
 }

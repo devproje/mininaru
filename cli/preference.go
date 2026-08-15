@@ -5,6 +5,7 @@ package main
 
 import (
 	"fmt"
+	"strconv"
 
 	"github.com/devproje/mininaru/core"
 	"github.com/spf13/cobra"
@@ -162,6 +163,23 @@ var sessionList *cobra.Command = &cobra.Command{
 	Short:   "list sessions",
 	Args:    usageArgs(cobra.NoArgs),
 	RunE:    sessionListExecute,
+}
+
+var sessionUsage *cobra.Command = &cobra.Command{
+	Use:   "usage [id]",
+	Short: "show the tokens a session has spent",
+	Long: `Break down a session's token use by what spent it.
+
+Turns are the answers you asked for, compaction is the summarising that happens
+when a conversation outgrows its context budget, and delegation is one agent
+handing work to another. Omit the id for the latest session.
+
+These are tokens, not money. mininaru talks to whatever provider you point it
+at and has no idea what yours charges, so the conversion is yours to do.`,
+	Example: `  mininaru session usage
+  mininaru session usage 3f2a`,
+	Args: usageArgs(cobra.MaximumNArgs(1)),
+	RunE: sessionUsageExecute,
 }
 
 var sessionRemove *cobra.Command = &cobra.Command{
@@ -679,6 +697,7 @@ func sessionAgent() (*core.NaruAgent, error) {
 func sessionListExecute(cmd *cobra.Command, args []string) error {
 	var target *core.NaruAgent
 	var sessions []*core.Session
+	var spent map[string]int64
 	var cur *core.Session
 	var rows *uiRows
 
@@ -700,12 +719,99 @@ func sessionListExecute(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	rows = uiTable("ID", "NAME")
-
-	for _, cur = range sessions {
-		rows.row(cur.Id, cur.Name)
+	spent, err = core.SessionUsageAll(target.Id)
+	if err != nil {
+		return err
 	}
 
+	rows = uiTable("ID", "TOKENS", "NAME")
+
+	for _, cur = range sessions {
+		rows.row(cur.Id, tokenCount(spent[cur.Id]), cur.Name)
+	}
+
+	rows.flush()
+
+	return nil
+}
+
+func tokenCount(value int64) string {
+	var text string
+	var grouped string
+	var index int
+
+	text = strconv.FormatInt(value, 10)
+
+	for index = range text {
+		if index > 0 && (len(text)-index)%3 == 0 {
+			grouped = grouped + ","
+		}
+
+		grouped = grouped + string(text[index])
+	}
+
+	return grouped
+}
+
+func sessionUsageTarget(args []string) (*core.Session, error) {
+	var target *core.NaruAgent
+	var found *core.Session
+
+	var err error
+
+	target, err = sessionAgent()
+	if err != nil {
+		return nil, err
+	}
+
+	if len(args) == 1 {
+		return core.SessionFind(args[0])
+	}
+
+	found, err = core.SessionLatest(target.Id)
+	if err != nil {
+		return nil, err
+	}
+	if found == nil {
+		return nil, configErrorf("no sessions for %s yet, run `mininaru` to start one", target.Name)
+	}
+
+	return found, nil
+}
+
+func sessionUsageExecute(cmd *cobra.Command, args []string) error {
+	var session *core.Session
+	var totals *core.UsageTotals
+	var line core.UsageLine
+	var rows *uiRows
+
+	var err error
+
+	session, err = sessionUsageTarget(args)
+	if err != nil {
+		return err
+	}
+
+	totals, err = core.SessionUsage(session.Id)
+	if err != nil {
+		return err
+	}
+
+	if totals.TotalTokens == 0 {
+		uiEmpty("no token usage recorded for %s yet", session.Id)
+
+		return nil
+	}
+
+	rows = uiTable("KIND", "PROMPT", "COMPLETION", "TOTAL")
+
+	for _, line = range totals.Lines {
+		rows.row(line.Kind, tokenCount(line.PromptTokens), tokenCount(line.CompletionTokens),
+			tokenCount(line.TotalTokens))
+	}
+
+	rows.row("total", tokenCount(totals.PromptTokens), tokenCount(totals.CompletionTokens),
+		tokenCount(totals.TotalTokens))
 	rows.flush()
 
 	return nil
@@ -789,8 +895,9 @@ func init() {
 	agent.AddCommand(agentAdd, agentList, agentUpdate, agentRemove, agentDefault)
 
 	sessionList.Flags().StringVarP(&sessionAgentIdRef, "agent", "a", "", "agent name or id, defaults to the global agent")
+	sessionUsage.Flags().StringVarP(&sessionAgentIdRef, "agent", "a", "", "agent name or id, defaults to the global agent")
 	sessionRemove.Flags().StringVarP(&sessionAgentIdRef, "agent", "a", "", "agent name or id that owns the session, defaults to the global agent")
 	sessionRename.Flags().StringVarP(&sessionNameRef, "name", "n", "", "new session name")
 
-	session.AddCommand(sessionList, sessionRemove, sessionRename)
+	session.AddCommand(sessionList, sessionUsage, sessionRemove, sessionRename)
 }

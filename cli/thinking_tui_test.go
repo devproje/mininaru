@@ -306,7 +306,25 @@ func TestHelpListsTheNewCommands(t *testing.T) {
 	typeEnter(c, "/help")
 
 	body = c.transcript[len(c.transcript)-1].content
-	if !strings.Contains(body, "/compact") || !strings.Contains(body, "/exit") {
+	if !strings.Contains(body, "/compact") || !strings.Contains(body, "/exit") ||
+		!strings.Contains(body, "/usage") {
 		t.Fatalf("help = %q", body)
+	}
+}
+
+func TestSlashUsageReportsWithoutSending(t *testing.T) {
+	var c *client
+	var notice string
+
+	c = tuiClient(t)
+	typeEnter(c, "/usage")
+
+	if c.sending {
+		t.Fatal("/usage was sent to the model")
+	}
+
+	notice = c.transcript[len(c.transcript)-1].content
+	if !strings.Contains(notice, "no token usage recorded") {
+		t.Fatalf("usage notice = %q", notice)
 	}
 }

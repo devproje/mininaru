@@ -423,6 +423,32 @@ func (c *client) finishCompact(msg compactDoneMsg) tea.Cmd {
 	return textarea.Blink
 }
 
+func (c *client) usageCommand() tea.Cmd {
+	var totals *core.UsageTotals
+	var notice string
+
+	var err error
+
+	totals, err = core.SessionUsage(c.session.Id)
+	if err != nil {
+		c.transcript = append(c.transcript, transcriptEntry{kind: transcriptNotice,
+			content: "could not read token usage: " + err.Error()})
+
+		return nil
+	}
+
+	notice = fmt.Sprintf("%d tokens this session (%d prompt, %d completion)",
+		totals.TotalTokens, totals.PromptTokens, totals.CompletionTokens)
+
+	if totals.TotalTokens == 0 {
+		notice = "no token usage recorded for this session yet"
+	}
+
+	c.transcript = append(c.transcript, transcriptEntry{kind: transcriptNotice, content: notice})
+
+	return nil
+}
+
 func (c *client) exitCommand() tea.Cmd {
 	if c.cancel != nil {
 		c.cancel()
@@ -441,6 +467,8 @@ func (c *client) helpCommand() tea.Cmd {
 	body.WriteString(hintStyle.Render("  /thinking <" + strings.Join(config.ThinkingLevels(), "|") + ">  set how hard the model thinks"))
 	body.WriteString("\n")
 	body.WriteString(hintStyle.Render("  /thinking <show|hide>     toggle the thinking stream"))
+	body.WriteString("\n")
+	body.WriteString(hintStyle.Render("  /usage                    tokens this session has spent"))
 	body.WriteString("\n")
 	body.WriteString(hintStyle.Render("  /compact                  fold this conversation into a summary now"))
 	body.WriteString("\n")
@@ -475,6 +503,10 @@ func (c *client) runCommand(input string) tea.Cmd {
 
 	if name == "compact" {
 		return c.compactCommand()
+	}
+
+	if name == "usage" {
+		return c.usageCommand()
 	}
 
 	if name == "exit" || name == "quit" {

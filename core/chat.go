@@ -14,6 +14,7 @@ import (
 	"github.com/devproje/mininaru/util"
 	"github.com/google/uuid"
 	"github.com/openai/openai-go"
+	"github.com/openai/openai-go/packages/param"
 	"github.com/openai/openai-go/packages/respjson"
 )
 
@@ -312,6 +313,7 @@ func chatWithToolPolicy(ctx context.Context, session *Session, agent *NaruAgent,
 		Model:    agent.Model,
 		Messages: messages,
 	}
+	params.StreamOptions.IncludeUsage = param.NewOpt(true)
 	if len(defs) > 0 {
 		params.Tools = toolParams(defs)
 	}
@@ -346,6 +348,8 @@ func chatWithToolPolicy(ctx context.Context, session *Session, agent *NaruAgent,
 
 		return nil, err
 	}
+
+	usageRecord(session.Id, pending.Id, UsageTurn, result.Usage)
 
 	return messageCompleteTurn(pending.Id, session.Id, result.Content, result.Reasoning)
 }

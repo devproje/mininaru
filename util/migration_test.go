@@ -264,3 +264,48 @@ func TestSessionSummariesTableCreated(t *testing.T) {
 		t.Fatal("session_summaries was not created on an existing database")
 	}
 }
+
+func TestTokenUsageTableCreated(t *testing.T) {
+	var db *sql.DB
+	var schema []byte
+	var count int
+
+	var err error
+
+	db, err = sql.Open("sqlite", filepath.Join(t.TempDir(), "old.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	schema, err = files.ReadFile("migrations/0001_schema.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = db.Exec(migrationSchema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.Exec(string(schema))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.Exec("INSERT INTO migrations (version) VALUES ('0001_schema');")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = migrations(db)
+	if err != nil {
+		t.Fatalf("upgrading an existing database failed: %v", err)
+	}
+
+	err = db.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'token_usage';").Scan(&count)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatal("token_usage was not created on an existing database")
+	}
+}
