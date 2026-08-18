@@ -24,6 +24,7 @@ const (
 	blushColor  = lipgloss.Color("#f0b8a8")
 	dimColor    = lipgloss.Color("#8a8178")
 	errorColor  = lipgloss.Color("#c81c1c")
+	addedColor  = lipgloss.Color("#70b070")
 )
 
 var (
@@ -45,6 +46,9 @@ var (
 	thinkMarkStyle = lipgloss.NewStyle().Foreground(blushColor)
 	thinkTextStyle = lipgloss.NewStyle().Foreground(blushColor).Italic(true)
 	toolMarkStyle  = lipgloss.NewStyle().Foreground(accentColor)
+	toolBodyStyle  = lipgloss.NewStyle().Foreground(dimColor).BorderStyle(lipgloss.NormalBorder()).BorderLeft(true).PaddingLeft(1)
+	toolAddedStyle = lipgloss.NewStyle().Foreground(addedColor)
+	toolCutStyle   = lipgloss.NewStyle().Foreground(errorColor)
 )
 
 func uiTable(headers ...string) *uiRows {

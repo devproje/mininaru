@@ -275,7 +275,8 @@ conversation so far into a summary straight away, without waiting for the
 context budget to force it. Press `esc` to interrupt the current response, and
 `/exit`, `/quit`, or `ctrl+c` to leave. The client runs in the terminal's
 alternate full-screen buffer; use `PageUp` and `PageDown` to scroll the
-transcript and `End` to return to the latest message.
+transcript and `End` to return to the latest message. Completed assistant
+messages render as Markdown, while thinking output is shown as a quoted block.
 
 ## Storage and security
 

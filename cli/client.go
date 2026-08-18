@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -13,7 +14,11 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textarea"
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/glamour"
+	"github.com/charmbracelet/glamour/ansi"
+	"github.com/charmbracelet/glamour/styles"
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/devproje/mininaru/config"
@@ -53,6 +58,19 @@ type transcriptEntry struct {
 	tool    core.ToolEvent
 }
 
+type toolDisplayArgs struct {
+	Command   string `json:"command"`
+	Path      string `json:"path"`
+	Content   string `json:"content"`
+	OldString string `json:"old_string"`
+	NewString string `json:"new_string"`
+}
+
+type slashCommand struct {
+	name        string
+	description string
+}
+
 type client struct {
 	session *core.Session
 	agent   *core.NaruAgent
@@ -60,26 +78,32 @@ type client struct {
 
 	input   textarea.Model
 	spinner spinner.Model
+	view    viewport.Model
+	hilView viewport.Model
 
 	notice string
 
 	pending    strings.Builder
 	thinking   strings.Builder
 	transcript []transcriptEntry
+	markdown   map[string]string
 	sending    bool
+	compacting bool
 	approval   *toolApprovalMsg
 	approvalAt int
+	slashOpen  bool
+	slashAt    int
 	allowed    map[string]bool
 	allowMu    sync.Mutex
 	cancel     context.CancelFunc
 	err        error
 
-	width        int
-	height       int
-	started      bool
-	quitting     bool
-	stored       bool
-	scrollOffset int
+	width     int
+	height    int
+	started   bool
+	quitting  bool
+	stored    bool
+	newOutput bool
 }
 
 const (
@@ -87,6 +111,15 @@ const (
 	approvalOnce
 	approvalSession
 )
+
+var slashCommands = []slashCommand{
+	{name: "/thinking", description: "show or change thinking"},
+	{name: "/usage", description: "show session token usage"},
+	{name: "/compact", description: "compact conversation context"},
+	{name: "/help", description: "show command help"},
+	{name: "/exit", description: "leave the chat"},
+	{name: "/quit", description: "leave the chat"},
+}
 
 const (
 	transcriptMessage  = "message"
@@ -138,6 +171,8 @@ func (c *client) recordApproval(name string, decision approvalDecision) bool {
 func newClient(session *core.Session, agent *core.NaruAgent, history []*core.Message) *client {
 	var input textarea.Model
 	var sp spinner.Model
+	var view viewport.Model
+	var hilView viewport.Model
 	var c client
 	var cur *core.Message
 	var calls []*core.ToolCall
@@ -158,17 +193,24 @@ func newClient(session *core.Session, agent *core.NaruAgent, history []*core.Mes
 	input.Focus()
 
 	sp = spinner.New(spinner.WithSpinner(spinner.MiniDot), spinner.WithStyle(statusStyle))
+	view = viewport.New(80, 1)
+	view.MouseWheelEnabled = true
+	hilView = viewport.New(80, 1)
+	hilView.MouseWheelEnabled = true
 
 	c = client{
-		session: session,
-		agent:   agent,
-		input:   input,
-		spinner: sp,
-		notice:  updateNotice(),
-		allowed: make(map[string]bool),
-		width:   80,
-		height:  24,
-		stored:  len(history) > 0,
+		session:  session,
+		agent:    agent,
+		input:    input,
+		spinner:  sp,
+		view:     view,
+		hilView:  hilView,
+		notice:   updateNotice(),
+		allowed:  make(map[string]bool),
+		markdown: make(map[string]string),
+		width:    80,
+		height:   24,
+		stored:   len(history) > 0,
 	}
 	for _, cur = range history {
 		if cur.Reasoning != "" && config.Client.Thinking.Show {
@@ -189,6 +231,7 @@ func newClient(session *core.Session, agent *core.NaruAgent, history []*core.Mes
 			c.transcript = append(c.transcript, transcriptEntry{kind: transcriptTool, tool: event})
 		}
 	}
+	c.refreshViewport(true)
 
 	return &c
 }
@@ -201,7 +244,7 @@ func runClient(session *core.Session, agent *core.NaruAgent, history []*core.Mes
 	var err error
 
 	c = newClient(session, agent, history)
-	p = tea.NewProgram(c, tea.WithAltScreen())
+	p = tea.NewProgram(c, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	c.program = p
 
 	release = util.LogHold()
@@ -218,11 +261,11 @@ func runClient(session *core.Session, agent *core.NaruAgent, history []*core.Mes
 }
 
 func (c *client) contentWidth() int {
-	if c.width < 20 {
-		return 20
+	if c.width < 12 {
+		return 4
 	}
 
-	return c.width - 4
+	return c.width - 8
 }
 
 func (c *client) renderMessage(role, content string) string {
@@ -234,8 +277,56 @@ func (c *client) renderMessage(role, content string) string {
 		text = userTextStyle.Width(c.contentWidth()).Render(content)
 	} else {
 		mark = naruMarkStyle.Render("⏺ ")
-		text = naruTextStyle.Width(c.contentWidth()).Render(content)
+		text = c.renderMarkdown(content)
 	}
+
+	return trimRight(lipgloss.JoinHorizontal(lipgloss.Top, mark, text))
+}
+
+func (c *client) renderMarkdown(content string) string {
+	var renderer *glamour.TermRenderer
+	var style ansi.StyleConfig
+	var rendered string
+	var found bool
+	var margin uint
+
+	var err error
+
+	rendered, found = c.markdown[content]
+	if found {
+		return rendered
+	}
+
+	style = styles.DarkStyleConfig
+	margin = 0
+	style.Document.Margin = &margin
+	style.Document.BlockPrefix = ""
+	style.Document.BlockSuffix = ""
+	renderer, err = glamour.NewTermRenderer(
+		glamour.WithStyles(style),
+		glamour.WithWordWrap(c.contentWidth()),
+	)
+	if err != nil {
+		return naruTextStyle.Width(c.contentWidth()).Render(content)
+	}
+
+	rendered, err = renderer.Render(content)
+	if err != nil {
+		return naruTextStyle.Width(c.contentWidth()).Render(content)
+	}
+
+	rendered = strings.Trim(rendered, "\n")
+	c.markdown[content] = rendered
+
+	return rendered
+}
+
+func (c *client) renderPending(content string) string {
+	var mark string
+	var text string
+
+	mark = naruMarkStyle.Render("⏺ ")
+	text = naruTextStyle.Width(c.contentWidth()).Render(content)
 
 	return trimRight(lipgloss.JoinHorizontal(lipgloss.Top, mark, text))
 }
@@ -254,8 +345,15 @@ func trimRight(block string) string {
 
 func (c *client) banner() string {
 	var body strings.Builder
+	var banner string
 
 	body.WriteString(bannerStyle.Render("✻ mininaru"))
+	if c.width < 56 {
+		body.WriteString(metaStyle.Render(" · " + c.agent.Name + " · " + shortId(c.session.Id)))
+		banner = body.String()
+		return lipgloss.NewStyle().MaxWidth(max(1, c.width-4)).Render(banner)
+	}
+
 	body.WriteString(metaStyle.Render(fmt.Sprintf("  %s · %s", c.agent.Name, c.agent.Model)))
 	body.WriteString("\n")
 	body.WriteString(metaStyle.Render("  session " + shortId(c.session.Id)))
@@ -265,7 +363,7 @@ func (c *client) banner() string {
 		body.WriteString(metaStyle.Render("  " + c.notice))
 	}
 
-	return body.String()
+	return lipgloss.NewStyle().MaxWidth(max(1, c.width)).Render(body.String())
 }
 
 func (c *client) sendPrompt(ctx context.Context, content string) tea.Cmd {
@@ -312,13 +410,14 @@ func (c *client) submit(content string) tea.Cmd {
 
 	c.cancel = cancel
 	c.sending = true
+	c.compacting = false
 	c.stored = true
 	c.err = nil
 	c.input.Reset()
 	c.input.Blur()
 	c.growInput()
-	c.scrollOffset = 0
 	c.transcript = append(c.transcript, transcriptEntry{kind: transcriptMessage, role: "user", content: content})
+	c.refreshViewport(true)
 
 	return tea.Batch(
 		c.spinner.Tick,
@@ -337,6 +436,7 @@ func (c *client) finish(msg chatDoneMsg) tea.Cmd {
 	}
 
 	c.sending = false
+	c.compacting = false
 	c.approval = nil
 	c.cancel = nil
 	c.pending.Reset()
@@ -346,6 +446,7 @@ func (c *client) finish(msg chatDoneMsg) tea.Cmd {
 	if msg.err != nil {
 		if !errors.Is(msg.err, context.Canceled) {
 			c.err = msg.err
+			c.refreshViewport(false)
 
 			return tea.Batch(append(cmds, textarea.Blink)...)
 		}
@@ -355,6 +456,7 @@ func (c *client) finish(msg chatDoneMsg) tea.Cmd {
 		}
 
 		c.transcript = append(c.transcript, transcriptEntry{kind: transcriptNotice, content: "interrupted"})
+		c.refreshViewport(false)
 		cmds = append(cmds, textarea.Blink)
 
 		return tea.Batch(cmds...)
@@ -365,6 +467,7 @@ func (c *client) finish(msg chatDoneMsg) tea.Cmd {
 	}
 
 	c.transcript = append(c.transcript, transcriptEntry{kind: transcriptMessage, role: "assistant", content: reply})
+	c.refreshViewport(false)
 	cmds = append(cmds, textarea.Blink)
 
 	return tea.Batch(cmds...)
@@ -395,6 +498,7 @@ func (c *client) saveThinking() tea.Cmd {
 	err = config.ClientSave()
 	if err != nil {
 		c.transcript = append(c.transcript, transcriptEntry{kind: transcriptNotice, content: err.Error()})
+		c.refreshViewport(false)
 		return nil
 	}
 
@@ -404,6 +508,7 @@ func (c *client) saveThinking() tea.Cmd {
 	}
 	c.transcript = append(c.transcript, transcriptEntry{kind: transcriptNotice,
 		content: "thinking " + config.Client.Thinking.Level + ", " + state})
+	c.refreshViewport(false)
 	return nil
 }
 
@@ -411,6 +516,7 @@ func (c *client) thinkingCommand(arg string) tea.Cmd {
 	if arg == "" {
 		c.transcript = append(c.transcript, transcriptEntry{kind: transcriptNotice,
 			content: "thinking " + config.Client.Thinking.Level})
+		c.refreshViewport(false)
 		return nil
 	}
 
@@ -423,6 +529,7 @@ func (c *client) thinkingCommand(arg string) tea.Cmd {
 	if !config.ThinkingValid(arg) {
 		c.transcript = append(c.transcript, transcriptEntry{kind: transcriptNotice,
 			content: "unknown level " + arg + ", expected one of " + strings.Join(config.ThinkingLevels(), ", ") + ", show or hide"})
+		c.refreshViewport(false)
 		return nil
 	}
 
@@ -451,9 +558,11 @@ func (c *client) compactCommand() tea.Cmd {
 
 	c.cancel = cancel
 	c.sending = true
+	c.compacting = true
 	c.err = nil
 	c.input.Blur()
-	c.scrollOffset = 0
+	c.view.GotoBottom()
+	c.newOutput = false
 
 	return tea.Batch(c.spinner.Tick, c.compactRun(ctx))
 }
@@ -462,6 +571,7 @@ func (c *client) finishCompact(msg compactDoneMsg) tea.Cmd {
 	var notice string
 
 	c.sending = false
+	c.compacting = false
 	c.cancel = nil
 	c.input.Focus()
 
@@ -477,6 +587,7 @@ func (c *client) finishCompact(msg compactDoneMsg) tea.Cmd {
 	}
 
 	c.transcript = append(c.transcript, transcriptEntry{kind: transcriptNotice, content: notice})
+	c.refreshViewport(false)
 
 	return textarea.Blink
 }
@@ -491,6 +602,7 @@ func (c *client) usageCommand() tea.Cmd {
 	if err != nil {
 		c.transcript = append(c.transcript, transcriptEntry{kind: transcriptNotice,
 			content: "could not read token usage: " + err.Error()})
+		c.refreshViewport(false)
 
 		return nil
 	}
@@ -503,6 +615,7 @@ func (c *client) usageCommand() tea.Cmd {
 	}
 
 	c.transcript = append(c.transcript, transcriptEntry{kind: transcriptNotice, content: notice})
+	c.refreshViewport(false)
 
 	return nil
 }
@@ -537,6 +650,7 @@ func (c *client) helpCommand() tea.Cmd {
 	body.WriteString(hintStyle.Render("  ctrl+t                    cycle thinking level"))
 
 	c.transcript = append(c.transcript, transcriptEntry{kind: transcriptNotice, content: body.String()})
+	c.refreshViewport(false)
 	return nil
 }
 
@@ -553,6 +667,8 @@ func (c *client) runCommand(input string) tea.Cmd {
 	}
 
 	c.input.Reset()
+	c.slashOpen = false
+	c.slashAt = 0
 	c.growInput()
 
 	if name == "thinking" {
@@ -576,6 +692,7 @@ func (c *client) runCommand(input string) tea.Cmd {
 	}
 
 	c.transcript = append(c.transcript, transcriptEntry{kind: transcriptNotice, content: "unknown command /" + name + ", try /help"})
+	c.refreshViewport(false)
 	return nil
 }
 
@@ -594,15 +711,20 @@ func (c *client) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var doneMsg chatDoneMsg
 	var compactMsg compactDoneMsg
 	var tickMsg spinner.TickMsg
+	var index int
 	var cmd tea.Cmd
 	var cmds []tea.Cmd
 
 	switch msg.(type) {
 	case tea.WindowSizeMsg:
 		windowMsg = msg.(tea.WindowSizeMsg)
+		if c.width != windowMsg.Width {
+			c.markdown = make(map[string]string)
+		}
 		c.width = windowMsg.Width
 		c.height = windowMsg.Height
-		c.input.SetWidth(windowMsg.Width - 4)
+		c.input.SetWidth(max(1, windowMsg.Width-8))
+		c.resizeViewport()
 
 		if c.started {
 			return c, nil
@@ -626,14 +748,28 @@ func (c *client) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if c.approvalAt > 0 {
 					c.approvalAt--
 				}
-
 				return c, nil
 			}
 			if keyMsg.Type == tea.KeyDown || keyMsg.String() == "j" {
 				if c.approvalAt < len(approvalChoices(c.approval.name))-1 {
 					c.approvalAt++
 				}
-
+				return c, nil
+			}
+			if keyMsg.Type == tea.KeyPgUp {
+				c.hilView.PageUp()
+				return c, nil
+			}
+			if keyMsg.Type == tea.KeyPgDown {
+				c.hilView.PageDown()
+				return c, nil
+			}
+			if keyMsg.Type == tea.KeyHome {
+				c.hilView.GotoTop()
+				return c, nil
+			}
+			if keyMsg.Type == tea.KeyEnd {
+				c.hilView.GotoBottom()
 				return c, nil
 			}
 			if keyMsg.Type == tea.KeyEnter {
@@ -651,19 +787,41 @@ func (c *client) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			return c, nil
 		}
+		if c.slashOpen {
+			if keyMsg.Type == tea.KeyEsc {
+				c.slashOpen = false
+				return c, nil
+			}
+			if keyMsg.Type == tea.KeyUp {
+				if c.slashAt > 0 {
+					c.slashAt--
+				}
+				return c, nil
+			}
+			if keyMsg.Type == tea.KeyDown {
+				if c.slashAt < len(c.filteredSlashCommands())-1 {
+					c.slashAt++
+				}
+				return c, nil
+			}
+			if keyMsg.Type == tea.KeyTab || keyMsg.Type == tea.KeyEnter {
+				return c, c.selectSlashCommand(keyMsg.Type == tea.KeyEnter)
+			}
+		}
 		if keyMsg.Type == tea.KeyPgUp {
-			c.scrollOffset += max(1, (c.height-8)/2)
+			c.view.PageUp()
 			return c, nil
 		}
 		if keyMsg.Type == tea.KeyPgDown {
-			c.scrollOffset -= max(1, (c.height-8)/2)
-			if c.scrollOffset < 0 {
-				c.scrollOffset = 0
+			c.view.PageDown()
+			if c.view.AtBottom() {
+				c.newOutput = false
 			}
 			return c, nil
 		}
 		if keyMsg.Type == tea.KeyEnd {
-			c.scrollOffset = 0
+			c.view.GotoBottom()
+			c.newOutput = false
 			return c, nil
 		}
 		switch keyMsg.Type {
@@ -714,19 +872,31 @@ func (c *client) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case chatDeltaMsg:
 		deltaMsg = msg.(chatDeltaMsg)
 		c.pending.WriteString(string(deltaMsg))
+		c.refreshViewport(false)
 
 		return c, nil
 
 	case chatThinkMsg:
 		thinkMsg = msg.(chatThinkMsg)
 		c.thinking.WriteString(string(thinkMsg))
+		c.refreshViewport(false)
 
 		return c, nil
 
 	case toolEventMsg:
 		eventMsg = msg.(toolEventMsg)
-		c.scrollOffset = 0
+		if eventMsg.Phase == core.ToolEventFinished {
+			for index = len(c.transcript) - 1; index >= 0; index-- {
+				if c.transcript[index].kind != transcriptTool || c.transcript[index].tool.CallId != eventMsg.CallId {
+					continue
+				}
+				c.transcript[index].tool = core.ToolEvent(eventMsg)
+				c.refreshViewport(false)
+				return c, nil
+			}
+		}
 		c.transcript = append(c.transcript, transcriptEntry{kind: transcriptTool, tool: core.ToolEvent(eventMsg)})
+		c.refreshViewport(false)
 
 		return c, nil
 
@@ -734,6 +904,8 @@ func (c *client) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		approvalMsg = msg.(toolApprovalMsg)
 		c.approval = &approvalMsg
 		c.approvalAt = 0
+		c.resizeViewport()
+		c.hilView.GotoTop()
 
 		return c, nil
 
@@ -754,6 +926,18 @@ func (c *client) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		c.spinner, cmd = c.spinner.Update(tickMsg)
 
 		return c, cmd
+
+	case tea.MouseMsg:
+		if c.approval != nil {
+			c.hilView, cmd = c.hilView.Update(msg)
+			return c, cmd
+		}
+
+		c.view, cmd = c.view.Update(msg)
+		if c.view.AtBottom() {
+			c.newOutput = false
+		}
+		return c, cmd
 	}
 
 	if c.sending {
@@ -762,6 +946,7 @@ func (c *client) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	c.input, cmd = c.input.Update(msg)
 	cmds = append(cmds, cmd)
+	c.updateSlashMenu()
 
 	c.growInput()
 
@@ -787,14 +972,103 @@ func (c *client) growInput() {
 	c.input.SetHeight(lines)
 }
 
+func (c *client) filteredSlashCommands() []slashCommand {
+	var prefix string
+	var command slashCommand
+	var commands []slashCommand
+	var level string
+
+	prefix = strings.ToLower(c.input.Value())
+	if strings.HasPrefix(prefix, "/thinking ") {
+		for _, level = range config.ThinkingLevels() {
+			command = slashCommand{name: "/thinking " + level, description: "set thinking level"}
+			if strings.HasPrefix(command.name, prefix) {
+				commands = append(commands, command)
+			}
+		}
+		for _, level = range []string{"show", "hide"} {
+			command = slashCommand{name: "/thinking " + level, description: level + " thinking output"}
+			if strings.HasPrefix(command.name, prefix) {
+				commands = append(commands, command)
+			}
+		}
+		return commands
+	}
+	for _, command = range slashCommands {
+		if strings.HasPrefix(command.name, prefix) {
+			commands = append(commands, command)
+		}
+	}
+
+	return commands
+}
+
+func (c *client) updateSlashMenu() {
+	var value string
+	var commands []slashCommand
+
+	value = c.input.Value()
+	c.slashOpen = strings.HasPrefix(value, "/") && !strings.Contains(value, "\n")
+	commands = c.filteredSlashCommands()
+	if len(commands) == 0 {
+		c.slashOpen = false
+		c.slashAt = 0
+		return
+	}
+	if c.slashAt >= len(commands) {
+		c.slashAt = len(commands) - 1
+	}
+}
+
+func (c *client) selectSlashCommand(run bool) tea.Cmd {
+	var commands []slashCommand
+	var selected string
+
+	commands = c.filteredSlashCommands()
+	if len(commands) == 0 {
+		c.slashOpen = false
+		return nil
+	}
+	selected = commands[c.slashAt].name
+	c.input.SetValue(selected)
+	c.input.CursorEnd()
+	c.slashOpen = false
+	c.slashAt = 0
+	if run {
+		return c.runCommand(selected)
+	}
+
+	return nil
+}
+
 func (c *client) renderThinking(content string) string {
-	var mark string
+	var renderer *glamour.TermRenderer
+	var style ansi.StyleConfig
+	var quoted string
 	var text string
+	var indent uint
+	var margin uint
 
-	mark = thinkMarkStyle.Render("✻ ")
-	text = thinkTextStyle.Width(c.contentWidth()).Render(content)
+	var err error
 
-	return trimRight(lipgloss.JoinHorizontal(lipgloss.Top, mark, text))
+	style = styles.DarkStyleConfig
+	indent = 1
+	margin = 0
+	style.Document.Margin = &margin
+	style.Document.BlockPrefix = ""
+	style.Document.BlockSuffix = ""
+	style.BlockQuote.Indent = &indent
+	quoted = "> " + strings.ReplaceAll(content, "\n", "  \n> ")
+	renderer, err = glamour.NewTermRenderer(glamour.WithStyles(style), glamour.WithWordWrap(c.contentWidth()))
+	if err != nil {
+		return thinkTextStyle.Width(c.contentWidth()).Render(content)
+	}
+	text, err = renderer.Render(quoted)
+	if err != nil {
+		return thinkTextStyle.Width(c.contentWidth()).Render(content)
+	}
+
+	return trimRight(strings.Trim(text, "\n"))
 }
 
 func compactToolLog(text string) string {
@@ -806,25 +1080,108 @@ func compactToolLog(text string) string {
 	return text
 }
 
-func (c *client) renderToolEvent(event core.ToolEvent) string {
-	var mark string
-	var detail string
+func boundToolDetail(text string) string {
+	var lines []string
+	var runes []rune
 
+	text = strings.TrimRight(text, "\n")
+	lines = strings.Split(text, "\n")
+	if len(lines) > 24 {
+		lines = append(lines[:24], "… output truncated")
+	}
+	text = strings.Join(lines, "\n")
+	runes = []rune(text)
+	if len(runes) > 3000 {
+		text = string(runes[:3000]) + "\n… output truncated"
+	}
+
+	return text
+}
+
+func toolDiff(oldText, newText string) string {
+	var oldLines []string
+	var newLines []string
+	var blocks []string
+	var line string
+
+	oldLines = strings.Split(oldText, "\n")
+	newLines = strings.Split(newText, "\n")
+	for _, line = range oldLines {
+		blocks = append(blocks, toolCutStyle.Render("- "+line))
+	}
+	for _, line = range newLines {
+		blocks = append(blocks, toolAddedStyle.Render("+ "+line))
+	}
+
+	return strings.Join(blocks, "\n")
+}
+
+func toolDisplay(event core.ToolEvent) (string, string) {
+	var payload toolDisplayArgs
+	var title string
+	var detail string
+	var mark string
+
+	var err error
+
+	mark = "✗"
 	if event.Phase == core.ToolEventStarted {
 		mark = "⚙"
-		detail = compactToolLog(event.Arguments)
 	} else if event.Status == core.MessageCompleted {
 		mark = "✓"
-		detail = compactToolLog(event.Result)
-	} else {
-		mark = "✗"
-		detail = compactToolLog(event.Error)
 	}
-	if detail != "" {
-		detail = "  " + detail
+	title = core.ToolLabel(event.Name, event.Arguments)
+	err = json.Unmarshal([]byte(event.Arguments), &payload)
+	if err != nil {
+		payload = toolDisplayArgs{}
 	}
 
-	return toolMarkStyle.Render("  "+mark+" "+core.ToolLabel(event.Name, event.Arguments)) + hintStyle.Render(detail)
+	if event.Name == "bash_exec" {
+		title = "Bash"
+		if event.Phase == core.ToolEventStarted {
+			detail = "$ " + payload.Command
+		} else if event.Status == core.MessageCompleted {
+			detail = "$ " + payload.Command
+			if event.Result != "" {
+				detail += "\n\n" + event.Result
+			}
+		} else {
+			detail = "$ " + payload.Command + "\n\n" + event.Error
+		}
+	} else if event.Name == "file_edit" {
+		title = "Update " + payload.Path
+		detail = toolDiff(payload.OldString, payload.NewString)
+		if event.Phase == core.ToolEventFinished && event.Status != core.MessageCompleted {
+			detail += "\n\n" + event.Error
+		}
+	} else if event.Name == "file_write" {
+		title = "Write " + payload.Path
+		detail = payload.Content
+		if event.Phase == core.ToolEventFinished && event.Status != core.MessageCompleted {
+			detail += "\n\n" + event.Error
+		}
+	} else if event.Phase == core.ToolEventStarted {
+		detail = compactToolLog(event.Arguments)
+	} else if event.Status == core.MessageCompleted {
+		detail = compactToolLog(event.Result)
+	} else {
+		detail = compactToolLog(event.Error)
+	}
+
+	return mark + " " + title, boundToolDetail(detail)
+}
+
+func (c *client) renderToolEvent(event core.ToolEvent) string {
+	var title string
+	var detail string
+
+	title, detail = toolDisplay(event)
+	if detail == "" {
+		return toolMarkStyle.Render("  " + title)
+	}
+
+	return toolMarkStyle.Render("  "+title) + "\n" +
+		toolBodyStyle.Width(max(1, c.contentWidth()-2)).Render(detail)
 }
 
 func (c *client) renderToolCall(call *core.ToolCall) string {
@@ -850,7 +1207,7 @@ func (c *client) streamView() string {
 	}
 
 	if c.pending.Len() > 0 {
-		blocks = append(blocks, c.renderMessage("assistant", c.pending.String()))
+		blocks = append(blocks, c.renderPending(c.pending.String()))
 	}
 
 	if len(blocks) == 0 {
@@ -874,15 +1231,10 @@ func (c *client) renderTranscriptEntry(entry transcriptEntry) string {
 	return hintStyle.Render("  " + entry.content)
 }
 
-func (c *client) transcriptView(height int) string {
+func (c *client) transcriptContent() string {
 	var entry transcriptEntry
 	var blocks []string
 	var stream string
-	var lines []string
-	var maxOffset int
-	var end int
-	var start int
-	var body string
 
 	for _, entry = range c.transcript {
 		blocks = append(blocks, c.renderTranscriptEntry(entry))
@@ -891,32 +1243,89 @@ func (c *client) transcriptView(height int) string {
 	if stream != "" {
 		blocks = append(blocks, stream)
 	}
-	if len(blocks) > 0 {
-		lines = strings.Split(strings.Join(blocks, "\n\n"), "\n")
+
+	return strings.Join(blocks, "\n\n")
+}
+
+func (c *client) refreshViewport(forceBottom bool) {
+	var follow bool
+
+	follow = forceBottom || c.view.AtBottom()
+	c.view.SetContent(c.transcriptContent())
+	if follow {
+		c.view.GotoBottom()
+		c.newOutput = false
+		return
 	}
 
-	if height < 1 {
-		height = 1
+	c.newOutput = true
+}
+
+func (c *client) resizeViewport() {
+	var follow bool
+	var box lipgloss.Style
+	var input string
+	var status string
+	var hilHeight int
+	var slashHeight int
+	var height int
+
+	follow = c.view.AtBottom()
+	box = boxStyle
+	if c.sending {
+		box = boxBusyStyle
 	}
-	maxOffset = max(0, len(lines)-height)
-	if c.scrollOffset > maxOffset {
-		c.scrollOffset = maxOffset
-	}
-	end = len(lines) - c.scrollOffset
-	start = max(0, end-height)
-	if end > start {
-		body = strings.Join(lines[start:end], "\n")
+	input = box.Width(max(1, c.width-6)).Render(c.input.View())
+	status = c.statusView()
+	hilHeight = c.resizeHIL()
+	slashHeight = lipgloss.Height(c.slashView())
+	height = c.height - lipgloss.Height(c.banner()) - lipgloss.Height(status) - hilHeight - slashHeight - 3
+	if c.approval == nil {
+		height -= lipgloss.Height(input) + 1
+		if slashHeight > 0 {
+			height--
+		}
+	} else {
+		height--
 	}
 
-	return lipgloss.NewStyle().Height(height).MaxHeight(height).Render(body)
+	c.view.Width = max(1, c.width-4)
+	c.view.Height = max(1, height)
+	c.view.SetContent(c.transcriptContent())
+	if follow {
+		c.view.GotoBottom()
+	}
+}
+
+func (c *client) resizeHIL() int {
+	var available int
+	var choicesHeight int
+	var headerHeight int
+	var height int
+
+	if c.approval == nil {
+		return 0
+	}
+
+	available = max(4, c.height-lipgloss.Height(c.banner())-lipgloss.Height(c.statusView())-4)
+	headerHeight = lipgloss.Height(c.approvalHeader())
+	choicesHeight = lipgloss.Height(c.approvalChoicesView())
+	height = min(8, max(1, available-headerHeight-choicesHeight-2))
+	c.hilView.Width = max(1, c.width-4)
+	c.hilView.Height = height
+	c.hilView.SetContent(hintStyle.Width(c.contentWidth()).Render("  " + c.approval.arguments))
+
+	return headerHeight + height + choicesHeight + 2
 }
 
 func (c *client) hintText() string {
 	var level string
 	var options []string
 	var cur string
+	var reserved int
 
 	level = config.Client.Thinking.Level
+	reserved = lipgloss.Width(c.contextUsage()) + 3
 
 	options = []string{
 		"enter send · ctrl+j newline · ctrl+t thinking:" + level + " · /help · ctrl+c quit",
@@ -926,61 +1335,142 @@ func (c *client) hintText() string {
 	}
 
 	for _, cur = range options {
-		if lipgloss.Width(cur)+2 > c.width {
+		if lipgloss.Width(cur)+reserved > c.contentWidth() {
 			continue
 		}
 
 		return cur
 	}
 
-	return "thinking:" + level
+	if lipgloss.Width("thinking:"+level)+reserved <= c.contentWidth() {
+		return "thinking:" + level
+	}
+
+	return ""
 }
 
-func (c *client) approvalView(arguments string) string {
+func (c *client) slashView() string {
 	var body strings.Builder
-	var choices []string
+	var commands []slashCommand
+	var command slashCommand
 	var index int
+	var line string
 
-	body.WriteString(statusStyle.Render("  approve " + c.approval.name + "?"))
-	body.WriteString(hintStyle.Render("  " + arguments))
-
-	choices = approvalChoices(c.approval.name)
-
-	for index = range choices {
-		body.WriteString("\n")
-
-		if index == c.approvalAt {
-			body.WriteString(statusStyle.Render("  ▸ " + choices[index]))
+	if !c.slashOpen {
+		return ""
+	}
+	commands = c.filteredSlashCommands()
+	for index, command = range commands {
+		if index > 0 {
+			body.WriteString("\n")
+		}
+		line = "  " + command.name + "  " + command.description
+		if index == c.slashAt {
+			body.WriteString(statusStyle.MaxWidth(c.contentWidth()).Render("▸ " + line))
 			continue
 		}
-
-		body.WriteString(hintStyle.Render("    " + choices[index]))
+		body.WriteString(hintStyle.MaxWidth(c.contentWidth()).Render("  " + line))
 	}
 
 	return body.String()
 }
 
-func (c *client) statusView() string {
-	var arguments string
+func (c *client) approvalContent() string {
+	return c.approvalHeader() + "\n" + c.approval.arguments + "\n" + c.approvalChoicesView()
+}
 
-	if c.approval != nil {
-		arguments = c.approval.arguments
-		if len(arguments) > 120 {
-			arguments = arguments[:120] + "…"
+func (c *client) approvalHeader() string {
+	return statusStyle.MaxWidth(c.contentWidth()).Render("  approve " + c.approval.name + "?")
+}
+
+func (c *client) approvalChoicesView() string {
+	var body strings.Builder
+	var choices []string
+	var index int
+	var choice string
+
+	choices = approvalChoices(c.approval.name)
+
+	for index = range choices {
+		if index > 0 {
+			body.WriteString("\n")
+		}
+		choice = choices[index]
+
+		if index == c.approvalAt {
+			body.WriteString(statusStyle.MaxWidth(c.contentWidth()).Render("  ▸ " + choice))
+			continue
 		}
 
-		return c.approvalView(arguments)
+		body.WriteString(hintStyle.MaxWidth(c.contentWidth()).Render("    " + choice))
 	}
+
+	return body.String()
+}
+
+func compactCount(value int) string {
+	if value < 1000 {
+		return fmt.Sprintf("%d", value)
+	}
+
+	return fmt.Sprintf("%.1fk", float64(value)/1000)
+}
+
+func (c *client) contextUsage() string {
+	var entry transcriptEntry
+	var used int
+	var limit int
+
+	for _, entry = range c.transcript {
+		if entry.kind == transcriptMessage {
+			used += len(entry.content)
+		} else if entry.kind == transcriptTool {
+			used += len(entry.tool.Name) + len(entry.tool.Arguments) + len(entry.tool.Result)
+		}
+	}
+	used += c.pending.Len()
+	limit = config.Client.Context.MaxChars
+	if limit <= 0 {
+		return "ctx " + compactCount(used)
+	}
+
+	return "ctx " + compactCount(used) + "/" + compactCount(limit)
+}
+
+func (c *client) statusLine(left string) string {
+	var right string
+	var gap int
+
+	right = c.contextUsage()
+	gap = c.contentWidth() - lipgloss.Width(left) - lipgloss.Width(right)
+	if gap < 1 {
+		return left
+	}
+
+	return left + strings.Repeat(" ", gap) + hintStyle.Render(right)
+}
+
+func (c *client) statusView() string {
+	var activity string
+	var status string
 
 	if c.sending {
-		return statusStyle.Render("  "+c.spinner.View()) + hintStyle.Render("  thinking… (esc to interrupt)")
+		activity = "thinking…"
+		if c.compacting {
+			activity = "compacting…"
+		}
+		status = c.statusLine(statusStyle.Render("  "+c.spinner.View()) + hintStyle.Render("  "+activity+" (esc to interrupt)"))
+	} else if c.err != nil {
+		status = c.statusLine(errStyle.MaxWidth(c.contentWidth()).Render("  " + c.err.Error()))
+	} else {
+		status = c.statusLine(hintStyle.Render("  " + c.hintText()))
 	}
 
-	if c.err != nil {
-		return errStyle.Render("  " + c.err.Error())
+	if c.newOutput {
+		status = status + "\n" + statusStyle.Render("  ↓ new output") + hintStyle.Render("  End to latest")
 	}
 
-	return hintStyle.Render("  " + c.hintText())
+	return status
 }
 
 func (c *client) farewell() string {
@@ -1004,7 +1494,6 @@ func (c *client) View() string {
 	var box lipgloss.Style
 	var input string
 	var status string
-	var historyHeight int
 	var body strings.Builder
 
 	if c.quitting {
@@ -1016,19 +1505,35 @@ func (c *client) View() string {
 		box = boxBusyStyle
 	}
 
-	input = box.Width(c.width - 2).Render(c.input.View())
+	input = box.Width(max(1, c.width-6)).Render(c.input.View())
 	status = c.statusView()
-	historyHeight = c.height - lipgloss.Height(c.banner()) - lipgloss.Height(input) - lipgloss.Height(status) - 1
+	c.resizeViewport()
 
+	body.WriteString("\n")
 	body.WriteString(c.banner())
 	body.WriteString("\n\n")
-	body.WriteString(c.transcriptView(historyHeight))
+	body.WriteString(c.view.View())
 	body.WriteString("\n")
-	body.WriteString(input)
-	body.WriteString("\n")
+	if c.approval != nil {
+		body.WriteString(c.approvalHeader())
+		body.WriteString("\n")
+		body.WriteString(lipgloss.NewStyle().Height(c.hilView.Height).Render(c.hilView.View()))
+		body.WriteString("\n")
+		body.WriteString(c.approvalChoicesView())
+		body.WriteString("\n")
+	} else {
+		if c.slashOpen {
+			body.WriteString(c.slashView())
+			body.WriteString("\n")
+		}
+		body.WriteString("\n")
+		body.WriteString(input)
+		body.WriteString("\n")
+	}
 	body.WriteString(status)
+	body.WriteString("\n")
 
-	return body.String()
+	return lipgloss.NewStyle().Height(c.height).Padding(0, 2).Render(body.String())
 }
 
 func promptFunc(line int) string {

@@ -131,6 +131,59 @@ func TestPlainTextIsNotTreatedAsCommand(t *testing.T) {
 	}
 }
 
+func TestSlashOpensAndFiltersCommandMenu(t *testing.T) {
+	var c *client
+	var view string
+
+	c = tuiClient(t)
+	c.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	view = c.View()
+	if !c.slashOpen || !strings.Contains(view, "/thinking") || !strings.Contains(view, "/compact") {
+		t.Fatalf("slash command menu did not open: %q", view)
+	}
+
+	c.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'u'}})
+	view = c.View()
+	if !strings.Contains(view, "/usage") || strings.Contains(view, "/compact") {
+		t.Fatalf("slash command menu did not filter: %q", view)
+	}
+
+	c.Update(tea.KeyMsg{Type: tea.KeyTab})
+	if c.input.Value() != "/usage" || c.slashOpen {
+		t.Fatalf("tab completed %q with menu open=%t", c.input.Value(), c.slashOpen)
+	}
+
+	c.input.SetValue("/thinking hid")
+	c.updateSlashMenu()
+	view = c.View()
+	if !strings.Contains(view, "/thinking hide") || strings.Contains(view, "/thinking show") {
+		t.Fatalf("thinking argument completion did not filter: %q", view)
+	}
+	c.Update(tea.KeyMsg{Type: tea.KeyTab})
+	if c.input.Value() != "/thinking hide" {
+		t.Fatalf("thinking argument completed to %q", c.input.Value())
+	}
+}
+
+func TestStatusShowsContextUsageOnTheRight(t *testing.T) {
+	var c *client
+	var previous int
+	var status string
+
+	previous = config.Client.Context.MaxChars
+	t.Cleanup(func() {
+		config.Client.Context.MaxChars = previous
+	})
+	config.Client.Context.MaxChars = 100
+	c = tuiClient(t)
+	c.transcript = append(c.transcript, transcriptEntry{kind: transcriptMessage, role: "user", content: "12345"})
+
+	status = c.statusView()
+	if !strings.Contains(status, "ctx 5/100") {
+		t.Fatalf("context usage is missing from status: %q", status)
+	}
+}
+
 func TestToolApprovalArrowsAndEnter(t *testing.T) {
 	var c *client
 	var response chan approvalDecision
@@ -141,7 +194,7 @@ func TestToolApprovalArrowsAndEnter(t *testing.T) {
 	response = make(chan approvalDecision, 1)
 	c.Update(toolApprovalMsg{name: "bash_exec", arguments: `{"command":"pwd"}`, response: response})
 
-	if c.approval == nil || !strings.Contains(c.statusView(), "approve bash_exec") {
+	if c.approval == nil || !strings.Contains(c.approvalContent(), "approve bash_exec") {
 		t.Fatal("tool approval prompt was not displayed")
 	}
 	if c.approvalAt != 0 {
@@ -222,7 +275,7 @@ func TestToolApprovalMenuRendersEveryChoice(t *testing.T) {
 	c.Update(toolApprovalMsg{name: "bash_exec", arguments: `{}`,
 		response: make(chan approvalDecision, 1)})
 
-	view = c.statusView()
+	view = c.approvalContent()
 
 	if !strings.Contains(view, "Allow once") || !strings.Contains(view, "Deny") {
 		t.Fatalf("menu is missing a choice: %q", view)
@@ -232,6 +285,41 @@ func TestToolApprovalMenuRendersEveryChoice(t *testing.T) {
 	}
 	if !strings.Contains(view, "▸") {
 		t.Fatalf("no cursor marker: %q", view)
+	}
+}
+
+func TestToolApprovalHidesInputAndKeepsChoicesVisible(t *testing.T) {
+	var c *client
+	var before int
+	var view string
+
+	c = tuiClient(t)
+	c.sending = true
+	c.Update(tea.WindowSizeMsg{Width: 40, Height: 12})
+	c.Update(toolApprovalMsg{name: "bash_exec", arguments: strings.Repeat("line\n", 20),
+		response: make(chan approvalDecision, 1)})
+
+	view = c.View()
+	if strings.Contains(view, "Ask anything") {
+		t.Fatal("input remained visible during tool approval")
+	}
+	if !strings.Contains(view, "Allow once") || !strings.Contains(view, "Deny") {
+		t.Fatalf("approval choices are hidden by long arguments: %q", view)
+	}
+
+	before = c.hilView.YOffset
+	c.Update(tea.KeyMsg{Type: tea.KeyPgDown})
+	if c.hilView.YOffset <= before {
+		t.Fatal("PageDown did not scroll the HIL content")
+	}
+	c.Update(tea.KeyMsg{Type: tea.KeyHome})
+	if c.hilView.YOffset != before {
+		t.Fatal("Home did not return to the start of the command")
+	}
+
+	c.Update(tea.MouseMsg{Action: tea.MouseActionPress, Button: tea.MouseButtonWheelDown})
+	if c.hilView.YOffset <= before {
+		t.Fatal("mouse wheel did not scroll the HIL command")
 	}
 }
 
@@ -282,6 +370,101 @@ func TestToolLogRendering(t *testing.T) {
 	}
 }
 
+func TestDetailedToolLogRendering(t *testing.T) {
+	var c *client
+	var rendered string
+
+	c = tuiClient(t)
+	rendered = c.renderToolEvent(core.ToolEvent{Phase: core.ToolEventStarted, Name: "bash_exec",
+		Arguments: `{"command":"go test ./..."}`, Status: core.MessagePending})
+	if !strings.Contains(rendered, "Bash") || !strings.Contains(rendered, "$ go test ./...") {
+		t.Fatalf("bash command was not expanded: %q", rendered)
+	}
+
+	rendered = c.renderToolEvent(core.ToolEvent{Phase: core.ToolEventFinished, Name: "bash_exec",
+		Arguments: `{"command":"go test ./..."}`, Result: "ok example/pkg", Status: core.MessageCompleted})
+	if !strings.Contains(rendered, "✓ Bash") || !strings.Contains(rendered, "ok example/pkg") {
+		t.Fatalf("bash result was not expanded: %q", rendered)
+	}
+
+	rendered = c.renderToolEvent(core.ToolEvent{Phase: core.ToolEventStarted, Name: "file_edit",
+		Arguments: `{"path":"main.go","old_string":"old line","new_string":"new line"}`, Status: core.MessagePending})
+	if !strings.Contains(rendered, "Update main.go") || !strings.Contains(rendered, "- old line") ||
+		!strings.Contains(rendered, "+ new line") {
+		t.Fatalf("file edit was not rendered as a diff: %q", rendered)
+	}
+	if !strings.Contains(rendered, toolCutStyle.Render("- old line")) ||
+		!strings.Contains(rendered, toolAddedStyle.Render("+ new line")) {
+		t.Fatalf("file edit diff was not colorized: %q", rendered)
+	}
+
+	rendered = c.renderToolEvent(core.ToolEvent{Phase: core.ToolEventStarted, Name: "file_write",
+		Arguments: `{"path":"new.go","content":"package main"}`, Status: core.MessagePending})
+	if !strings.Contains(rendered, "Write new.go") || !strings.Contains(rendered, "package main") {
+		t.Fatalf("file write content was not expanded: %q", rendered)
+	}
+}
+
+func TestCompactStatusNamesCompaction(t *testing.T) {
+	var c *client
+	var status string
+
+	c = tuiClient(t)
+	c.sending = true
+	c.compacting = true
+	status = c.statusView()
+	if !strings.Contains(status, "compacting…") || strings.Contains(status, "thinking…") {
+		t.Fatalf("compact status is ambiguous: %q", status)
+	}
+}
+
+func TestFinishedToolEventReplacesItsRunningBlock(t *testing.T) {
+	var c *client
+
+	c = tuiClient(t)
+	c.Update(toolEventMsg(core.ToolEvent{Phase: core.ToolEventStarted, CallId: "call-1", Name: "bash_exec",
+		Arguments: `{"command":"pwd"}`, Status: core.MessagePending}))
+	c.Update(toolEventMsg(core.ToolEvent{Phase: core.ToolEventFinished, CallId: "call-1", Name: "bash_exec",
+		Arguments: `{"command":"pwd"}`, Result: "/tmp", Status: core.MessageCompleted}))
+
+	if len(c.transcript) != 1 {
+		t.Fatalf("tool call produced %d transcript blocks, want one", len(c.transcript))
+	}
+	if c.transcript[0].tool.Phase != core.ToolEventFinished {
+		t.Fatal("running tool block was not replaced by its result")
+	}
+}
+
+func TestAssistantMessagesRenderMarkdown(t *testing.T) {
+	var c *client
+	var rendered string
+
+	c = tuiClient(t)
+	rendered = c.renderMessage("assistant", "# Heading\n\n**bold** and `code`")
+
+	if strings.Contains(rendered, "# Heading") || strings.Contains(rendered, "**bold**") {
+		t.Fatalf("markdown syntax was not rendered: %q", rendered)
+	}
+	if !strings.Contains(rendered, "Heading") || !strings.Contains(rendered, "bold") || !strings.Contains(rendered, "code") {
+		t.Fatalf("markdown content was lost: %q", rendered)
+	}
+}
+
+func TestThinkingRendersAsAQuote(t *testing.T) {
+	var c *client
+	var rendered string
+
+	c = tuiClient(t)
+	rendered = c.renderThinking("first\nsecond")
+
+	if strings.Contains(rendered, "> first") || !strings.Contains(rendered, "│") {
+		t.Fatalf("thinking was not rendered as a quote: %q", rendered)
+	}
+	if !strings.Contains(rendered, "first") || !strings.Contains(rendered, "second") {
+		t.Fatalf("thinking content was lost: %q", rendered)
+	}
+}
+
 func TestFullScreenViewAndTranscriptScrolling(t *testing.T) {
 	var c *client
 	var index int
@@ -302,12 +485,86 @@ func TestFullScreenViewAndTranscriptScrolling(t *testing.T) {
 	}
 
 	c.Update(tea.KeyMsg{Type: tea.KeyPgUp})
-	if c.scrollOffset == 0 {
+	if c.view.AtBottom() {
 		t.Fatal("page up did not move the transcript")
 	}
 	c.Update(tea.KeyMsg{Type: tea.KeyEnd})
-	if c.scrollOffset != 0 {
+	if !c.view.AtBottom() {
 		t.Fatal("end did not return to the latest transcript line")
+	}
+}
+
+func TestTranscriptKeepsScrollPositionWhenNewOutputArrives(t *testing.T) {
+	var c *client
+	var index int
+	var offset int
+	var view string
+
+	c = tuiClient(t)
+	for index = 0; index < 40; index++ {
+		c.transcript = append(c.transcript, transcriptEntry{kind: transcriptNotice, content: "history"})
+	}
+	c.refreshViewport(true)
+	c.Update(tea.KeyMsg{Type: tea.KeyPgUp})
+	offset = c.view.YOffset
+
+	c.Update(chatDeltaMsg("new output"))
+	if c.view.YOffset != offset {
+		t.Fatalf("new output moved viewport from %d to %d", offset, c.view.YOffset)
+	}
+	if !c.newOutput {
+		t.Fatal("new output was not announced while scrolled back")
+	}
+	c.Update(toolEventMsg(core.ToolEvent{Phase: core.ToolEventStarted, Name: "grep", Arguments: `{}`}))
+	if c.view.YOffset != offset {
+		t.Fatalf("tool output moved viewport from %d to %d", offset, c.view.YOffset)
+	}
+
+	view = c.View()
+	if !strings.Contains(view, "new output") || !strings.Contains(view, "End to latest") {
+		t.Fatalf("new output indicator missing: %q", view)
+	}
+
+	c.Update(tea.KeyMsg{Type: tea.KeyEnd})
+	if c.newOutput || !c.view.AtBottom() {
+		t.Fatal("end did not clear the new output state")
+	}
+}
+
+func TestResponsiveTUILayoutKeepsTheScreenBounds(t *testing.T) {
+	var c *client
+	var sizes []tea.WindowSizeMsg
+	var size tea.WindowSizeMsg
+	var view string
+
+	c = tuiClient(t)
+	c.transcript = append(c.transcript, transcriptEntry{kind: transcriptMessage, role: "assistant",
+		content: "A response that wraps across the available terminal width without breaking the layout."})
+
+	sizes = []tea.WindowSizeMsg{
+		{Width: 40, Height: 12},
+		{Width: 72, Height: 24},
+		{Width: 120, Height: 40},
+	}
+
+	for _, size = range sizes {
+		c.Update(size)
+		view = c.View()
+
+		if lipgloss.Height(view) != size.Height {
+			t.Fatalf("%dx%d layout height = %d", size.Width, size.Height, lipgloss.Height(view))
+		}
+		if lipgloss.Width(view) > size.Width {
+			t.Fatalf("%dx%d layout width = %d", size.Width, size.Height, lipgloss.Width(view))
+		}
+	}
+
+	c.approval = &toolApprovalMsg{name: "bash_exec", arguments: strings.Repeat("command ", 20),
+		response: make(chan approvalDecision, 1)}
+	c.Update(tea.WindowSizeMsg{Width: 40, Height: 12})
+	view = c.View()
+	if lipgloss.Height(view) != 12 || lipgloss.Width(view) > 40 {
+		t.Fatalf("narrow approval layout is %dx%d", lipgloss.Width(view), lipgloss.Height(view))
 	}
 }
 
