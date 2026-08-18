@@ -48,12 +48,28 @@ func delegationCall(agent, prompt string) string {
 		agent + `\",\"prompt\":\"` + prompt + `\"}"}}]}`
 }
 
-func TestAgentCallDelegatesAndFeedsTheAnswerBack(t *testing.T) {
+func installedAgentTool(t *testing.T) modules.Def {
+	var def modules.Def
+
+	t.Helper()
+
+	for _, def = range modules.DefaultTools() {
+		if def.Name == AgentToolName {
+			return def
+		}
+	}
+
+	t.Fatalf("builtin tool %q not found", AgentToolName)
+	return modules.Def{}
+}
+
+func TestAgentCallThroughMCPDelegatesAndFeedsTheAnswerBack(t *testing.T) {
 	var srv *httptest.Server
 	var requests []string
 	var session *Session
 	var parent *NaruAgent
 	var message *Message
+	var def modules.Def
 
 	var err error
 
@@ -78,9 +94,10 @@ func TestAgentCallDelegatesAndFeedsTheAnswerBack(t *testing.T) {
 	defer srv.Close()
 
 	session, parent, _ = subagentSetup(t, srv.URL)
+	def = installedAgentTool(t)
 
 	message, err = ChatWithTools(context.Background(), session, parent, "go",
-		[]modules.Def{AgentCallTool()}, nil, nil)
+		[]modules.Def{def}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,6 +117,57 @@ func TestAgentCallDelegatesAndFeedsTheAnswerBack(t *testing.T) {
 	}
 	if !strings.Contains(requests[2], "the worker answer") {
 		t.Fatalf("the answer was not fed back to the parent: %s", requests[2])
+	}
+}
+
+func TestAgentCallThroughInstanceChatInputDelegates(t *testing.T) {
+	var srv *httptest.Server
+	var requests []string
+	var session *Session
+	var parent *NaruAgent
+	var instance *Instance
+	var message *Message
+	var def modules.Def
+
+	var err error
+
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body []byte
+
+		body, _ = io.ReadAll(r.Body)
+		requests = append(requests, string(body))
+		w.Header().Set("Content-Type", "text/event-stream")
+
+		switch len(requests) {
+		case 1:
+			io.WriteString(w, toolChunk("r1", delegationCall("worker", "review the change"), `"tool_calls"`))
+		case 2:
+			io.WriteString(w, toolChunk("r2", `{"role":"assistant","content":"reviewed"}`, `"stop"`))
+		default:
+			io.WriteString(w, toolChunk("r3", `{"role":"assistant","content":"done"}`, `"stop"`))
+		}
+
+		io.WriteString(w, "data: [DONE]\n\n")
+	}))
+	defer srv.Close()
+
+	session, parent, _ = subagentSetup(t, srv.URL)
+	instance = &Instance{Agent: parent, locks: newSessionLocks()}
+	def = installedAgentTool(t)
+
+	message, err = instance.ChatInput(context.Background(), session, "go", nil,
+		[]modules.Def{def}, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if message.Content != "done" {
+		t.Fatalf("instance answer = %q", message.Content)
+	}
+	if len(requests) != 3 {
+		t.Fatalf("request count = %d, want 3", len(requests))
+	}
+	if !strings.Contains(requests[2], "reviewed") {
+		t.Fatalf("the delegated answer was not returned through the instance: %s", requests[2])
 	}
 }
 

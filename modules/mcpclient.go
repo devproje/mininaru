@@ -100,23 +100,28 @@ func newTransport(entry *MCPServer) (mcp.Transport, error) {
 
 func sessionExecute(session *mcp.ClientSession, name string) func(context.Context, string) (string, error) {
 	return func(ctx context.Context, arguments string) (string, error) {
-		var params mcp.CallToolParams
-		var result *mcp.CallToolResult
-
-		var err error
-
-		params.Name = name
-		if arguments != "" {
-			params.Arguments = json.RawMessage(arguments)
-		}
-
-		result, err = session.CallTool(ctx, &params)
-		if err != nil {
-			return "", err
-		}
-
-		return resultText(result)
+		return sessionCall(ctx, session, name, arguments, nil)
 	}
+}
+
+func sessionCall(ctx context.Context, session *mcp.ClientSession, name, arguments string, meta mcp.Meta) (string, error) {
+	var params mcp.CallToolParams
+	var result *mcp.CallToolResult
+
+	var err error
+
+	params.Name = name
+	params.Meta = meta
+	if arguments != "" {
+		params.Arguments = json.RawMessage(arguments)
+	}
+
+	result, err = session.CallTool(ctx, &params)
+	if err != nil {
+		return "", err
+	}
+
+	return resultText(result)
 }
 
 func listAllTools(ctx context.Context, session *mcp.ClientSession) ([]*mcp.Tool, error) {
