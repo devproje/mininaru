@@ -135,7 +135,56 @@ func migrations(db *sql.DB) error {
 		return err
 	}
 
+	err = ensureTokenUsageCachedTokens(db)
+	if err != nil {
+		return err
+	}
+
 	return nil
+}
+
+// ensureTokenUsageCachedTokens repairs databases that recorded migration 0012
+// before cached_tokens was added to that migration file. Migration files are
+// immutable once shipped, so those databases otherwise never see the column.
+func ensureTokenUsageCachedTokens(db *sql.DB) error {
+	var rows *sql.Rows
+	var name string
+	var exists bool
+
+	var err error
+
+	rows, err = db.Query("SELECT name FROM pragma_table_info('token_usage');")
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		err = rows.Scan(&name)
+		if err != nil {
+			return err
+		}
+		if name == "cached_tokens" {
+			exists = true
+			break
+		}
+	}
+
+	err = rows.Err()
+	if err != nil {
+		return err
+	}
+	if exists {
+		return nil
+	}
+
+	err = rows.Close()
+	if err != nil {
+		return err
+	}
+
+	_, err = db.Exec("ALTER TABLE token_usage ADD COLUMN cached_tokens INTEGER NOT NULL DEFAULT 0;")
+	return err
 }
 
 func databaseDSN(dbPath string) string {

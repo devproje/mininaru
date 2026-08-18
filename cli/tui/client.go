@@ -249,7 +249,10 @@ func Run(session *core.Session, agent *core.NaruAgent, history []*core.Message, 
 	agent.ModelContextWindow(context.Background())
 	c = newClient(session, agent, history)
 	c.notice = notice
-	p = tea.NewProgram(c, tea.WithAltScreen(), tea.WithMouseCellMotion())
+	// Do not enable terminal mouse reporting here. It steals ordinary drag
+	// selection from the terminal, which prevents users from copying chat text
+	// with the mouse. Keyboard scrolling remains available via PageUp/PageDown.
+	p = tea.NewProgram(c, tea.WithAltScreen())
 	c.program = p
 
 	release = util.LogHold()
