@@ -5,13 +5,17 @@ package modules
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
+
+type builtinContextTestKey struct{}
 
 func TestBuiltinServerExposesEveryTool(t *testing.T) {
 	var expected map[string]bool
@@ -135,6 +139,81 @@ func findBuiltin(t *testing.T, name string) *Def {
 
 	t.Fatalf("builtin tool %q not found", name)
 	return nil
+}
+
+func TestBuiltinSessionKeepsConcurrentCallContextsSeparate(t *testing.T) {
+	var tool builtinTool
+	var server *mcp.Server
+	var serverTransport *mcp.InMemoryTransport
+	var clientTransport *mcp.InMemoryTransport
+	var client *mcp.Client
+	var session *mcp.ClientSession
+	var execute func(context.Context, string) (string, error)
+	var errors chan error
+	var index int
+	var expected string
+	var wait sync.WaitGroup
+
+	var err error
+
+	tool = builtinTool{Build: func() Def {
+		return Def{Execute: func(ctx context.Context, arguments string) (string, error) {
+			var value string
+
+			value, _ = ctx.Value(builtinContextTestKey{}).(string)
+			return value, nil
+		}}
+	}}
+
+	server = mcp.NewServer(&mcp.Implementation{Name: "context-test", Version: "test"}, nil)
+	server.AddTool(&mcp.Tool{Name: "context", InputSchema: map[string]any{"type": "object"}}, builtinHandler(tool))
+
+	serverTransport, clientTransport = mcp.NewInMemoryTransports()
+	_, err = server.Connect(context.Background(), serverTransport, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	client = mcp.NewClient(&mcp.Implementation{Name: "context-test", Version: "test"}, nil)
+	session, err = client.Connect(context.Background(), clientTransport, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { session.Close() })
+
+	execute = builtinSessionExecute(session, "context")
+	errors = make(chan error, 16)
+
+	for index = 0; index < 16; index++ {
+		expected = fmt.Sprintf("call-%d", index)
+		wait.Add(1)
+
+		go func(want string) {
+			var ctx context.Context
+			var output string
+
+			var callErr error
+
+			defer wait.Done()
+
+			ctx = context.WithValue(context.Background(), builtinContextTestKey{}, want)
+			output, callErr = execute(ctx, `{}`)
+			if callErr != nil {
+				errors <- callErr
+				return
+			}
+			if output != want {
+				errors <- fmt.Errorf("context output = %q, want %q", output, want)
+			}
+		}(expected)
+	}
+
+	wait.Wait()
+	close(errors)
+
+	for err = range errors {
+		t.Error(err)
+	}
 }
 
 func TestRegisterBuiltinExtendsTheBuiltinTable(t *testing.T) {

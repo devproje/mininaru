@@ -6,7 +6,9 @@ package modules
 import (
 	"context"
 	"os"
+	"strconv"
 	"sync"
+	"sync/atomic"
 
 	"github.com/devproje/mininaru/util"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -25,6 +27,8 @@ type BuiltinHints struct {
 	OpenWorld   bool
 }
 
+const builtinContextMeta = "mininaru/context"
+
 var builtinOnce sync.Once
 
 var builtinSession *mcp.ClientSession
@@ -32,6 +36,10 @@ var builtinSession *mcp.ClientSession
 var builtinCache []Def
 
 var registered []builtinTool
+
+var builtinContextNext atomic.Uint64
+
+var builtinContexts sync.Map
 
 func hint(value bool) *bool {
 	return &value
@@ -162,6 +170,8 @@ func builtinTools() []builtinTool {
 func builtinHandler(tool builtinTool) mcp.ToolHandler {
 	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		var arguments string
+		var contextId string
+		var original any
 		var output string
 		var text string
 
@@ -169,6 +179,14 @@ func builtinHandler(tool builtinTool) mcp.ToolHandler {
 
 		if req.Params != nil {
 			arguments = string(req.Params.Arguments)
+			contextId, _ = req.Params.Meta[builtinContextMeta].(string)
+		}
+
+		if contextId != "" {
+			original, _ = builtinContexts.Load(contextId)
+			if original != nil {
+				ctx = original.(context.Context)
+			}
 		}
 
 		output, err = tool.Build().Execute(ctx, arguments)
@@ -182,6 +200,21 @@ func builtinHandler(tool builtinTool) mcp.ToolHandler {
 		}
 
 		return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: text}}}, nil
+	}
+}
+
+func builtinSessionExecute(session *mcp.ClientSession, name string) func(context.Context, string) (string, error) {
+	return func(ctx context.Context, arguments string) (string, error) {
+		var contextId string
+		var meta mcp.Meta
+
+		contextId = strconv.FormatUint(builtinContextNext.Add(1), 10)
+		builtinContexts.Store(contextId, ctx)
+		defer builtinContexts.Delete(contextId)
+
+		meta = mcp.Meta{builtinContextMeta: contextId}
+
+		return sessionCall(ctx, session, name, arguments, meta)
 	}
 }
 
@@ -263,7 +296,7 @@ func builtinDefs() []Def {
 				Parameters:  schemaObject(listed.InputSchema),
 				Permission:  permissions[listed.Name],
 				daemon:      true,
-				Execute:     sessionExecute(builtinSession, listed.Name),
+				Execute:     builtinSessionExecute(builtinSession, listed.Name),
 			})
 		}
 	})
