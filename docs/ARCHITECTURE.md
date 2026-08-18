@@ -13,6 +13,7 @@ modules/   tool implementations, the in-process MCP server exposing them, the
 server/    stateless OpenAI-compatible HTTP API
 bot/       chat front ends that live inside the daemon (Discord)
 config/    client.json preferences (thinking, context budget, tool switch)
+cli/tui/   interactive terminal model, rendering, input, and approvals
 util/      data directory layout, SQLite handle, migrations, version info
 ```
 
@@ -41,7 +42,7 @@ to `maxToolRounds` (8) times.
 | Persistence | messages and tool calls written | nothing written |
 | Tools | `modules.DefaultTools()` | `modules.SafeTools()` |
 | Dangerous tools | approval callback, or `--allow-dangerous-tools` | never offered |
-| Context budget | `compactHistory` then `trimHistory` | client's responsibility |
+| Context management | provider token usage and model window drive `compactHistory` | client's responsibility |
 | Token accounting | recorded against the session | returned in the response |
 
 Both tool sets are a snapshot of what was discovered over live MCP sessions —
@@ -94,8 +95,8 @@ Four properties are deliberate:
   the request also carries the tool that can load a skill**. `systemPrompt` takes
   the request's `defs` for exactly that reason — see Skills below.
 
-`trimHistory` is charged the full prompt length, so neither the runtime block nor
-the catalog can silently eat the context budget.
+The provider's input-token count includes the runtime block and skill catalog,
+so both are reflected in the live context measurement.
 
 ## MCP
 
@@ -283,6 +284,13 @@ the third. Each round resends the whole conversation and each is billed, so the
 sum is the honest number. This also changes what the HTTP API returns: `usage` in
 a response now covers every round the server ran on the caller's behalf, which is
 not what OpenAI means by the field but is what the caller actually caused.
+`prompt_tokens_details.cached_tokens` is summed alongside it and exposed as the
+cached subset of prompt usage.
+
+**Prompt caching stays provider-owned.** mininaru does not duplicate a model KV
+cache. It sorts permitted tool definitions by name before building both the
+system prompt and request schema, keeping that large prefix deterministic, then
+records whatever cache-hit count the OpenAI-compatible provider reports.
 
 **Usage has to be asked for.** `stream_options.include_usage` was set only in
 `Complete`, so the session path and the delegation path never received usage at
@@ -434,18 +442,17 @@ history, because a `tool_calls` message with no matching result is a protocol
 error. Tool history is only reconstructed when tools are enabled for the
 request.
 
-`trimHistory` drops whole turns from the oldest end until the remainder fits
-`context.max_chars`. It charges tool names, arguments, and results to the
-budget, since those are sent. It does not charge reasoning text, which is not.
-The budget counts bytes, so non-ASCII text costs more than its character count.
+The final provider round's `prompt_tokens` is stored as the live context usage;
+multi-round usage totals remain cumulative for cost reporting. When the provider
+exposes a model context window, that capacity is stored beside the usage.
 
 ## Compaction
 
-`trimHistory` on its own loses whatever those turns held, silently. `compactHistory`
-in [core/compact.go](../core/compact.go) wraps it: it still decides what leaves,
-but summarises the departing turns into the conversation first and carries the
-result in the system prompt as a `<mininaru-summary>` block. `trimHistory` itself
-is untouched and remains the only place that decides what fits.
+`compactHistory` in [core/compact.go](../core/compact.go) compares the last actual
+input-token count with the model's reported context window. At 90% it summarises
+the completed tail and carries the result in the system prompt as a
+`<mininaru-summary>` block. With no reported window it makes no guessed automatic
+decision; explicit `/compact` remains available.
 
 The summary is one row per session in `session_summaries`, rewritten in place
 rather than appended to, with `through_message_id` marking the newest message it
@@ -461,22 +468,17 @@ marker is not found in the history, the tail is treated as uncovered and every
 turn is replayed: a duplicated turn is a cheaper failure than a silently dropped
 one, and it is logged.
 
-Budgeting is charged the summary's **current** length, not a reserve for the one
-about to be written. Charging a fixed reserve up front would make every
-conversation hit the budget earlier than it does today, including ones that never
-compact. The turn where compaction happens is therefore slightly off — the new
-summary may differ in length from the old — and the next turn corrects it. A cap
-of `maxSummaryChars` keeps that drift bounded, enforced both in the instruction
-and by truncating what comes back.
+The summary is capped by `maxSummaryChars`, enforced both in the instruction and
+by truncating what comes back. Actual token usage becomes known on the response
+after compaction because only the provider can tokenize the rebuilt prompt.
 
 Summarising uses `Complete` with no tool definitions, so the summary turn cannot
 reach a tool: `Complete` leaves `AllowPrivileged` false and passes no defs. It
 runs on the conversation's own agent and model.
 
 **Failure never breaks the user's turn.** A summary call that errors, a context
-that cancels, an empty answer, a failed write — each is logged at warn and falls
-through to today's behaviour of dropping the turns. Compaction is an improvement
-on a lossy path, not a new way for a chat to fail.
+that cancels, an empty answer, or a failed write is logged at warn and the full
+tail is sent unchanged. Compaction is not a new way for a chat to fail.
 
 `context.compact` turns new summarisation off. An existing summary keeps being
 applied, because it is already paid for and dropping it would lose more than it
@@ -567,6 +569,17 @@ and not two.
 `readOnlyHint` is the remote server's own claim about itself, so adding an entry
 to `mcp.json` is a trust decision. `"daemon": false` keeps a server's tools in
 the TUI while hiding them from the API server and the bots.
+
+### File revision guard
+
+`file_read` hashes the complete file even when it returns only a requested line
+range. Existing-file writes take the file revision lock, read the current bytes,
+and compare that hash before changing anything. This gives `file_edit` and
+`file_write` read-before-write and stale-write protection without making the
+model copy an opaque revision through its arguments. Successful mutations use
+`WriteFileAtomic`, update the remembered revision for another edit in the same
+turn, and return a bounded unified diff. New-file creation has no prior revision
+to protect and is allowed directly.
 
 ### Session locking
 
