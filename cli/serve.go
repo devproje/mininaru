@@ -115,6 +115,14 @@ func startBot(cfg *core.Bot, registry *core.Registry) (*bot.Discord, error) {
 	return discord, nil
 }
 
+func stopBots(started []*bot.Discord) {
+	var cur *bot.Discord
+
+	for _, cur = range started {
+		cur.Stop()
+	}
+}
+
 func startBots(registry *core.Registry) ([]*bot.Discord, error) {
 	var cur *core.Bot
 	var running *bot.Discord
@@ -134,14 +142,6 @@ func startBots(registry *core.Registry) ([]*bot.Discord, error) {
 	}
 
 	return started, nil
-}
-
-func stopBots(started []*bot.Discord) {
-	var cur *bot.Discord
-
-	for _, cur = range started {
-		cur.Stop()
-	}
 }
 
 func serveExecute(cmd *cobra.Command, args []string) error {

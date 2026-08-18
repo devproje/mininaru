@@ -417,28 +417,6 @@ func AgentRefreshClient(agent *NaruAgent) error {
 	return nil
 }
 
-func AgentUpdate(id string, payload NaruAgent) error {
-	var name, role, soul, model, providerId *string
-
-	if payload.Name != "" {
-		name = &payload.Name
-	}
-	if payload.Role != "" {
-		role = &payload.Role
-	}
-	if payload.Soul != "" {
-		soul = &payload.Soul
-	}
-	if payload.Model != "" {
-		model = &payload.Model
-	}
-	if payload.ProviderId != "" {
-		providerId = &payload.ProviderId
-	}
-
-	return AgentUpdateFields(id, name, role, soul, model, providerId)
-}
-
 func AgentUpdateFields(id string, name, role, soul, model, providerId *string) error {
 	var index int
 	var cur *NaruAgent
@@ -486,6 +464,28 @@ func AgentUpdateFields(id string, name, role, soul, model, providerId *string) e
 	err = fmt.Errorf("cannot find agent id for %s", id)
 
 	return err
+}
+
+func AgentUpdate(id string, payload NaruAgent) error {
+	var name, role, soul, model, providerId *string
+
+	if payload.Name != "" {
+		name = &payload.Name
+	}
+	if payload.Role != "" {
+		role = &payload.Role
+	}
+	if payload.Soul != "" {
+		soul = &payload.Soul
+	}
+	if payload.Model != "" {
+		model = &payload.Model
+	}
+	if payload.ProviderId != "" {
+		providerId = &payload.ProviderId
+	}
+
+	return AgentUpdateFields(id, name, role, soul, model, providerId)
 }
 
 func AgentDelete(ref string) error {

@@ -273,6 +273,18 @@ func (c *client) contentWidth() int {
 	return c.width - 8
 }
 
+func trimRight(block string) string {
+	var lines []string
+	var index int
+
+	lines = strings.Split(block, "\n")
+	for index = range lines {
+		lines[index] = strings.TrimRight(lines[index], " ")
+	}
+
+	return strings.Join(lines, "\n")
+}
+
 func (c *client) renderMessage(role, content string) string {
 	var mark string
 	var text string
@@ -336,16 +348,12 @@ func (c *client) renderPending(content string) string {
 	return trimRight(lipgloss.JoinHorizontal(lipgloss.Top, mark, text))
 }
 
-func trimRight(block string) string {
-	var lines []string
-	var index int
-
-	lines = strings.Split(block, "\n")
-	for index = range lines {
-		lines[index] = strings.TrimRight(lines[index], " ")
+func shortId(id string) string {
+	if len(id) <= 8 {
+		return id
 	}
 
-	return strings.Join(lines, "\n")
+	return id[:8]
 }
 
 func (c *client) banner() string {
@@ -1585,12 +1593,4 @@ func promptFunc(line int) string {
 	}
 
 	return "  "
-}
-
-func shortId(id string) string {
-	if len(id) <= 8 {
-		return id
-	}
-
-	return id[:8]
 }

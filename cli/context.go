@@ -38,18 +38,18 @@ conversation keeps being used either way.`,
 	RunE: contextCompactExecute,
 }
 
-func contextExecute(cmd *cobra.Command, args []string) error {
-	uiOk("compact %s", compactState())
-
-	return nil
-}
-
 func compactState() string {
 	if config.Client.Context.Compact {
 		return "on"
 	}
 
 	return "off"
+}
+
+func contextExecute(cmd *cobra.Command, args []string) error {
+	uiOk("compact %s", compactState())
+
+	return nil
 }
 
 func contextCompactExecute(cmd *cobra.Command, args []string) error {

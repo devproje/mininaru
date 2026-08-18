@@ -575,6 +575,7 @@ func TestResponsiveTUILayoutKeepsTheScreenBounds(t *testing.T) {
 func quitCmd(t *testing.T, c *client, text string) bool {
 	var cmd tea.Cmd
 	var msg tea.Msg
+	var quit bool
 
 	t.Helper()
 
@@ -585,7 +586,7 @@ func quitCmd(t *testing.T, c *client, text string) bool {
 	}
 
 	msg = cmd()
-	_, quit := msg.(tea.QuitMsg)
+	_, quit = msg.(tea.QuitMsg)
 
 	return quit
 }

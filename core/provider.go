@@ -31,6 +31,32 @@ var DefaultProvider *Provider
 
 var emptyProviderObj ProviderConfig = ProviderConfig{Providers: []*Provider{}}
 
+func ProviderFind(ref string) (*Provider, error) {
+	var cur *Provider
+
+	var err error
+
+	for _, cur = range Providers {
+		if cur.Id != ref {
+			continue
+		}
+
+		return cur, nil
+	}
+
+	for _, cur = range Providers {
+		if cur.Name != ref {
+			continue
+		}
+
+		return cur, nil
+	}
+
+	err = fmt.Errorf("provider %s not found", ref)
+
+	return nil, err
+}
+
 func ProviderInit() error {
 	var path string
 	var buf []byte
@@ -125,48 +151,6 @@ func ProviderDefault(ref string) error {
 	return ProviderSave()
 }
 
-func ProviderFind(ref string) (*Provider, error) {
-	var cur *Provider
-
-	var err error
-
-	for _, cur = range Providers {
-		if cur.Id != ref {
-			continue
-		}
-
-		return cur, nil
-	}
-
-	for _, cur = range Providers {
-		if cur.Name != ref {
-			continue
-		}
-
-		return cur, nil
-	}
-
-	err = fmt.Errorf("provider %s not found", ref)
-
-	return nil, err
-}
-
-func ProviderUpdate(id string, payload Provider) error {
-	var name, apiKey, baseURL *string
-
-	if payload.Name != "" {
-		name = &payload.Name
-	}
-	if payload.ApiKey != "" {
-		apiKey = &payload.ApiKey
-	}
-	if payload.BaseURL != "" {
-		baseURL = &payload.BaseURL
-	}
-
-	return ProviderUpdateFields(id, name, apiKey, baseURL)
-}
-
 func ProviderUpdateFields(id string, name, apiKey, baseURL *string) error {
 	var index int
 	var cur *Provider
@@ -209,6 +193,22 @@ func ProviderUpdateFields(id string, name, apiKey, baseURL *string) error {
 	err = fmt.Errorf("cannot find provider id for %s", id)
 
 	return err
+}
+
+func ProviderUpdate(id string, payload Provider) error {
+	var name, apiKey, baseURL *string
+
+	if payload.Name != "" {
+		name = &payload.Name
+	}
+	if payload.ApiKey != "" {
+		apiKey = &payload.ApiKey
+	}
+	if payload.BaseURL != "" {
+		baseURL = &payload.BaseURL
+	}
+
+	return ProviderUpdateFields(id, name, apiKey, baseURL)
 }
 
 func ProviderDelete(id string) error {

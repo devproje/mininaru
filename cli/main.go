@@ -63,25 +63,6 @@ providers, agents, tools and bots, and serve the OpenAI compatible API.`,
 	RunE:              execute,
 }
 
-func bootstrapExecute(cmd *cobra.Command, args []string) error {
-	var err error
-
-	if versionRef {
-		resolveDataDir()
-
-		return nil
-	}
-
-	err = bootstrap()
-	if err != nil {
-		return err
-	}
-
-	updateCheckStart(cmd)
-
-	return nil
-}
-
 func dataDirPath() string {
 	var path string
 
@@ -167,6 +148,25 @@ func bootstrap() error {
 	}
 
 	core.InstallAgentTool()
+
+	return nil
+}
+
+func bootstrapExecute(cmd *cobra.Command, args []string) error {
+	var err error
+
+	if versionRef {
+		resolveDataDir()
+
+		return nil
+	}
+
+	err = bootstrap()
+	if err != nil {
+		return err
+	}
+
+	updateCheckStart(cmd)
 
 	return nil
 }

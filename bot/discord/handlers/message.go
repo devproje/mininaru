@@ -108,6 +108,33 @@ func (d *Discord) ownedThread(channelId string) bool {
 	return channel.OwnerID == d.gateway.State.User.ID
 }
 
+func threadName(content string, attached bool) string {
+	var summary string
+	var name string
+	var runes []rune
+
+	summary = strings.Join(strings.Fields(content), " ")
+	summary = strings.Map(func(value rune) rune {
+		if unicode.IsControl(value) {
+			return -1
+		}
+		return value
+	}, summary)
+	summary = strings.Trim(summary, "#*_`>~ ")
+	if summary == "" && attached {
+		summary = "attachment"
+	}
+	if summary == "" {
+		summary = "conversation"
+	}
+	name = "mininaru · " + summary
+	runes = []rune(name)
+	if len(runes) > threadNameLimit {
+		name = string(runes[:threadNameLimit-1]) + "…"
+	}
+	return name
+}
+
 func (d *Discord) conversationChannel(message *discordgo.MessageCreate, content string) conversationTarget {
 	var target conversationTarget
 	var channel *discordgo.Channel
@@ -137,33 +164,6 @@ func (d *Discord) conversationChannel(message *discordgo.MessageCreate, content 
 	target.channelId = thread.ID
 	target.created = true
 	return target
-}
-
-func threadName(content string, attached bool) string {
-	var summary string
-	var name string
-	var runes []rune
-
-	summary = strings.Join(strings.Fields(content), " ")
-	summary = strings.Map(func(value rune) rune {
-		if unicode.IsControl(value) {
-			return -1
-		}
-		return value
-	}, summary)
-	summary = strings.Trim(summary, "#*_`>~ ")
-	if summary == "" && attached {
-		summary = "attachment"
-	}
-	if summary == "" {
-		summary = "conversation"
-	}
-	name = "mininaru · " + summary
-	runes = []rune(name)
-	if len(runes) > threadNameLimit {
-		name = string(runes[:threadNameLimit-1]) + "…"
-	}
-	return name
 }
 
 func (d *Discord) rememberMessage(messageId string) bool {

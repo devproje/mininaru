@@ -34,10 +34,6 @@ const (
 	UsageSubagent   = "subagent"
 )
 
-func usageRecord(sessionId, messageId, kind string, usage openai.CompletionUsage) {
-	usageRecordWithContext(sessionId, messageId, kind, usage, 0, 0)
-}
-
 func usageRecordWithContext(sessionId, messageId, kind string, usage openai.CompletionUsage, contextTokens, contextWindow int64) {
 	var err error
 
@@ -55,6 +51,10 @@ func usageRecordWithContext(sessionId, messageId, kind string, usage openai.Comp
 		util.Log.Warn("recording token usage failed",
 			"session", sessionId, "kind", kind, "error", err)
 	}
+}
+
+func usageRecord(sessionId, messageId, kind string, usage openai.CompletionUsage) {
+	usageRecordWithContext(sessionId, messageId, kind, usage, 0, 0)
 }
 
 func SessionContextTokens(sessionId string) (int64, int64, bool, error) {

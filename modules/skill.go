@@ -326,10 +326,10 @@ func SkillInitAt(project, user string) error {
 	return nil
 }
 
-func SkillReload() error {
-	return SkillInit()
-}
-
 func SkillInit() error {
 	return SkillInitAt(util.Path(SKILL_DIR), userSkillRoot())
+}
+
+func SkillReload() error {
+	return SkillInit()
 }

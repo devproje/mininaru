@@ -739,8 +739,9 @@ make install   # scripts/binary-install.sh
 `make test` fails on unformatted files, so run it before committing. Follow
 [CONVENTION.md](CONVENTION.md): no comments, no `:=`, one `var` block at the top
 of each function in first-use order with `err` last, early returns, and
-top-level declarations ordered types → consts → vars → functions with the
-representative function last.
+top-level declarations ordered types → consts → vars → functions. Functions use
+dependency order, with callees before callers. In a file that declares `main`,
+`main` is unconditionally the final function and final top-level declaration.
 
 ### Testing patterns
 

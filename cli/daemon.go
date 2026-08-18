@@ -178,6 +178,19 @@ func systemctlUser(ctx context.Context, args ...string) error {
 	return nil
 }
 
+func daemonLingering(ctx context.Context) bool {
+	var out []byte
+
+	var err error
+
+	out, err = exec.CommandContext(ctx, "loginctl", "show-user", strconv.Itoa(os.Getuid()), "--property=Linger").Output()
+	if err != nil {
+		return true
+	}
+
+	return strings.Contains(string(out), "Linger=yes")
+}
+
 func daemonInstallExecute(cmd *cobra.Command, args []string) error {
 	var unitPath string
 	var envFile string
@@ -241,19 +254,6 @@ func daemonInstallExecute(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
-}
-
-func daemonLingering(ctx context.Context) bool {
-	var out []byte
-
-	var err error
-
-	out, err = exec.CommandContext(ctx, "loginctl", "show-user", strconv.Itoa(os.Getuid()), "--property=Linger").Output()
-	if err != nil {
-		return true
-	}
-
-	return strings.Contains(string(out), "Linger=yes")
 }
 
 func daemonActiveState(ctx context.Context) string {

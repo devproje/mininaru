@@ -255,6 +255,18 @@ func providerAddExecute(cmd *cobra.Command, args []string) error {
 	return core.ProviderSave()
 }
 
+func maskSecret(secret string) string {
+	if secret == "" {
+		return ""
+	}
+
+	if len(secret) <= 4 {
+		return "****"
+	}
+
+	return secret[:4] + "****"
+}
+
 func providerListExecute(cmd *cobra.Command, args []string) error {
 	var rows *uiRows
 	var cur *core.Provider
@@ -694,6 +706,24 @@ func sessionAgent() (*core.NaruAgent, error) {
 	return core.Global, nil
 }
 
+func tokenCount(value int64) string {
+	var text string
+	var grouped string
+	var index int
+
+	text = strconv.FormatInt(value, 10)
+
+	for index = range text {
+		if index > 0 && (len(text)-index)%3 == 0 {
+			grouped = grouped + ","
+		}
+
+		grouped = grouped + string(text[index])
+	}
+
+	return grouped
+}
+
 func sessionListExecute(cmd *cobra.Command, args []string) error {
 	var target *core.NaruAgent
 	var sessions []*core.Session
@@ -733,24 +763,6 @@ func sessionListExecute(cmd *cobra.Command, args []string) error {
 	rows.flush()
 
 	return nil
-}
-
-func tokenCount(value int64) string {
-	var text string
-	var grouped string
-	var index int
-
-	text = strconv.FormatInt(value, 10)
-
-	for index = range text {
-		if index > 0 && (len(text)-index)%3 == 0 {
-			grouped = grouped + ","
-		}
-
-		grouped = grouped + string(text[index])
-	}
-
-	return grouped
 }
 
 func sessionUsageTarget(args []string) (*core.Session, error) {
@@ -855,18 +867,6 @@ func sessionRenameExecute(cmd *cobra.Command, args []string) error {
 	}
 
 	return core.SessionUpdate(args[0], sessionNameRef)
-}
-
-func maskSecret(secret string) string {
-	if secret == "" {
-		return ""
-	}
-
-	if len(secret) <= 4 {
-		return "****"
-	}
-
-	return secret[:4] + "****"
 }
 
 func init() {

@@ -184,34 +184,6 @@ func deltaReasoning(delta openai.ChatCompletionChunkChoiceDelta) string {
 	return text
 }
 
-func Chat(ctx context.Context, session *Session, agent *NaruAgent, content string, onContent, onReasoning func(string)) (*Message, error) {
-	var defs []modules.Def
-
-	if config.Client.Tools.Enabled {
-		defs = modules.DefaultTools()
-	}
-
-	return chatWithTools(ctx, session, agent, content, defs, onContent, onReasoning, nil, nil)
-}
-
-func ChatWithApproval(ctx context.Context, session *Session, agent *NaruAgent, content string, onContent, onReasoning func(string), onTool ToolEventFunc, approve ToolApprovalFunc) (*Message, error) {
-	var defs []modules.Def
-
-	if config.Client.Tools.Enabled {
-		defs = modules.DefaultTools()
-	}
-
-	return chatWithTools(ctx, session, agent, content, defs, onContent, onReasoning, onTool, approve)
-}
-
-func ChatWithTools(ctx context.Context, session *Session, agent *NaruAgent, content string, defs []modules.Def, onContent, onReasoning func(string)) (*Message, error) {
-	return chatWithTools(ctx, session, agent, content, defs, onContent, onReasoning, nil, nil)
-}
-
-func chatWithTools(ctx context.Context, session *Session, agent *NaruAgent, content string, defs []modules.Def, onContent, onReasoning func(string), onTool ToolEventFunc, approve ToolApprovalFunc) (*Message, error) {
-	return chatWithToolPolicy(ctx, session, agent, content, nil, defs, onContent, onReasoning, onTool, approve, config.AllowDangerousTools)
-}
-
 func chatWithToolPolicy(ctx context.Context, session *Session, agent *NaruAgent, content string, parts []openai.ChatCompletionContentPartUnionParam,
 	defs []modules.Def, onContent, onReasoning func(string), onTool ToolEventFunc, approve ToolApprovalFunc, allowDangerous bool) (*Message, error) {
 	var history []*Message
@@ -309,4 +281,32 @@ func chatWithToolPolicy(ctx context.Context, session *Session, agent *NaruAgent,
 	usageRecordWithContext(session.Id, pending.Id, UsageTurn, result.Usage, result.ContextTokens, contextWindow)
 
 	return messageCompleteTurn(pending.Id, session.Id, result.Content, result.Reasoning)
+}
+
+func chatWithTools(ctx context.Context, session *Session, agent *NaruAgent, content string, defs []modules.Def, onContent, onReasoning func(string), onTool ToolEventFunc, approve ToolApprovalFunc) (*Message, error) {
+	return chatWithToolPolicy(ctx, session, agent, content, nil, defs, onContent, onReasoning, onTool, approve, config.AllowDangerousTools)
+}
+
+func Chat(ctx context.Context, session *Session, agent *NaruAgent, content string, onContent, onReasoning func(string)) (*Message, error) {
+	var defs []modules.Def
+
+	if config.Client.Tools.Enabled {
+		defs = modules.DefaultTools()
+	}
+
+	return chatWithTools(ctx, session, agent, content, defs, onContent, onReasoning, nil, nil)
+}
+
+func ChatWithApproval(ctx context.Context, session *Session, agent *NaruAgent, content string, onContent, onReasoning func(string), onTool ToolEventFunc, approve ToolApprovalFunc) (*Message, error) {
+	var defs []modules.Def
+
+	if config.Client.Tools.Enabled {
+		defs = modules.DefaultTools()
+	}
+
+	return chatWithTools(ctx, session, agent, content, defs, onContent, onReasoning, onTool, approve)
+}
+
+func ChatWithTools(ctx context.Context, session *Session, agent *NaruAgent, content string, defs []modules.Def, onContent, onReasoning func(string)) (*Message, error) {
+	return chatWithTools(ctx, session, agent, content, defs, onContent, onReasoning, nil, nil)
 }

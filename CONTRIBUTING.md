@@ -21,8 +21,10 @@ GPL — see [COPYRIGHT.md](COPYRIGHT.md).
 
 Read [docs/CONVENTION.md](docs/CONVENTION.md). It is short, it is enforced in
 review, and it is unusual on purpose: no comments, no `:=`, one `var` block per
-function in first-use order with `err` last, functions in the order they
-execute. Code that ignores it will be sent back regardless of how good it is.
+function in first-use order with `err` last, and functions in dependency order
+with callees before callers. A file containing `main` always has `main` as its
+final declaration. Code that ignores this will be sent back regardless of how
+good it is.
 
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) explains the package layout and,
 more usefully, that the chat client and the HTTP server run the same
