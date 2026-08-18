@@ -315,3 +315,63 @@ func TestTokenUsageTableCreated(t *testing.T) {
 	}
 	rows.Close()
 }
+
+func TestCachedTokensColumnRepairedAfterMigrationAlreadyRecorded(t *testing.T) {
+	var db *sql.DB
+	var schema []byte
+	var count int
+
+	var err error
+
+	db, err = sql.Open("sqlite", filepath.Join(t.TempDir(), "old.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	schema, err = files.ReadFile("migrations/0001_schema.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = db.Exec(migrationSchema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.Exec(string(schema))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.Exec(`CREATE TABLE token_usage (
+		id VARCHAR(36) PRIMARY KEY,
+		session_id VARCHAR(36) NOT NULL,
+		message_id VARCHAR(36) NOT NULL DEFAULT '',
+		kind VARCHAR(16) NOT NULL,
+		prompt_tokens INTEGER NOT NULL DEFAULT 0,
+		completion_tokens INTEGER NOT NULL DEFAULT 0,
+		total_tokens INTEGER NOT NULL DEFAULT 0,
+		context_tokens INTEGER NOT NULL DEFAULT 0,
+		context_window INTEGER NOT NULL DEFAULT 0
+	);`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.Exec(`INSERT INTO migrations (version) VALUES
+		('0001_schema'), ('0011_token_usage'), ('0012_context_tokens');`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = migrations(db)
+	if err != nil {
+		t.Fatalf("repairing an already-recorded migration failed: %v", err)
+	}
+
+	err = db.QueryRow("SELECT COUNT(*) FROM pragma_table_info('token_usage') WHERE name = 'cached_tokens';").Scan(&count)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("cached_tokens column count = %d, want 1", count)
+	}
+}
