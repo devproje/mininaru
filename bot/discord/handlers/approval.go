@@ -34,50 +34,69 @@ const approvalTimeout = 5 * time.Minute
 const approvalDetailsLimit = 1200
 const approvalTitleLimit = 160
 
-func (d *Discord) approve(ctx context.Context, channelId, userId string, def modules.Def, arguments string) (bool, error) {
-	var id string
-	var view approvalPresentation
-	var pending *discordApproval
-	var sent *discordgo.Message
-	var approved bool
-	var timer *time.Timer
+func approvalRequestComponents(id, userId string, view approvalPresentation) []discordgo.MessageComponent {
+	var summary string
+	var body []discordgo.MessageComponent
+
+	summary = "### 🔐 " + view.title
+	if view.target != "" {
+		summary += "\n**Target:** `" + strings.ReplaceAll(view.target, "`", "ˋ") + "`"
+	}
+	summary += "\n**Impact:** " + view.impact
+	body = []discordgo.MessageComponent{
+		discordgo.TextDisplay{Content: summary},
+		discordgo.Separator{},
+		discordgo.TextDisplay{Content: fmt.Sprintf("Only <@%s> can decide. This request expires in 5 minutes.", userId)},
+	}
+	if view.details != "" {
+		body = append(body, discordgo.TextDisplay{Content: "**Details**\n```json\n" + view.details + "\n```"})
+	}
+	body = append(body, discordgo.ActionsRow{Components: []discordgo.MessageComponent{
+		discordgo.Button{Label: "Approve once", Emoji: &discordgo.ComponentEmoji{Name: "✅"}, Style: discordgo.SuccessButton, CustomID: "hil:yes:" + id},
+		discordgo.Button{Label: "Deny", Emoji: &discordgo.ComponentEmoji{Name: "✖️"}, Style: discordgo.DangerButton, CustomID: "hil:no:" + id},
+	}})
+	return v2Container(approvalAccent, body...)
+}
+
+func approvalArguments(arguments string) (map[string]any, string) {
+	var payload map[string]any
+	var formatted bytes.Buffer
+	var shown string
 
 	var err error
 
-	id = uuid.NewString()
-	view = approvalView(def, arguments)
-	pending = &discordApproval{userId: userId, channelId: channelId, response: make(chan bool, 1)}
-	d.mu.Lock()
-	d.approvals[id] = pending
-	d.mu.Unlock()
-	defer func() {
-		d.mu.Lock()
-		delete(d.approvals, id)
-		d.mu.Unlock()
-	}()
-
-	sent, err = d.gateway.ChannelMessageSendComplex(channelId, &discordgo.MessageSend{
-		Flags:           discordgo.MessageFlagsIsComponentsV2,
-		AllowedMentions: d.allowedMentions("<@" + userId + ">"),
-		Components:      approvalRequestComponents(id, userId, view),
-	})
-	if err != nil {
-		return false, err
+	err = json.Unmarshal([]byte(arguments), &payload)
+	if err == nil {
+		err = json.Indent(&formatted, []byte(arguments), "", "  ")
 	}
-	pending.messageId = sent.ID
-	timer = time.NewTimer(approvalTimeout)
-	defer timer.Stop()
-
-	select {
-	case approved = <-pending.response:
-		return approved, nil
-	case <-ctx.Done():
-		d.closeApproval(pending, "canceled")
-		return false, ctx.Err()
-	case <-timer.C:
-		d.closeApproval(pending, "expired")
-		return false, fmt.Errorf("approval timed out")
+	if err == nil {
+		shown = formatted.String()
+	} else {
+		shown = arguments
 	}
+	shown = strings.ReplaceAll(shown, "```", "`\u200b``")
+	if len([]rune(shown)) > approvalDetailsLimit {
+		shown = string([]rune(shown)[:approvalDetailsLimit]) + "…"
+	}
+	return payload, shown
+}
+
+func approvalString(payload map[string]any, key string) string {
+	var value any
+	var found bool
+	var text string
+
+	value, found = payload[key]
+	if !found {
+		return ""
+	}
+	text, found = value.(string)
+	if !found {
+		return ""
+	}
+	text = strings.TrimSpace(text)
+	text = strings.ReplaceAll(text, "\r", "")
+	return strings.ReplaceAll(text, "\n", " ↵ ")
 }
 
 func approvalView(def modules.Def, arguments string) approvalPresentation {
@@ -129,69 +148,50 @@ func approvalView(def modules.Def, arguments string) approvalPresentation {
 	return view
 }
 
-func approvalArguments(arguments string) (map[string]any, string) {
-	var payload map[string]any
-	var formatted bytes.Buffer
-	var shown string
+func (d *Discord) approve(ctx context.Context, channelId, userId string, def modules.Def, arguments string) (bool, error) {
+	var id string
+	var view approvalPresentation
+	var pending *discordApproval
+	var sent *discordgo.Message
+	var approved bool
+	var timer *time.Timer
 
 	var err error
 
-	err = json.Unmarshal([]byte(arguments), &payload)
-	if err == nil {
-		err = json.Indent(&formatted, []byte(arguments), "", "  ")
-	}
-	if err == nil {
-		shown = formatted.String()
-	} else {
-		shown = arguments
-	}
-	shown = strings.ReplaceAll(shown, "```", "`\u200b``")
-	if len([]rune(shown)) > approvalDetailsLimit {
-		shown = string([]rune(shown)[:approvalDetailsLimit]) + "…"
-	}
-	return payload, shown
-}
+	id = uuid.NewString()
+	view = approvalView(def, arguments)
+	pending = &discordApproval{userId: userId, channelId: channelId, response: make(chan bool, 1)}
+	d.mu.Lock()
+	d.approvals[id] = pending
+	d.mu.Unlock()
+	defer func() {
+		d.mu.Lock()
+		delete(d.approvals, id)
+		d.mu.Unlock()
+	}()
 
-func approvalString(payload map[string]any, key string) string {
-	var value any
-	var found bool
-	var text string
+	sent, err = d.gateway.ChannelMessageSendComplex(channelId, &discordgo.MessageSend{
+		Flags:           discordgo.MessageFlagsIsComponentsV2,
+		AllowedMentions: d.allowedMentions("<@" + userId + ">"),
+		Components:      approvalRequestComponents(id, userId, view),
+	})
+	if err != nil {
+		return false, err
+	}
+	pending.messageId = sent.ID
+	timer = time.NewTimer(approvalTimeout)
+	defer timer.Stop()
 
-	value, found = payload[key]
-	if !found {
-		return ""
+	select {
+	case approved = <-pending.response:
+		return approved, nil
+	case <-ctx.Done():
+		d.closeApproval(pending, "canceled")
+		return false, ctx.Err()
+	case <-timer.C:
+		d.closeApproval(pending, "expired")
+		return false, fmt.Errorf("approval timed out")
 	}
-	text, found = value.(string)
-	if !found {
-		return ""
-	}
-	text = strings.TrimSpace(text)
-	text = strings.ReplaceAll(text, "\r", "")
-	return strings.ReplaceAll(text, "\n", " ↵ ")
-}
-
-func approvalRequestComponents(id, userId string, view approvalPresentation) []discordgo.MessageComponent {
-	var summary string
-	var body []discordgo.MessageComponent
-
-	summary = "### 🔐 " + view.title
-	if view.target != "" {
-		summary += "\n**Target:** `" + strings.ReplaceAll(view.target, "`", "ˋ") + "`"
-	}
-	summary += "\n**Impact:** " + view.impact
-	body = []discordgo.MessageComponent{
-		discordgo.TextDisplay{Content: summary},
-		discordgo.Separator{},
-		discordgo.TextDisplay{Content: fmt.Sprintf("Only <@%s> can decide. This request expires in 5 minutes.", userId)},
-	}
-	if view.details != "" {
-		body = append(body, discordgo.TextDisplay{Content: "**Details**\n```json\n" + view.details + "\n```"})
-	}
-	body = append(body, discordgo.ActionsRow{Components: []discordgo.MessageComponent{
-		discordgo.Button{Label: "Approve once", Emoji: &discordgo.ComponentEmoji{Name: "✅"}, Style: discordgo.SuccessButton, CustomID: "hil:yes:" + id},
-		discordgo.Button{Label: "Deny", Emoji: &discordgo.ComponentEmoji{Name: "✖️"}, Style: discordgo.DangerButton, CustomID: "hil:no:" + id},
-	}})
-	return v2Container(approvalAccent, body...)
 }
 
 func approvalResultComponents(approved bool, userId string) []discordgo.MessageComponent {

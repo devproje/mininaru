@@ -66,6 +66,29 @@ func splitMessage(text string, limit int) []string {
 	return chunks
 }
 
+func replyFenceAfter(open, text string) string {
+	var lines []string
+	var line string
+	var marker string
+
+	lines = strings.Split(text, "\n")
+	for _, line = range lines {
+		marker = strings.TrimSpace(line)
+		if !strings.HasPrefix(marker, "```") {
+			continue
+		}
+		if open != "" {
+			open = ""
+			continue
+		}
+		open = marker
+		if len([]rune(open)) > 32 {
+			open = "```"
+		}
+	}
+	return open
+}
+
 func splitReply(text string, limit int) []string {
 	var raw []string
 	var chunk string
@@ -97,29 +120,6 @@ func splitReply(text string, limit int) []string {
 		chunks[index] += fmt.Sprintf("\n\n-# Part %d/%d", index+1, len(chunks))
 	}
 	return chunks
-}
-
-func replyFenceAfter(open, text string) string {
-	var lines []string
-	var line string
-	var marker string
-
-	lines = strings.Split(text, "\n")
-	for _, line = range lines {
-		marker = strings.TrimSpace(line)
-		if !strings.HasPrefix(marker, "```") {
-			continue
-		}
-		if open != "" {
-			open = ""
-			continue
-		}
-		open = marker
-		if len([]rune(open)) > 32 {
-			open = "```"
-		}
-	}
-	return open
 }
 
 func startTyping(gateway *discordgo.Session, channelId string) *typing {

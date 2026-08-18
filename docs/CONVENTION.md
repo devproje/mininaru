@@ -64,9 +64,14 @@ Top-level elements in a file **must** appear in this order:
 3. Package-level `var` declarations
 4. Function declarations
 
-Arrange functions in **procedural order** — not alphabetically, not grouped by
-role. A reader should be able to follow the program top to bottom in the order
-it executes, and `main` always goes last in the file.
+Arrange functions in **dependency order** — not alphabetically and not grouped
+by role. Put a helper or callee immediately before the first function that calls
+it. That makes each higher-level procedure read after the operations it composes,
+with the public entry point last in the file.
+
+If a file declares `main`, `main` **must be the final function and the final
+top-level declaration in that file, without exception**. No helper, type,
+constant, variable, or other declaration may appear below it.
 
 ```go
 type Config struct {
@@ -104,7 +109,11 @@ func main() {
 - Do not place type, constant, or package-level variable declarations after
   function declarations.
 - Do not sort functions by name.
-- In a package without `main`, apply the same procedural order so that the
+- When one caller invokes several independent helpers, keep those helpers in the
+  same order in which the caller invokes them.
+- A helper shared by several callers belongs before its earliest caller. Do not
+  duplicate or move it to an unrelated role-based section.
+- In a file without `main`, apply the same dependency order so that the
   package's public entry point or representative function comes last.
 
 ## 3. Comments

@@ -231,8 +231,8 @@ mininaru --session             # resume the latest non-empty session
 mininaru --session <id>        # resume a specific session
 mininaru --agent coder         # chat with an agent other than the global one
 mininaru thinking high --show
-mininaru context 32768         # approximate character budget for history
-mininaru context compact off   # drop old turns instead of summarising them
+mininaru context               # show context management settings
+mininaru context compact off   # disable automatic summarisation
 mininaru tools list            # list every available tool and where it came from
 mininaru tools on              # enable tool calling (default)
 mininaru tools off             # disable for models without tool support
@@ -272,7 +272,7 @@ Dangerous tools are denied in this mode because there is nobody to approve them
 
 Inside the TUI, use `/help`, `/thinking`, `/usage`, or `ctrl+t`. `/compact` folds the
 conversation so far into a summary straight away, without waiting for the
-context budget to force it; the completion notice reports the context reduction.
+model context window to force it; token usage refreshes after the next response.
 Press `esc` to interrupt the current response, and
 `/exit`, `/quit`, or `ctrl+c` to leave. The client runs in the terminal's
 alternate full-screen buffer; use `PageUp` and `PageDown` to scroll the
@@ -302,18 +302,18 @@ Completed messages are used as model history. Failed and cancelled requests are
 kept in SQLite with their status and error for diagnostics, but are excluded
 from replay and future model requests. Resuming a session also replays the tool
 calls and results of each turn, so the model remembers what it already looked
-up. When history exceeds the configured context character budget, the oldest
-complete turns leave the replay; tool arguments and results count toward that
-budget because they are sent to the model.
+up. The TUI records the last provider-reported input token count. For providers
+that expose the model's context window, such as llama-server's `/props`, it also
+shows the capacity and uses it to decide when automatic compaction is needed.
 
-Those turns are **summarised before they go**. The summary is one running
+At 90% of a known model context window, completed turns are **summarised**. The summary is one running
 paragraph per conversation, rewritten rather than appended to each time more
 turns fall out, and it rides in the system prompt so what was decided earlier
 survives even though the wording does not. It costs one extra model call, and
-only on a turn where something actually falls out of the budget. `mininaru
-context compact off` turns that off and goes back to dropping the turns
-outright; a summary already saved for a conversation keeps being used either
-way. Summaries live in their own table and are deleted with their session.
+only on a turn where automatic compaction runs. `mininaru context compact off`
+turns automatic summarisation off without imposing a separate local history
+limit; a summary already saved for a conversation keeps being used either way.
+Summaries live in their own table and are deleted with their session.
 
 ### What a conversation costs
 
@@ -322,11 +322,11 @@ Every model call made on a session's behalf is recorded against it, so
 total down by what spent it. `/usage` reports the running total inside the TUI.
 
 ```
-KIND         PROMPT   COMPLETION   TOTAL
-turn        120,411        8,204  128,615
-compaction    6,890          412    7,302
-subagent     31,204        2,110   33,314
-total       158,505       10,726  169,231
+KIND         PROMPT    CACHED   COMPLETION   TOTAL
+turn        120,411    94,208        8,204  128,615
+compaction    6,890     4,096          412    7,302
+subagent     31,204    24,576        2,110   33,314
+total       158,505   122,880       10,726  169,231
 ```
 
 `turn` is the answers you asked for, `compaction` is the summarising above, and
@@ -337,6 +337,13 @@ A turn that takes several tool rounds sends the whole conversation again on each
 one, and each is billed, so its total is the sum of every round rather than the
 last. The same applies to what the HTTP API reports back: the `usage` in a
 response covers every round the server ran on the caller's behalf.
+
+`CACHED` is the subset of prompt tokens the provider reports as cache hits. The
+provider or inference server owns the actual prompt cache; mininaru keeps tool
+definitions in a stable order so the shared prefix stays reusable, and records
+`prompt_tokens_details.cached_tokens` when the OpenAI-compatible endpoint returns
+it. A blank or zero value means the provider did not report a hit, not that
+mininaru maintains a second local model cache.
 
 **These are tokens, not money.** mininaru talks to whatever provider you point it
 at and has no idea what yours charges, so the conversion is yours to do. Usage
@@ -397,7 +404,12 @@ asking again.
 `file_edit` replaces one exact string with another. The string has to occur
 exactly once in the file, otherwise the call is refused and the model is asked for
 more surrounding context; `replace_all` lifts that restriction. `file_read` takes
-`offset` and `limit` to read a range of lines rather than a whole file.
+`offset` and `limit` to read a range of lines rather than a whole file. Reading an
+existing file also records its content revision. A later `file_edit`, overwrite,
+or append is refused if that read never happened or another process changed the
+file in between. Writes use an atomic replacement, preserve an existing file's
+mode, reject binary content, and return the applied unified diff. New files can
+still be created without a preceding read.
 
 `glob` lists files by path pattern, where `**` matches across directories, as in
 `**/*.go`. `grep` searches file contents by regular expression and answers with

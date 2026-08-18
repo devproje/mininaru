@@ -15,12 +15,14 @@ import (
 )
 
 func skillCreateEnv(t *testing.T) {
+	var err error
+
 	t.Helper()
 
 	util.RootDir = t.TempDir()
 	t.Setenv("HOME", t.TempDir())
 
-	err := SkillInit()
+	err = SkillInit()
 	if err != nil {
 		t.Fatal(err)
 	}

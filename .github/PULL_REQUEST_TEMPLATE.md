@@ -11,7 +11,7 @@
 
 ## Checklist
 
-- [ ] Follows [docs/CONVENTION.md](../docs/CONVENTION.md): no comments, no `:=`, one `var` block per function in first-use order with `err` last, functions in the order they execute
+- [ ] Follows [docs/CONVENTION.md](../docs/CONVENTION.md): no comments, no `:=`, one `var` block per function in first-use order with `err` last, callees before callers, and `main` unconditionally last
 - [ ] New `.go` files carry the two-line SPDX header
 - [ ] Documentation updated if behaviour a user can see has changed
 - [ ] My contribution is licensed `GPL-3.0-or-later`, matching the project

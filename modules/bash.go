@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -17,6 +19,40 @@ const maxBashTimeout = 120
 const maxBashOutput = 65536
 
 const bashWaitDelay = 2 * time.Second
+
+func bashUsesInPlaceSed(command string) bool {
+	var fields []string
+	var field string
+	var sed bool
+
+	fields = strings.Fields(command)
+
+	for _, field = range fields {
+		field = strings.Trim(field, "'\"()")
+		if filepath.Base(field) == "sed" {
+			sed = true
+			continue
+		}
+		if !sed {
+			continue
+		}
+		if field == ";" || field == "|" || field == "&&" || field == "||" {
+			sed = false
+			continue
+		}
+		if field == "--in-place" || strings.HasPrefix(field, "--in-place=") {
+			return true
+		}
+		if strings.HasPrefix(field, "-") && !strings.HasPrefix(field, "--") && strings.Contains(field[1:], "i") {
+			return true
+		}
+		if !strings.HasPrefix(field, "-") {
+			sed = false
+		}
+	}
+
+	return false
+}
 
 func bashShell() (string, error) {
 	var candidate string
@@ -47,7 +83,7 @@ func bashShell() (string, error) {
 func BashExec(root string) Def {
 	return Def{
 		Name:        "bash_exec",
-		Description: "Execute a Bash command in the process startup directory.",
+		Description: "Execute a Bash command in the process startup directory. Use file_read, file_edit, and file_write for file contents; in-place sed edits are rejected.",
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -78,6 +114,9 @@ func BashExec(root string) Def {
 			}
 			if payload.Command == "" {
 				return "", fmt.Errorf("command is required")
+			}
+			if bashUsesInPlaceSed(payload.Command) {
+				return "", fmt.Errorf("in-place sed edits are not allowed; inspect with file_read, then use file_edit or file_write")
 			}
 			if payload.TimeoutSeconds <= 0 {
 				payload.TimeoutSeconds = defaultBashTimeout

@@ -34,9 +34,10 @@ type completionRun struct {
 }
 
 type Completion struct {
-	Content   string
-	Reasoning string
-	Usage     openai.CompletionUsage
+	Content       string
+	Reasoning     string
+	Usage         openai.CompletionUsage
+	ContextTokens int64
 }
 
 func (r *completionRun) stream(ctx context.Context, reply, reasoning *strings.Builder) (*openai.ChatCompletionAccumulator, error) {
@@ -53,6 +54,7 @@ func (r *completionRun) stream(ctx context.Context, reply, reasoning *strings.Bu
 	for stream.Next() {
 		chunk = stream.Current()
 		accumulator.AddChunk(chunk)
+		accumulator.Usage.PromptTokensDetails.CachedTokens += chunk.Usage.PromptTokensDetails.CachedTokens
 		if len(chunk.Choices) == 0 {
 			continue
 		}
@@ -158,6 +160,8 @@ func (r *completionRun) execute(ctx context.Context) (*Completion, error) {
 		result.Usage.PromptTokens += accumulator.Usage.PromptTokens
 		result.Usage.CompletionTokens += accumulator.Usage.CompletionTokens
 		result.Usage.TotalTokens += accumulator.Usage.TotalTokens
+		result.Usage.PromptTokensDetails.CachedTokens += accumulator.Usage.PromptTokensDetails.CachedTokens
+		result.ContextTokens = accumulator.Usage.PromptTokens
 
 		message = accumulator.Choices[0].Message
 		if len(message.ToolCalls) == 0 {

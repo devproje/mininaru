@@ -6,6 +6,7 @@ package modules
 import (
 	"context"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -76,5 +77,39 @@ func TestBashShellHonorsOverride(t *testing.T) {
 	}
 	if !strings.HasSuffix(shell, "/sh") {
 		t.Fatalf("bashShell returned %q, want the overridden sh", shell)
+	}
+}
+
+func TestBashExecRejectsInPlaceSed(t *testing.T) {
+	var command string
+	var commands []string
+
+	var err error
+
+	commands = []string{
+		"sed -i 's/old/new/' file.txt",
+		"sed -Ei 's/old/new/' file.txt",
+		"/usr/bin/sed --in-place=.bak 's/old/new/' file.txt",
+	}
+
+	for _, command = range commands {
+		_, err = BashExec(t.TempDir()).Execute(context.Background(), `{"command":`+strconv.Quote(command)+`}`)
+		if err == nil || !strings.Contains(err.Error(), "file_edit") {
+			t.Fatalf("command %q error = %v, want file tool guidance", command, err)
+		}
+	}
+}
+
+func TestBashExecAllowsReadOnlySed(t *testing.T) {
+	var result string
+
+	var err error
+
+	result, err = BashExec(t.TempDir()).Execute(context.Background(), `{"command":"printf 'one\\ntwo\\n' | sed -n '2p'"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(result) != "two" {
+		t.Fatalf("result = %q, want read-only sed output", result)
 	}
 }

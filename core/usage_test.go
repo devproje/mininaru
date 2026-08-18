@@ -12,7 +12,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/devproje/mininaru/config"
 	"github.com/devproje/mininaru/modules"
 	"github.com/devproje/mininaru/util"
 	"github.com/openai/openai-go"
@@ -28,6 +27,13 @@ func usageChunk(id string, prompt, completion int) string {
 	return `data: {"id":"` + id + `","object":"chat.completion.chunk","created":1,"model":"m","choices":[],` +
 		`"usage":{"prompt_tokens":` + strconv.Itoa(prompt) + `,"completion_tokens":` + strconv.Itoa(completion) +
 		`,"total_tokens":` + strconv.Itoa(prompt+completion) + `}}` + "\n\n"
+}
+
+func cachedUsageChunk(id string, prompt, completion, cached int) string {
+	return `data: {"id":"` + id + `","object":"chat.completion.chunk","created":1,"model":"m","choices":[],` +
+		`"usage":{"prompt_tokens":` + strconv.Itoa(prompt) + `,"completion_tokens":` + strconv.Itoa(completion) +
+		`,"total_tokens":` + strconv.Itoa(prompt+completion) + `,"prompt_tokens_details":{"cached_tokens":` +
+		strconv.Itoa(cached) + `}}}` + "\n\n"
 }
 
 func usageRows(t *testing.T, sessionId, kind string) int {
@@ -53,6 +59,9 @@ func TestTurnUsageIsRecordedAndSummedAcrossRounds(t *testing.T) {
 	var agent *NaruAgent
 	var def modules.Def
 	var totals *UsageTotals
+	var contextTokens int64
+	var contextWindow int64
+	var contextKnown bool
 
 	var err error
 
@@ -64,17 +73,17 @@ func TestTurnUsageIsRecordedAndSummedAcrossRounds(t *testing.T) {
 			io.WriteString(w, toolChunk("r1",
 				`{"role":"assistant","tool_calls":[{"index":0,"id":"c1","type":"function","function":{"name":"echo","arguments":"{}"}}]}`,
 				`"tool_calls"`))
-			io.WriteString(w, usageChunk("r1", 100, 10))
+			io.WriteString(w, cachedUsageChunk("r1", 100, 10, 80))
 		} else {
 			io.WriteString(w, toolChunk("r2", `{"role":"assistant","content":"done"}`, `"stop"`))
-			io.WriteString(w, usageChunk("r2", 200, 20))
+			io.WriteString(w, cachedUsageChunk("r2", 200, 20, 160))
 		}
 
 		io.WriteString(w, "data: [DONE]\n\n")
 	}))
 	defer srv.Close()
 
-	session, agent = compactSetup(t, srv.URL, 100000, true)
+	session, agent = compactSetup(t, srv.URL, true)
 
 	def = modules.Def{
 		Name: "echo", Description: "echo", Permission: modules.PermissionSafe,
@@ -99,8 +108,18 @@ func TestTurnUsageIsRecordedAndSummedAcrossRounds(t *testing.T) {
 	if totals.PromptTokens != 300 || totals.CompletionTokens != 30 || totals.TotalTokens != 330 {
 		t.Fatalf("totals = %+v, want both rounds summed", totals)
 	}
+	if totals.CachedTokens != 240 {
+		t.Fatalf("cached tokens = %d, want both rounds summed", totals.CachedTokens)
+	}
 	if usageRows(t, session.Id, UsageTurn) != 1 {
 		t.Fatal("the turn should be one row carrying the sum, not one per round")
+	}
+	contextTokens, contextWindow, contextKnown, err = SessionContextTokens(session.Id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !contextKnown || contextTokens != 200 || contextWindow != 100 {
+		t.Fatalf("current context = %d/%d known=%t, want the final round only", contextTokens, contextWindow, contextKnown)
 	}
 }
 
@@ -130,8 +149,9 @@ func TestCompactionUsageIsRecordedSeparately(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	session, agent = compactSetup(t, srv.URL, 100, true)
+	session, agent = compactSetup(t, srv.URL, true)
 	seedTurns(t, session.Id, 2)
+	seedContextUsage(t, session.Id, 95, 100)
 
 	_, err = ChatWithTools(context.Background(), session, agent, "hi", nil, nil, nil)
 	if err != nil {
@@ -141,16 +161,16 @@ func TestCompactionUsageIsRecordedSeparately(t *testing.T) {
 	if usageRows(t, session.Id, UsageCompaction) != 1 {
 		t.Fatal("compaction usage was not recorded")
 	}
-	if usageRows(t, session.Id, UsageTurn) != 1 {
-		t.Fatal("turn usage was not recorded")
+	if usageRows(t, session.Id, UsageTurn) != 2 {
+		t.Fatal("turn usage and the seeded previous context were not recorded")
 	}
 
 	totals, err = SessionUsage(session.Id)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if totals.TotalTokens != 55+77 {
-		t.Fatalf("total = %d, want the turn and the compaction added up", totals.TotalTokens)
+	if totals.TotalTokens != 96+55+77 {
+		t.Fatalf("total = %d, want the previous turn, compaction, and current turn added up", totals.TotalTokens)
 	}
 	if len(totals.Lines) != 2 {
 		t.Fatalf("lines = %+v, want one per kind", totals.Lines)
@@ -187,8 +207,6 @@ func TestSubagentUsageIsRecordedAgainstTheCallingSession(t *testing.T) {
 
 	session, parent, _ = subagentSetup(t, srv.URL)
 
-	config.Client.Context.MaxChars = 100000
-
 	_, err = ChatWithTools(context.Background(), session, parent, "go",
 		[]modules.Def{AgentCallTool()}, nil, nil)
 	if err != nil {
@@ -208,7 +226,7 @@ func TestUsageIsNotRecordedWithoutASessionOrTokens(t *testing.T) {
 
 	var err error
 
-	_, _ = compactSetup(t, "http://127.0.0.1:1", 100000, true)
+	_, _ = compactSetup(t, "http://127.0.0.1:1", true)
 
 	usageRecord("", "m1", UsageTurn, usageOf(10, 1))
 	usageRecord("s-nonexistent", "m1", UsageTurn, usageOf(0, 0))
@@ -238,7 +256,7 @@ func TestUsageFailureDoesNotBreakTheTurn(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	session, agent = compactSetup(t, srv.URL, 100000, true)
+	session, agent = compactSetup(t, srv.URL, true)
 
 	_, err = util.DB.Exec("DROP TABLE token_usage;")
 	if err != nil {
@@ -260,7 +278,7 @@ func TestSessionUsageIsRemovedWithItsSession(t *testing.T) {
 
 	var err error
 
-	session, _ = compactSetup(t, "http://127.0.0.1:1", 100000, true)
+	session, _ = compactSetup(t, "http://127.0.0.1:1", true)
 
 	usageRecord(session.Id, "m1", UsageTurn, usageOf(10, 1))
 
@@ -286,7 +304,7 @@ func TestSessionUsageAllGroupsBySession(t *testing.T) {
 
 	var err error
 
-	first, agent = compactSetup(t, "http://127.0.0.1:1", 100000, true)
+	first, agent = compactSetup(t, "http://127.0.0.1:1", true)
 
 	second, err = SessionCreate(agent, "second")
 	if err != nil {

@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/devproje/mininaru/cli/tui"
 	"github.com/devproje/mininaru/config"
 	"github.com/devproje/mininaru/core"
 	"github.com/devproje/mininaru/modules"
@@ -60,25 +61,6 @@ providers, agents, tools and bots, and serve the OpenAI compatible API.`,
 	Args:              usageArgs(cobra.MaximumNArgs(1)),
 	PersistentPreRunE: bootstrapExecute,
 	RunE:              execute,
-}
-
-func bootstrapExecute(cmd *cobra.Command, args []string) error {
-	var err error
-
-	if versionRef {
-		resolveDataDir()
-
-		return nil
-	}
-
-	err = bootstrap()
-	if err != nil {
-		return err
-	}
-
-	updateCheckStart(cmd)
-
-	return nil
 }
 
 func dataDirPath() string {
@@ -166,6 +148,25 @@ func bootstrap() error {
 	}
 
 	core.InstallAgentTool()
+
+	return nil
+}
+
+func bootstrapExecute(cmd *cobra.Command, args []string) error {
+	var err error
+
+	if versionRef {
+		resolveDataDir()
+
+		return nil
+	}
+
+	err = bootstrap()
+	if err != nil {
+		return err
+	}
+
+	updateCheckStart(cmd)
 
 	return nil
 }
@@ -290,7 +291,7 @@ func execute(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	return runClient(session, agent, history)
+	return tui.Run(session, agent, history, updateNotice())
 }
 
 func rootInit() {

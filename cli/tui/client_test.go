@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Wonhyeok Kim (Project_IO)
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package main
+package tui
 
 import (
 	"path/filepath"
@@ -167,19 +167,15 @@ func TestSlashOpensAndFiltersCommandMenu(t *testing.T) {
 
 func TestStatusShowsContextUsageOnTheRight(t *testing.T) {
 	var c *client
-	var previous int
 	var status string
 
-	previous = config.Client.Context.MaxChars
-	t.Cleanup(func() {
-		config.Client.Context.MaxChars = previous
-	})
-	config.Client.Context.MaxChars = 100
 	c = tuiClient(t)
-	c.contextChars = 5
+	c.contextTokens = 9428
+	c.contextWindow = 16384
+	c.contextKnown = true
 
 	status = c.statusView()
-	if !strings.Contains(status, "ctx 5/100") {
+	if !strings.Contains(status, "ctx 9.4k/16.4k") {
 		t.Fatalf("context usage is missing from status: %q", status)
 	}
 }
@@ -398,6 +394,14 @@ func TestDetailedToolLogRendering(t *testing.T) {
 		t.Fatalf("file edit diff was not colorized: %q", rendered)
 	}
 
+	rendered = c.renderToolEvent(core.ToolEvent{Phase: core.ToolEventFinished, Name: "file_edit",
+		Arguments: `{"path":"main.go","old_string":"old line","new_string":"new line"}`,
+		Result:    "--- a/main.go\n+++ b/main.go\n@@ -1,1 +1,1 @@\n-old line\n+new line\n", Status: core.MessageCompleted})
+	if !strings.Contains(rendered, toolCutStyle.Render("-old line")) ||
+		!strings.Contains(rendered, toolAddedStyle.Render("+new line")) {
+		t.Fatalf("completed file diff was not colorized: %q", rendered)
+	}
+
 	rendered = c.renderToolEvent(core.ToolEvent{Phase: core.ToolEventStarted, Name: "file_write",
 		Arguments: `{"path":"new.go","content":"package main"}`, Status: core.MessagePending})
 	if !strings.Contains(rendered, "Write new.go") || !strings.Contains(rendered, "package main") {
@@ -571,6 +575,7 @@ func TestResponsiveTUILayoutKeepsTheScreenBounds(t *testing.T) {
 func quitCmd(t *testing.T, c *client, text string) bool {
 	var cmd tea.Cmd
 	var msg tea.Msg
+	var quit bool
 
 	t.Helper()
 
@@ -581,7 +586,7 @@ func quitCmd(t *testing.T, c *client, text string) bool {
 	}
 
 	msg = cmd()
-	_, quit := msg.(tea.QuitMsg)
+	_, quit = msg.(tea.QuitMsg)
 
 	return quit
 }
@@ -648,12 +653,12 @@ func TestCompactOutcomeNotices(t *testing.T) {
 
 	c = tuiClient(t)
 
-	c.finishCompact(compactDoneMsg{compacted: true, before: 12000, after: 1800})
+	c.finishCompact(compactDoneMsg{compacted: true})
 	if !strings.Contains(c.transcript[len(c.transcript)-1].content, "compacted the conversation") {
 		t.Fatalf("success notice = %q", c.transcript[len(c.transcript)-1].content)
 	}
-	if !strings.Contains(c.transcript[len(c.transcript)-1].content, "12.0k → 1.8k") {
-		t.Fatalf("success notice has no context reduction: %q", c.transcript[len(c.transcript)-1].content)
+	if !strings.Contains(c.transcript[len(c.transcript)-1].content, "refreshes after the next response") {
+		t.Fatalf("success notice does not explain token refresh: %q", c.transcript[len(c.transcript)-1].content)
 	}
 	if c.sending {
 		t.Fatal("finishCompact left the client sending")

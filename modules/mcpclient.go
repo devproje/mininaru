@@ -98,12 +98,6 @@ func newTransport(entry *MCPServer) (mcp.Transport, error) {
 	return nil, fmt.Errorf("unknown transport %q", entry.Transport)
 }
 
-func sessionExecute(session *mcp.ClientSession, name string) func(context.Context, string) (string, error) {
-	return func(ctx context.Context, arguments string) (string, error) {
-		return sessionCall(ctx, session, name, arguments, nil)
-	}
-}
-
 func sessionCall(ctx context.Context, session *mcp.ClientSession, name, arguments string, meta mcp.Meta) (string, error) {
 	var params mcp.CallToolParams
 	var result *mcp.CallToolResult
@@ -122,6 +116,12 @@ func sessionCall(ctx context.Context, session *mcp.ClientSession, name, argument
 	}
 
 	return resultText(result)
+}
+
+func sessionExecute(session *mcp.ClientSession, name string) func(context.Context, string) (string, error) {
+	return func(ctx context.Context, arguments string) (string, error) {
+		return sessionCall(ctx, session, name, arguments, nil)
+	}
 }
 
 func listAllTools(ctx context.Context, session *mcp.ClientSession) ([]*mcp.Tool, error) {

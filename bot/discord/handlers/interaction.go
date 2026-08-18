@@ -49,6 +49,19 @@ func (d *Discord) pairCommand(interaction *discordgo.InteractionCreate, user *di
 	d.respond(interaction, "You are the admin now.")
 }
 
+func resetConfirmationComponents(agentName, userId string) []discordgo.MessageComponent {
+	var shownName string
+
+	shownName = strings.ReplaceAll(agentName, "`", "ˋ")
+	return v2Container(approvalAccent,
+		discordgo.TextDisplay{Content: "### Start a fresh conversation?\nThis will forget the current conversation with `" + shownName + "` in this channel. This cannot be undone."},
+		discordgo.ActionsRow{Components: []discordgo.MessageComponent{
+			discordgo.Button{Label: "Start fresh", Style: discordgo.DangerButton, CustomID: "reset:yes:" + userId},
+			discordgo.Button{Label: "Keep conversation", Style: discordgo.SecondaryButton, CustomID: "reset:no:" + userId},
+		}},
+	)
+}
+
 func (d *Discord) resetCommand(interaction *discordgo.InteractionCreate, user *discordgo.User) {
 	var target *core.Instance
 	var components []discordgo.MessageComponent
@@ -190,19 +203,6 @@ func (d *Discord) usageCommand(interaction *discordgo.InteractionCreate, role st
 	d.respond(interaction, usageReport(totals))
 }
 
-func resetConfirmationComponents(agentName, userId string) []discordgo.MessageComponent {
-	var shownName string
-
-	shownName = strings.ReplaceAll(agentName, "`", "ˋ")
-	return v2Container(approvalAccent,
-		discordgo.TextDisplay{Content: "### Start a fresh conversation?\nThis will forget the current conversation with `" + shownName + "` in this channel. This cannot be undone."},
-		discordgo.ActionsRow{Components: []discordgo.MessageComponent{
-			discordgo.Button{Label: "Start fresh", Style: discordgo.DangerButton, CustomID: "reset:yes:" + userId},
-			discordgo.Button{Label: "Keep conversation", Style: discordgo.SecondaryButton, CustomID: "reset:no:" + userId},
-		}},
-	)
-}
-
 func (d *Discord) resetInteraction(interaction *discordgo.InteractionCreate) {
 	var customId string
 	var parts []string
@@ -293,30 +293,6 @@ func (d *Discord) agentCommand(interaction *discordgo.InteractionCreate) {
 	d.respond(interaction, "This channel talks to "+name+" now, starting fresh.")
 }
 
-func (d *Discord) agentAutocomplete(interaction *discordgo.InteractionCreate) {
-	var data discordgo.ApplicationCommandInteractionData
-	var user *discordgo.User
-	var role string
-	var query string
-	var choices []*discordgo.ApplicationCommandOptionChoice
-
-	var err error
-
-	data = interaction.ApplicationCommandData()
-	user = interactionUser(interaction)
-	if user != nil {
-		role, err = d.role(user.ID)
-	}
-	if err == nil && role != "" && data.Name == "agent" && len(data.Options) > 0 {
-		query = data.Options[0].StringValue()
-		choices = agentChoices(d.registry.List(), query)
-	}
-	d.gateway.InteractionRespond(interaction.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionApplicationCommandAutocompleteResult,
-		Data: &discordgo.InteractionResponseData{Choices: choices},
-	})
-}
-
 func agentChoices(instances []*core.Instance, query string) []*discordgo.ApplicationCommandOptionChoice {
 	var normalized string
 	var instance *core.Instance
@@ -341,6 +317,30 @@ func agentChoices(instances []*core.Instance, query string) []*discordgo.Applica
 		}
 	}
 	return choices
+}
+
+func (d *Discord) agentAutocomplete(interaction *discordgo.InteractionCreate) {
+	var data discordgo.ApplicationCommandInteractionData
+	var user *discordgo.User
+	var role string
+	var query string
+	var choices []*discordgo.ApplicationCommandOptionChoice
+
+	var err error
+
+	data = interaction.ApplicationCommandData()
+	user = interactionUser(interaction)
+	if user != nil {
+		role, err = d.role(user.ID)
+	}
+	if err == nil && role != "" && data.Name == "agent" && len(data.Options) > 0 {
+		query = data.Options[0].StringValue()
+		choices = agentChoices(d.registry.List(), query)
+	}
+	d.gateway.InteractionRespond(interaction.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionApplicationCommandAutocompleteResult,
+		Data: &discordgo.InteractionResponseData{Choices: choices},
+	})
 }
 
 func (d *Discord) mentionCommand(interaction *discordgo.InteractionCreate, user *discordgo.User) {

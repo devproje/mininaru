@@ -17,8 +17,7 @@ type Thinking struct {
 }
 
 type Context struct {
-	MaxChars int  `json:"max_chars"`
-	Compact  bool `json:"compact"`
+	Compact bool `json:"compact"`
 }
 
 type Tools struct {
@@ -54,7 +53,7 @@ var AllowDangerousTools bool
 
 var defaultClient ClientConfig = ClientConfig{
 	Thinking: Thinking{Level: ThinkingOff, Show: true},
-	Context:  Context{MaxChars: 32768, Compact: true},
+	Context:  Context{Compact: true},
 	Tools:    Tools{Enabled: true},
 	Update:   Update{Check: true},
 }
@@ -124,10 +123,6 @@ func ClientInit() error {
 			"config", CLIENT_PATH, "thinking_level", Client.Thinking.Level, "fallback", defaultClient.Thinking.Level)
 
 		Client.Thinking.Level = defaultClient.Thinking.Level
-	}
-
-	if Client.Context.MaxChars <= 0 {
-		Client.Context.MaxChars = defaultClient.Context.MaxChars
 	}
 
 	return nil

@@ -74,6 +74,23 @@ func authorize(key string, next http.Handler) http.Handler {
 	})
 }
 
+func limitConcurrent(max int, next http.Handler) http.Handler {
+	var slots chan struct{}
+
+	slots = make(chan struct{}, max)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case slots <- struct{}{}:
+			defer func() { <-slots }()
+			next.ServeHTTP(w, r)
+		default:
+			requestLogger(r.Context()).Warn("shed a request over the concurrency limit", "limit", max)
+			w.Header().Set("Retry-After", "1")
+			writeError(w, http.StatusTooManyRequests, "rate_limit_error", "server_busy", "too many concurrent requests")
+		}
+	})
+}
+
 func routes(key string, reg *core.Registry) http.Handler {
 	var mux *http.ServeMux
 	var completions http.Handler
@@ -90,23 +107,6 @@ func routes(key string, reg *core.Registry) http.Handler {
 	mux.Handle(pathCompletions, limitConcurrent(maxConcurrentCompletions, completions))
 
 	return logRequests(authorize(key, mux))
-}
-
-func limitConcurrent(max int, next http.Handler) http.Handler {
-	var slots chan struct{}
-
-	slots = make(chan struct{}, max)
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		select {
-		case slots <- struct{}{}:
-			defer func() { <-slots }()
-			next.ServeHTTP(w, r)
-		default:
-			requestLogger(r.Context()).Warn("shed a request over the concurrency limit", "limit", max)
-			w.Header().Set("Retry-After", "1")
-			writeError(w, http.StatusTooManyRequests, "rate_limit_error", "server_busy", "too many concurrent requests")
-		}
-	})
 }
 
 func newHTTPServer(handler http.Handler) *http.Server {

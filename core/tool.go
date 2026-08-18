@@ -8,6 +8,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/devproje/mininaru/modules"
@@ -60,6 +61,9 @@ func permittedTools(defs []modules.Def) []modules.Def {
 		}
 		permitted = append(permitted, def)
 	}
+	sort.SliceStable(permitted, func(left, right int) bool {
+		return permitted[left].Name < permitted[right].Name
+	})
 
 	return permitted
 }

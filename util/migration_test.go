@@ -269,6 +269,7 @@ func TestTokenUsageTableCreated(t *testing.T) {
 	var db *sql.DB
 	var schema []byte
 	var count int
+	var rows *sql.Rows
 
 	var err error
 
@@ -308,4 +309,9 @@ func TestTokenUsageTableCreated(t *testing.T) {
 	if count != 1 {
 		t.Fatal("token_usage was not created on an existing database")
 	}
+	rows, err = db.Query("SELECT context_tokens, context_window, cached_tokens FROM token_usage LIMIT 0;")
+	if err != nil {
+		t.Fatalf("token_usage context columns were not added: %v", err)
+	}
+	rows.Close()
 }

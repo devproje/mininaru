@@ -35,9 +35,11 @@ rules below. They are the ones that come back in review:
 - **No `:=`.** One `var` block at the top of the function, in first-use order,
   `err` last, assigned with `=` where the value is needed. This includes the
   init statements of `for`, `if`, and `switch`.
-- **Procedural order.** Functions appear in the order they execute, not
-  alphabetically and not grouped by role. New helpers go next to their caller,
-  not at the end of the file.
+- **Dependency order.** A helper or callee appears immediately before its first
+  caller. Independent helpers follow the order in which that caller invokes
+  them. `main` is unconditionally the final function and final top-level
+  declaration in its file; nothing may appear below it. Do not sort functions
+  alphabetically or group them by role.
 - **`util.Log` for diagnostics.** A constant lowercase message with everything
   variable in key/value attributes. Output meant for the user is not logging and
   keeps using `fmt`.

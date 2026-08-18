@@ -5,17 +5,135 @@ package modules
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"unicode/utf8"
 
 	"github.com/devproje/mininaru/util"
 )
 
 const defaultReadChars = 65536
 const maxReadChars = 1048576
+
+const maxFileDiffChars = 65536
+
+var fileRevisionMu sync.Mutex
+
+var fileRevisions = make(map[string][sha256.Size]byte)
+
+func fileRevision(buf []byte) [sha256.Size]byte {
+	return sha256.Sum256(buf)
+}
+
+func rememberFileRevision(path string, buf []byte) {
+	fileRevisionMu.Lock()
+	fileRevisions[path] = fileRevision(buf)
+	fileRevisionMu.Unlock()
+}
+
+func requireFileRevision(path string, buf []byte) error {
+	var expected [sha256.Size]byte
+	var found bool
+
+	expected, found = fileRevisions[path]
+	if !found {
+		return fmt.Errorf("read %s with file_read before modifying the existing file", path)
+	}
+	if expected != fileRevision(buf) {
+		return fmt.Errorf("%s changed since file_read; read it again before modifying it", path)
+	}
+
+	return nil
+}
+
+func fileDiff(path, before, after string) string {
+	var beforeLines []string
+	var afterLines []string
+	var prefix int
+	var suffix int
+	var contextStart int
+	var contextEnd int
+	var beforeEnd int
+	var afterEnd int
+	var line string
+	var diff strings.Builder
+	var result string
+
+	if before != "" {
+		beforeLines = strings.Split(strings.TrimSuffix(before, "\n"), "\n")
+	}
+	if after != "" {
+		afterLines = strings.Split(strings.TrimSuffix(after, "\n"), "\n")
+	}
+
+	for prefix < len(beforeLines) && prefix < len(afterLines) && beforeLines[prefix] == afterLines[prefix] {
+		prefix++
+	}
+	for suffix < len(beforeLines)-prefix && suffix < len(afterLines)-prefix &&
+		beforeLines[len(beforeLines)-1-suffix] == afterLines[len(afterLines)-1-suffix] {
+		suffix++
+	}
+
+	contextStart = prefix - 3
+	if contextStart < 0 {
+		contextStart = 0
+	}
+	contextEnd = suffix
+	if contextEnd > 3 {
+		contextEnd = 3
+	}
+	beforeEnd = len(beforeLines) - suffix
+	afterEnd = len(afterLines) - suffix
+
+	diff.WriteString("--- a/" + path + "\n")
+	diff.WriteString("+++ b/" + path + "\n")
+	diff.WriteString(fmt.Sprintf("@@ -%d,%d +%d,%d @@\n", contextStart+1,
+		beforeEnd-contextStart+contextEnd, contextStart+1, afterEnd-contextStart+contextEnd))
+
+	for _, line = range beforeLines[contextStart:prefix] {
+		diff.WriteString(" " + line + "\n")
+	}
+	for _, line = range beforeLines[prefix:beforeEnd] {
+		diff.WriteString("-" + line + "\n")
+	}
+	for _, line = range afterLines[prefix:afterEnd] {
+		diff.WriteString("+" + line + "\n")
+	}
+	for _, line = range beforeLines[beforeEnd : beforeEnd+contextEnd] {
+		diff.WriteString(" " + line + "\n")
+	}
+
+	result = diff.String()
+	if len(result) > maxFileDiffChars {
+		return result[:maxFileDiffChars] + "\n[diff truncated]"
+	}
+
+	return result
+}
+
+func readTextFile(path string) ([]byte, error) {
+	var buf []byte
+
+	var err error
+
+	buf, err = os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	if !utf8.Valid(buf) {
+		return nil, fmt.Errorf("file is not valid UTF-8 text: %s", path)
+	}
+	if strings.IndexByte(string(buf), 0) >= 0 {
+		return nil, fmt.Errorf("binary file is not supported: %s", path)
+	}
+
+	return buf, nil
+}
 
 func toolRoot(root string) (string, error) {
 	var resolved string
@@ -138,7 +256,8 @@ func FileRead(root string) Def {
 	return Def{
 		Name: "file_read",
 		Description: "Read a UTF-8 text file relative to the process startup directory. " +
-			"Pass offset and limit to read a range of lines instead of the whole file.",
+			"Pass offset and limit to read a range of lines instead of the whole file. " +
+			"Always read an existing file before file_edit or file_write; modifications are rejected if it changed afterward.",
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -185,10 +304,11 @@ func FileRead(root string) Def {
 			if err != nil {
 				return "", err
 			}
-			buf, err = os.ReadFile(target)
+			buf, err = readTextFile(target)
 			if err != nil {
 				return "", err
 			}
+			rememberFileRevision(target, buf)
 
 			text = sliceLines(string(buf), payload.Offset, payload.Limit)
 			if len(text) > payload.MaxChars {
@@ -202,8 +322,9 @@ func FileRead(root string) Def {
 
 func FileWrite(root string) Def {
 	return Def{
-		Name:        "file_write",
-		Description: "Write a text file relative to the process startup directory.",
+		Name: "file_write",
+		Description: "Create or replace a UTF-8 text file relative to the process startup directory. " +
+			"Existing files must be read with file_read first and must not have changed since. Returns a unified diff.",
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -222,8 +343,10 @@ func FileWrite(root string) Def {
 				Append  bool   `json:"append"`
 			}
 			var target string
-			var flags int
-			var file *os.File
+			var before []byte
+			var after []byte
+			var info os.FileInfo
+			var mode os.FileMode
 
 			var err error
 
@@ -237,27 +360,45 @@ func FileWrite(root string) Def {
 			if payload.Path == "" {
 				return "", fmt.Errorf("path is required")
 			}
+			if !utf8.ValidString(payload.Content) || strings.IndexByte(payload.Content, 0) >= 0 {
+				return "", fmt.Errorf("content must be UTF-8 text")
+			}
 			target, err = writePath(root, payload.Path)
 			if err != nil {
 				return "", err
 			}
 
-			flags = os.O_CREATE | os.O_WRONLY | os.O_TRUNC
+			fileRevisionMu.Lock()
+			defer fileRevisionMu.Unlock()
+
+			info, err = os.Stat(target)
+			if err == nil {
+				before, err = readTextFile(target)
+				if err != nil {
+					return "", err
+				}
+				err = requireFileRevision(target, before)
+				if err != nil {
+					return "", err
+				}
+				mode = info.Mode().Perm()
+			} else if !os.IsNotExist(err) {
+				return "", err
+			} else {
+				mode = 0644
+			}
+
+			after = []byte(payload.Content)
 			if payload.Append {
-				flags = os.O_CREATE | os.O_WRONLY | os.O_APPEND
+				after = append(append([]byte{}, before...), after...)
 			}
-			file, err = os.OpenFile(target, flags, 0644)
+			err = util.WriteFileAtomic(target, after, mode)
 			if err != nil {
 				return "", err
 			}
-			defer file.Close()
+			fileRevisions[target] = fileRevision(after)
 
-			_, err = file.WriteString(payload.Content)
-			if err != nil {
-				return "", err
-			}
-
-			return fmt.Sprintf("wrote %d bytes to %s", len(payload.Content), payload.Path), nil
+			return fileDiff(payload.Path, string(before), string(after)), nil
 		},
 	}
 }
@@ -266,7 +407,8 @@ func FileEdit(root string) Def {
 	return Def{
 		Name: "file_edit",
 		Description: "Replace an exact string in a text file relative to the process startup directory. " +
-			"The string must appear exactly once unless replace_all is set.",
+			"The file must be read with file_read first and must not have changed since. " +
+			"The string must appear exactly once unless replace_all is set. Returns a unified diff.",
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -291,6 +433,7 @@ func FileEdit(root string) Def {
 			var count int
 			var target string
 			var info os.FileInfo
+			var changed string
 
 			var err error
 
@@ -315,7 +458,14 @@ func FileEdit(root string) Def {
 			if err != nil {
 				return "", err
 			}
-			buf, err = os.ReadFile(source)
+			fileRevisionMu.Lock()
+			defer fileRevisionMu.Unlock()
+
+			buf, err = readTextFile(source)
+			if err != nil {
+				return "", err
+			}
+			err = requireFileRevision(source, buf)
 			if err != nil {
 				return "", err
 			}
@@ -338,13 +488,14 @@ func FileEdit(root string) Def {
 				return "", err
 			}
 
-			err = os.WriteFile(target, []byte(strings.Replace(string(buf), payload.OldString, payload.NewString, count)),
-				info.Mode().Perm())
+			changed = strings.Replace(string(buf), payload.OldString, payload.NewString, count)
+			err = util.WriteFileAtomic(target, []byte(changed), info.Mode().Perm())
 			if err != nil {
 				return "", err
 			}
+			fileRevisions[target] = fileRevision([]byte(changed))
 
-			return fmt.Sprintf("replaced %d occurrence(s) in %s", count, payload.Path), nil
+			return fileDiff(payload.Path, string(buf), changed), nil
 		},
 	}
 }
