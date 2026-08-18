@@ -176,7 +176,7 @@ func TestStatusShowsContextUsageOnTheRight(t *testing.T) {
 	})
 	config.Client.Context.MaxChars = 100
 	c = tuiClient(t)
-	c.transcript = append(c.transcript, transcriptEntry{kind: transcriptMessage, role: "user", content: "12345"})
+	c.contextChars = 5
 
 	status = c.statusView()
 	if !strings.Contains(status, "ctx 5/100") {
@@ -648,9 +648,12 @@ func TestCompactOutcomeNotices(t *testing.T) {
 
 	c = tuiClient(t)
 
-	c.finishCompact(compactDoneMsg{compacted: true})
+	c.finishCompact(compactDoneMsg{compacted: true, before: 12000, after: 1800})
 	if !strings.Contains(c.transcript[len(c.transcript)-1].content, "compacted the conversation") {
 		t.Fatalf("success notice = %q", c.transcript[len(c.transcript)-1].content)
+	}
+	if !strings.Contains(c.transcript[len(c.transcript)-1].content, "12.0k → 1.8k") {
+		t.Fatalf("success notice has no context reduction: %q", c.transcript[len(c.transcript)-1].content)
 	}
 	if c.sending {
 		t.Fatal("finishCompact left the client sending")

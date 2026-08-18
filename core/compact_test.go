@@ -347,6 +347,8 @@ func TestCompactNowFoldsTheWholeConversation(t *testing.T) {
 	var compacted bool
 	var saved *Summary
 	var history []*Message
+	var before int
+	var after int
 
 	var err error
 
@@ -355,6 +357,10 @@ func TestCompactNowFoldsTheWholeConversation(t *testing.T) {
 
 	session, agent = compactSetup(t, srv.URL, 100000, true)
 	seedTurns(t, session.Id, 2)
+	before, err = SessionContextChars(session.Id)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	compacted, err = CompactNow(context.Background(), agent, session)
 	if err != nil {
@@ -382,6 +388,13 @@ func TestCompactNowFoldsTheWholeConversation(t *testing.T) {
 	}
 	if len(summaryTail(history, saved.ThroughMessageId)) != 0 {
 		t.Fatal("turns were left outside the summary")
+	}
+	after, err = SessionContextChars(session.Id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after != len(saved.Content) || after >= before {
+		t.Fatalf("context chars = %d → %d, summary has %d", before, after, len(saved.Content))
 	}
 }
 
