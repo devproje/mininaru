@@ -15,6 +15,10 @@ var (
 	providerNameRef    string
 	providerApiKeyRef  string
 	providerBaseURLRef string
+	providerKindRef    string
+	providerCacheRef   string
+	providerRespCache  bool
+	providerRespTTL    int
 
 	agentNameRef     string
 	agentRoleRef     string
@@ -29,10 +33,10 @@ var (
 var provider *cobra.Command = &cobra.Command{
 	Use:   "provider",
 	Short: "manage LLM providers",
-	Long: `Manage the OpenAI compatible endpoints agents talk to.
+	Long: `Manage the OpenAI-compatible or native Anthropic endpoints agents talk to.
 
-A provider bundles a base URL and an API key. Agents pick a provider when they
-are created, and new agents fall back to the default one.`,
+A provider bundles an API kind, base URL, API key, and cache policy. Agents pick
+a provider when they are created, and new agents fall back to the default one.`,
 	Example: `  mininaru provider add --name openai --base-url https://api.openai.com/v1
   mininaru provider list
   mininaru provider default openai`,
@@ -245,9 +249,12 @@ func providerAddExecute(cmd *cobra.Command, args []string) error {
 	}
 
 	payload = core.Provider{
-		Name:    providerNameRef,
-		ApiKey:  providerApiKeyRef,
-		BaseURL: providerBaseURLRef,
+		Name: providerNameRef, ApiKey: providerApiKeyRef, BaseURL: providerBaseURLRef,
+		Kind: providerKindRef, Cache: providerCacheRef, ResponseCache: providerRespCache, ResponseCacheTTL: providerRespTTL,
+	}
+	err = core.ProviderValidate(payload)
+	if err != nil {
+		return err
 	}
 
 	core.ProviderCreate(payload)
@@ -278,7 +285,7 @@ func providerListExecute(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	rows = uiTable("ID", "NAME", "BASE URL", "API KEY", "")
+	rows = uiTable("ID", "NAME", "KIND", "CACHE", "RESPONSE CACHE", "BASE URL", "API KEY", "")
 
 	for _, cur = range core.Providers {
 		mark = ""
@@ -286,7 +293,7 @@ func providerListExecute(cmd *cobra.Command, args []string) error {
 			mark = "[default]"
 		}
 
-		rows.row(cur.Id, cur.Name, cur.BaseURL, maskSecret(cur.ApiKey), mark)
+		rows.row(cur.Id, cur.Name, cur.ProviderKind(), cur.CachePolicy(), strconv.FormatBool(cur.ResponseCache), cur.BaseURL, maskSecret(cur.ApiKey), mark)
 	}
 
 	rows.flush()
@@ -338,18 +345,21 @@ func providerUpdateAsk(current *core.Provider) error {
 func providerUpdateExecute(cmd *cobra.Command, args []string) error {
 	var touched bool
 	var current *core.Provider
-	var name, apiKey, baseURL *string
+	var name, apiKey, baseURL, kind, cache *string
+	var responseCache *bool
+	var responseTTL *int
 
 	var err error
 
-	touched = cmd.Flags().Changed("name") || cmd.Flags().Changed("api-key") || cmd.Flags().Changed("base-url")
+	current, err = core.ProviderFind(args[0])
+	if err != nil {
+		return err
+	}
+
+	touched = cmd.Flags().Changed("name") || cmd.Flags().Changed("api-key") || cmd.Flags().Changed("base-url") ||
+		cmd.Flags().Changed("kind") || cmd.Flags().Changed("cache") || cmd.Flags().Changed("response-cache") || cmd.Flags().Changed("response-cache-ttl")
 
 	if !touched && askInteractive() {
-		current, err = core.ProviderFind(args[0])
-		if err != nil {
-			return err
-		}
-
 		err = providerUpdateAsk(current)
 		if err != nil {
 			return err
@@ -371,8 +381,20 @@ func providerUpdateExecute(cmd *cobra.Command, args []string) error {
 	if cmd.Flags().Changed("base-url") {
 		baseURL = &providerBaseURLRef
 	}
+	if cmd.Flags().Changed("kind") {
+		kind = &providerKindRef
+	}
+	if cmd.Flags().Changed("cache") {
+		cache = &providerCacheRef
+	}
+	if cmd.Flags().Changed("response-cache") {
+		responseCache = &providerRespCache
+	}
+	if cmd.Flags().Changed("response-cache-ttl") {
+		responseTTL = &providerRespTTL
+	}
 
-	return core.ProviderUpdateFields(args[0], name, apiKey, baseURL)
+	return core.ProviderUpdateConfig(current.Id, name, apiKey, baseURL, kind, cache, responseCache, responseTTL)
 }
 
 func providerRemoveExecute(cmd *cobra.Command, args []string) error {
@@ -815,14 +837,14 @@ func sessionUsageExecute(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	rows = uiTable("KIND", "PROMPT", "CACHED", "COMPLETION", "TOTAL")
+	rows = uiTable("KIND", "PROMPT", "CACHE READ", "CACHE WRITE", "COMPLETION", "TOTAL")
 
 	for _, line = range totals.Lines {
-		rows.row(line.Kind, tokenCount(line.PromptTokens), tokenCount(line.CachedTokens), tokenCount(line.CompletionTokens),
+		rows.row(line.Kind, tokenCount(line.PromptTokens), tokenCount(line.CachedTokens), tokenCount(line.CacheWriteTokens), tokenCount(line.CompletionTokens),
 			tokenCount(line.TotalTokens))
 	}
 
-	rows.row("total", tokenCount(totals.PromptTokens), tokenCount(totals.CachedTokens), tokenCount(totals.CompletionTokens),
+	rows.row("total", tokenCount(totals.PromptTokens), tokenCount(totals.CachedTokens), tokenCount(totals.CacheWriteTokens), tokenCount(totals.CompletionTokens),
 		tokenCount(totals.TotalTokens))
 	rows.flush()
 
@@ -873,10 +895,18 @@ func init() {
 	providerAdd.Flags().StringVarP(&providerNameRef, "name", "n", "", "provider name")
 	providerAdd.Flags().StringVarP(&providerApiKeyRef, "api-key", "k", "", "provider api key")
 	providerAdd.Flags().StringVarP(&providerBaseURLRef, "base-url", "b", "", "provider base url")
+	providerAdd.Flags().StringVar(&providerKindRef, "kind", core.ProviderOpenAI, "provider API kind (openai or anthropic)")
+	providerAdd.Flags().StringVar(&providerCacheRef, "cache", core.CacheAuto, "prompt cache policy (auto, off, ephemeral, or ephemeral_1h)")
+	providerAdd.Flags().BoolVar(&providerRespCache, "response-cache", false, "enable OpenRouter whole-response caching")
+	providerAdd.Flags().IntVar(&providerRespTTL, "response-cache-ttl", 0, "OpenRouter response cache TTL in seconds")
 
 	providerUpdate.Flags().StringVarP(&providerNameRef, "name", "n", "", "provider name")
 	providerUpdate.Flags().StringVarP(&providerApiKeyRef, "api-key", "k", "", "provider api key")
 	providerUpdate.Flags().StringVarP(&providerBaseURLRef, "base-url", "b", "", "provider base url")
+	providerUpdate.Flags().StringVar(&providerKindRef, "kind", "", "provider API kind (openai or anthropic)")
+	providerUpdate.Flags().StringVar(&providerCacheRef, "cache", "", "prompt cache policy (auto, off, ephemeral, or ephemeral_1h)")
+	providerUpdate.Flags().BoolVar(&providerRespCache, "response-cache", false, "enable OpenRouter whole-response caching")
+	providerUpdate.Flags().IntVar(&providerRespTTL, "response-cache-ttl", 0, "OpenRouter response cache TTL in seconds")
 
 	provider.AddCommand(providerAdd, providerList, providerUpdate, providerRemove, providerDefault)
 

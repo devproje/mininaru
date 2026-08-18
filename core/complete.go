@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/devproje/mininaru/config"
 	"github.com/devproje/mininaru/modules"
 	"github.com/openai/openai-go"
@@ -17,6 +18,8 @@ import (
 
 type completionRun struct {
 	AI              *openai.Client
+	Anthropic       *anthropic.Client
+	Provider        *Provider
 	Params          openai.ChatCompletionNewParams
 	Defs            []modules.Def
 	AllowDangerous  bool
@@ -31,12 +34,13 @@ type completionRun struct {
 	OnReasoning func(string)
 	OnTool      ToolEventFunc
 	Approve     ToolApprovalFunc
+	cacheWrites int64
 }
 
 type Completion struct {
 	Content       string
 	Reasoning     string
-	Usage         openai.CompletionUsage
+	Usage         TokenUsage
 	ContextTokens int64
 }
 
@@ -55,6 +59,7 @@ func (r *completionRun) stream(ctx context.Context, reply, reasoning *strings.Bu
 		chunk = stream.Current()
 		accumulator.AddChunk(chunk)
 		accumulator.Usage.PromptTokensDetails.CachedTokens += chunk.Usage.PromptTokensDetails.CachedTokens
+		r.cacheWrites += cacheWriteTokens(chunk.Usage)
 		if len(chunk.Choices) == 0 {
 			continue
 		}
@@ -145,12 +150,16 @@ func (r *completionRun) execute(ctx context.Context) (*Completion, error) {
 
 	var err error
 
+	if r.Anthropic != nil {
+		return r.executeAnthropic(ctx)
+	}
 	if r.AI == nil {
 		return nil, fmt.Errorf("no available provider client")
 	}
 
 	for round = 0; round < maxToolRounds; round++ {
 		reply.Reset()
+		r.cacheWrites = 0
 
 		accumulator, err = r.stream(ctx, &reply, &reasoning)
 		if err != nil {
@@ -160,7 +169,8 @@ func (r *completionRun) execute(ctx context.Context) (*Completion, error) {
 		result.Usage.PromptTokens += accumulator.Usage.PromptTokens
 		result.Usage.CompletionTokens += accumulator.Usage.CompletionTokens
 		result.Usage.TotalTokens += accumulator.Usage.TotalTokens
-		result.Usage.PromptTokensDetails.CachedTokens += accumulator.Usage.PromptTokensDetails.CachedTokens
+		result.Usage.CachedTokens += accumulator.Usage.PromptTokensDetails.CachedTokens
+		result.Usage.CacheWriteTokens += r.cacheWrites
 		result.ContextTokens = accumulator.Usage.PromptTokens
 
 		message = accumulator.Choices[0].Message
@@ -188,7 +198,7 @@ func Complete(ctx context.Context, agent *NaruAgent, messages []openai.ChatCompl
 	if agent == nil {
 		return nil, fmt.Errorf("agent is required to complete")
 	}
-	if agent.AI == nil {
+	if agent.AI == nil && agent.Anthropic == nil {
 		return nil, fmt.Errorf("agent %s has no available provider client", agent.Id)
 	}
 	if len(messages) == 0 {
@@ -202,6 +212,7 @@ func Complete(ctx context.Context, agent *NaruAgent, messages []openai.ChatCompl
 
 	params.Model = agent.Model
 	params.StreamOptions.IncludeUsage = param.NewOpt(true)
+	applyOpenAICache(&params, agentProvider(agent))
 
 	if len(defs) > 0 {
 		params.Tools = toolParams(defs)
@@ -211,7 +222,7 @@ func Complete(ctx context.Context, agent *NaruAgent, messages []openai.ChatCompl
 		params.ReasoningEffort = openai.ReasoningEffort(thinking)
 	}
 
-	run = completionRun{AI: agent.AI, Params: params, Defs: defs, AgentId: agent.Id,
+	run = completionRun{AI: agent.AI, Anthropic: agent.Anthropic, Provider: agentProvider(agent), Params: params, Defs: defs, AgentId: agent.Id,
 		OnContent: onContent, OnReasoning: onReasoning}
 
 	return run.execute(ctx)

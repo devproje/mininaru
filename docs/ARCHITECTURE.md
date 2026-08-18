@@ -1,6 +1,7 @@
 # Architecture
 
-mininaru is a single Go binary that talks to OpenAI-compatible providers. It
+mininaru is a single Go binary that talks to OpenAI-compatible providers and
+the native Anthropic Messages API. It
 ships two front ends over one core: a terminal chat client and an HTTP API.
 
 ## Packages
@@ -284,13 +285,17 @@ the third. Each round resends the whole conversation and each is billed, so the
 sum is the honest number. This also changes what the HTTP API returns: `usage` in
 a response now covers every round the server ran on the caller's behalf, which is
 not what OpenAI means by the field but is what the caller actually caused.
-`prompt_tokens_details.cached_tokens` is summed alongside it and exposed as the
-cached subset of prompt usage.
+OpenAI-compatible `prompt_tokens_details.cached_tokens` and
+`cache_write_tokens`, or Anthropic `cache_read_input_tokens` and
+`cache_creation_input_tokens`, are summed alongside it and exposed separately.
 
 **Prompt caching stays provider-owned.** mininaru does not duplicate a model KV
 cache. It sorts permitted tool definitions by name before building both the
-system prompt and request schema, keeping that large prefix deterministic, then
-records whatever cache-hit count the OpenAI-compatible provider reports.
+system prompt and request schema, keeping that large prefix deterministic. A
+provider policy controls top-level `cache_control`; native Anthropic and Claude
+through OpenRouter use automatic moving breakpoints. Cache reads and writes are
+normalized into the same usage record. OpenRouter whole-response caching is a
+separate provider opt-in implemented with `X-OpenRouter-Cache` headers.
 
 **Usage has to be asked for.** `stream_options.include_usage` was set only in
 `Complete`, so the session path and the delegation path never received usage at

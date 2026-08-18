@@ -5,11 +5,21 @@ package core
 
 import (
 	"database/sql"
+	"strconv"
 
 	"github.com/devproje/mininaru/util"
 	"github.com/google/uuid"
 	"github.com/openai/openai-go"
+	"github.com/openai/openai-go/packages/respjson"
 )
+
+type TokenUsage struct {
+	PromptTokens     int64 `json:"prompt_tokens"`
+	CompletionTokens int64 `json:"completion_tokens"`
+	TotalTokens      int64 `json:"total_tokens"`
+	CachedTokens     int64 `json:"cached_tokens"`
+	CacheWriteTokens int64 `json:"cache_write_tokens"`
+}
 
 type UsageLine struct {
 	Kind             string `json:"kind"`
@@ -17,6 +27,7 @@ type UsageLine struct {
 	CompletionTokens int64  `json:"completion_tokens"`
 	TotalTokens      int64  `json:"total_tokens"`
 	CachedTokens     int64  `json:"cached_tokens"`
+	CacheWriteTokens int64  `json:"cache_write_tokens"`
 }
 
 type UsageTotals struct {
@@ -26,6 +37,7 @@ type UsageTotals struct {
 	CompletionTokens int64       `json:"completion_tokens"`
 	TotalTokens      int64       `json:"total_tokens"`
 	CachedTokens     int64       `json:"cached_tokens"`
+	CacheWriteTokens int64       `json:"cache_write_tokens"`
 }
 
 const (
@@ -34,7 +46,34 @@ const (
 	UsageSubagent   = "subagent"
 )
 
-func usageRecordWithContext(sessionId, messageId, kind string, usage openai.CompletionUsage, contextTokens, contextWindow int64) {
+func cacheWriteTokens(usage openai.CompletionUsage) int64 {
+	var raw string
+	var value int64
+	var field respjson.Field
+	var ok bool
+
+	var err error
+
+	if usage.PromptTokensDetails.JSON.ExtraFields == nil {
+		return 0
+	}
+	field, ok = usage.PromptTokensDetails.JSON.ExtraFields["cache_write_tokens"]
+	if ok {
+		raw = field.Raw()
+	}
+	if raw == "" {
+		return 0
+	}
+
+	value, err = strconv.ParseInt(raw, 10, 64)
+	if err != nil {
+		return 0
+	}
+
+	return value
+}
+
+func usageRecordWithContext(sessionId, messageId, kind string, usage TokenUsage, contextTokens, contextWindow int64) {
 	var err error
 
 	if sessionId == "" || usage.TotalTokens == 0 {
@@ -42,18 +81,18 @@ func usageRecordWithContext(sessionId, messageId, kind string, usage openai.Comp
 	}
 
 	_, err = util.DB.Exec(`INSERT INTO token_usage
-		(id, session_id, message_id, kind, prompt_tokens, completion_tokens, total_tokens, context_tokens, context_window, cached_tokens)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
+		(id, session_id, message_id, kind, prompt_tokens, completion_tokens, total_tokens, context_tokens, context_window, cached_tokens, cache_write_tokens)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
 		uuid.NewString(), sessionId, messageId, kind,
 		usage.PromptTokens, usage.CompletionTokens, usage.TotalTokens, contextTokens, contextWindow,
-		usage.PromptTokensDetails.CachedTokens)
+		usage.CachedTokens, usage.CacheWriteTokens)
 	if err != nil {
 		util.Log.Warn("recording token usage failed",
 			"session", sessionId, "kind", kind, "error", err)
 	}
 }
 
-func usageRecord(sessionId, messageId, kind string, usage openai.CompletionUsage) {
+func usageRecord(sessionId, messageId, kind string, usage TokenUsage) {
 	usageRecordWithContext(sessionId, messageId, kind, usage, 0, 0)
 }
 
@@ -102,7 +141,7 @@ func SessionUsage(sessionId string) (*UsageTotals, error) {
 
 	totals.SessionId = sessionId
 
-	rows, err = util.DB.Query(`SELECT kind, SUM(prompt_tokens), SUM(completion_tokens), SUM(total_tokens), SUM(cached_tokens)
+	rows, err = util.DB.Query(`SELECT kind, SUM(prompt_tokens), SUM(completion_tokens), SUM(total_tokens), SUM(cached_tokens), SUM(cache_write_tokens)
 		FROM token_usage WHERE session_id = ? GROUP BY kind ORDER BY kind ASC;`, sessionId)
 	if err != nil {
 		return nil, err
@@ -110,7 +149,7 @@ func SessionUsage(sessionId string) (*UsageTotals, error) {
 	defer rows.Close()
 
 	for rows.Next() {
-		err = rows.Scan(&line.Kind, &line.PromptTokens, &line.CompletionTokens, &line.TotalTokens, &line.CachedTokens)
+		err = rows.Scan(&line.Kind, &line.PromptTokens, &line.CompletionTokens, &line.TotalTokens, &line.CachedTokens, &line.CacheWriteTokens)
 		if err != nil {
 			return nil, err
 		}
@@ -120,6 +159,7 @@ func SessionUsage(sessionId string) (*UsageTotals, error) {
 		totals.CompletionTokens += line.CompletionTokens
 		totals.TotalTokens += line.TotalTokens
 		totals.CachedTokens += line.CachedTokens
+		totals.CacheWriteTokens += line.CacheWriteTokens
 	}
 
 	err = rows.Err()

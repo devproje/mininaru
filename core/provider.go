@@ -6,17 +6,24 @@ package core
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
+	"strings"
 
 	"github.com/devproje/mininaru/util"
 	"github.com/google/uuid"
+	"github.com/openai/openai-go"
 )
 
 type Provider struct {
-	Id      string `json:"id"`
-	Name    string `json:"name"`
-	ApiKey  string `json:"api_key"`
-	BaseURL string `json:"base_url"`
+	Id               string `json:"id"`
+	Name             string `json:"name"`
+	ApiKey           string `json:"api_key"`
+	BaseURL          string `json:"base_url"`
+	Kind             string `json:"kind,omitempty"`
+	Cache            string `json:"cache,omitempty"`
+	ResponseCache    bool   `json:"response_cache,omitempty"`
+	ResponseCacheTTL int    `json:"response_cache_ttl,omitempty"`
 }
 
 type ProviderConfig struct {
@@ -24,12 +31,100 @@ type ProviderConfig struct {
 	Providers []*Provider `json:"providers"`
 }
 
-const PROVIDER_PATH = "provider.json"
+const (
+	PROVIDER_PATH = "provider.json"
+
+	ProviderOpenAI    = "openai"
+	ProviderAnthropic = "anthropic"
+
+	CacheAuto        = "auto"
+	CacheOff         = "off"
+	CacheEphemeral   = "ephemeral"
+	CacheEphemeral1h = "ephemeral_1h"
+)
 
 var Providers []*Provider
 var DefaultProvider *Provider
 
 var emptyProviderObj ProviderConfig = ProviderConfig{Providers: []*Provider{}}
+
+func (p *Provider) ProviderKind() string {
+	if p != nil && p.Kind == ProviderAnthropic {
+		return ProviderAnthropic
+	}
+
+	return ProviderOpenAI
+}
+
+func (p *Provider) CachePolicy() string {
+	if p == nil || p.Cache == "" {
+		return CacheAuto
+	}
+
+	return p.Cache
+}
+
+func isOpenRouter(baseURL string) bool {
+	var parsed *url.URL
+	var host string
+
+	var err error
+
+	parsed, err = url.Parse(baseURL)
+	if err != nil {
+		return false
+	}
+	host = strings.ToLower(parsed.Hostname())
+
+	return host == "openrouter.ai" || strings.HasSuffix(host, ".openrouter.ai")
+}
+
+func applyOpenAICache(params *openai.ChatCompletionNewParams, provider *Provider) {
+	var control map[string]any
+	var policy string
+
+	if params == nil || provider == nil {
+		return
+	}
+	policy = provider.CachePolicy()
+	if policy == CacheAuto && isOpenRouter(provider.BaseURL) && strings.HasPrefix(params.Model, "anthropic/") {
+		policy = CacheEphemeral
+	}
+	if policy != CacheEphemeral && policy != CacheEphemeral1h {
+		return
+	}
+
+	control = map[string]any{"type": "ephemeral"}
+	if policy == CacheEphemeral1h {
+		control["ttl"] = "1h"
+	}
+	params.SetExtraFields(map[string]any{"cache_control": control})
+}
+
+func ProviderValidate(provider Provider) error {
+	var kind string
+	var cache string
+
+	kind = provider.Kind
+	if kind == "" {
+		kind = ProviderOpenAI
+	}
+	cache = provider.CachePolicy()
+	if kind != ProviderOpenAI && kind != ProviderAnthropic {
+		return fmt.Errorf("unsupported provider kind %q", provider.Kind)
+	}
+	if cache != CacheAuto && cache != CacheOff && cache != CacheEphemeral && cache != CacheEphemeral1h {
+		return fmt.Errorf("unsupported cache policy %q", provider.Cache)
+	}
+	if provider.ResponseCache && !isOpenRouter(provider.BaseURL) {
+		return fmt.Errorf("response caching is only supported for OpenRouter providers")
+	}
+	if provider.ResponseCacheTTL < 0 || provider.ResponseCacheTTL > 86400 {
+		return fmt.Errorf("response cache TTL must be 0 or between 1 and 86400 seconds")
+	}
+
+	return nil
+}
 
 func ProviderFind(ref string) (*Provider, error) {
 	var cur *Provider
@@ -61,6 +156,7 @@ func ProviderInit() error {
 	var path string
 	var buf []byte
 	var cfg ProviderConfig
+	var provider *Provider
 
 	var err error
 
@@ -88,6 +184,12 @@ func ProviderInit() error {
 	}
 
 	Providers = cfg.Providers
+	for _, provider = range Providers {
+		err = ProviderValidate(*provider)
+		if err != nil {
+			return fmt.Errorf("provider %s: %w", provider.Name, err)
+		}
+	}
 	DefaultProvider = nil
 
 	if cfg.DefaultId != "" {
@@ -151,48 +253,59 @@ func ProviderDefault(ref string) error {
 	return ProviderSave()
 }
 
-func ProviderUpdateFields(id string, name, apiKey, baseURL *string) error {
+func ProviderUpdateConfig(id string, name, apiKey, baseURL, kind, cache *string, responseCache *bool, responseCacheTTL *int) error {
 	var index int
-	var cur *Provider
+	var current *Provider
 	var update Provider
 
 	var err error
 
-	for index, cur = range Providers {
-		if cur.Id != id {
+	for index, current = range Providers {
+		if current.Id != id && current.Name != id {
 			continue
 		}
-
-		update = *cur
-
+		update = *current
 		if name != nil {
 			update.Name = *name
 		}
-
 		if apiKey != nil {
 			update.ApiKey = *apiKey
 		}
-
 		if baseURL != nil {
 			update.BaseURL = *baseURL
 		}
-
-		if DefaultProvider == cur {
-			DefaultProvider = &update
+		if kind != nil {
+			update.Kind = *kind
 		}
-
-		Providers[index] = &update
-		err = ProviderSave()
+		if cache != nil {
+			update.Cache = *cache
+		}
+		if responseCache != nil {
+			update.ResponseCache = *responseCache
+		}
+		if responseCacheTTL != nil {
+			update.ResponseCacheTTL = *responseCacheTTL
+		}
+		err = ProviderValidate(update)
 		if err != nil {
 			return err
 		}
-
-		return nil
+		if DefaultProvider == current {
+			DefaultProvider = &update
+		}
+		Providers[index] = &update
+		return ProviderSave()
 	}
 
-	err = fmt.Errorf("cannot find provider id for %s", id)
+	return fmt.Errorf("cannot find provider id for %s", id)
+}
 
-	return err
+func ProviderUpdateOptions(id string, kind, cache *string, responseCache *bool, responseCacheTTL *int) error {
+	return ProviderUpdateConfig(id, nil, nil, nil, kind, cache, responseCache, responseCacheTTL)
+}
+
+func ProviderUpdateFields(id string, name, apiKey, baseURL *string) error {
+	return ProviderUpdateConfig(id, name, apiKey, baseURL, nil, nil, nil, nil)
 }
 
 func ProviderUpdate(id string, payload Provider) error {

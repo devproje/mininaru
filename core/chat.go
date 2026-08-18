@@ -204,7 +204,7 @@ func chatWithToolPolicy(ctx context.Context, session *Session, agent *NaruAgent,
 	if session == nil || agent == nil {
 		return nil, fmt.Errorf("session and agent are required to chat")
 	}
-	if agent.AI == nil {
+	if agent.AI == nil && agent.Anthropic == nil {
 		return nil, fmt.Errorf("agent %s has no available provider client", agent.Id)
 	}
 
@@ -243,6 +243,7 @@ func chatWithToolPolicy(ctx context.Context, session *Session, agent *NaruAgent,
 		Messages: messages,
 	}
 	params.StreamOptions.IncludeUsage = param.NewOpt(true)
+	applyOpenAICache(&params, agentProvider(agent))
 	if len(defs) > 0 {
 		params.Tools = toolParams(defs)
 	}
@@ -257,7 +258,7 @@ func chatWithToolPolicy(ctx context.Context, session *Session, agent *NaruAgent,
 	}
 
 	run = completionRun{
-		AI: agent.AI, Params: params, Defs: defs, AllowDangerous: allowDangerous, AllowPrivileged: true,
+		AI: agent.AI, Anthropic: agent.Anthropic, Provider: agentProvider(agent), Params: params, Defs: defs, AllowDangerous: allowDangerous, AllowPrivileged: true,
 		AgentId:   agent.Id,
 		SessionId: session.Id, MessageId: pending.Id,
 		OnContent: onContent, OnReasoning: onReasoning, OnTool: onTool, Approve: approve,

@@ -165,8 +165,8 @@ alone; one that exists without it is reported rather than overwritten. If the
 daemon step fails, the provider and agent are already saved and setup says so
 instead of unwinding.
 
-To do it by hand instead, add an OpenAI-compatible provider and then the global
-chat agent:
+To do it by hand instead, add a provider and then the global chat agent. The
+default provider kind is an OpenAI-compatible Chat Completions endpoint:
 
 ```sh
 ./out/mininaru provider add           \
@@ -183,6 +183,45 @@ chat agent:
 ```
 
 The first agent becomes the global agent used by the interactive client.
+
+Native Anthropic Messages API providers use `--kind anthropic`. Its base URL is
+the API origin, without the OpenAI-style `/v1` suffix:
+
+```sh
+mininaru provider add \
+  --name anthropic \
+  --kind anthropic \
+  --base-url https://api.anthropic.com \
+  --api-key '<API_KEY>' \
+  --cache ephemeral
+
+mininaru agent add --name claude --provider anthropic --model claude-sonnet-4-6
+```
+
+`--cache` accepts `auto`, `off`, `ephemeral`, or `ephemeral_1h`. `auto` leaves
+OpenAI and other provider-native automatic caches alone, enables Anthropic's
+automatic five-minute cache, and adds the same cache control for Claude models
+routed through OpenRouter. The explicit ephemeral modes add top-level
+`cache_control`; use `ephemeral_1h` only when the longer, more expensive cache
+write is worthwhile.
+
+OpenRouter can also cache an entire identical API response. This is separate
+from prompt caching and is deliberately opt-in because it can return a previous
+answer without running the model:
+
+```sh
+mininaru provider add \
+  --name openrouter \
+  --base-url https://openrouter.ai/api/v1 \
+  --api-key '<API_KEY>' \
+  --cache auto \
+  --response-cache \
+  --response-cache-ttl 300
+```
+
+Response caching stores request/response data temporarily and is unavailable
+with OpenRouter account-level Zero Data Retention. Keep it off for sensitive or
+time-dependent conversations.
 
 ## Interactive prompts
 
@@ -322,11 +361,11 @@ Every model call made on a session's behalf is recorded against it, so
 total down by what spent it. `/usage` reports the running total inside the TUI.
 
 ```
-KIND         PROMPT    CACHED   COMPLETION   TOTAL
-turn        120,411    94,208        8,204  128,615
-compaction    6,890     4,096          412    7,302
-subagent     31,204    24,576        2,110   33,314
-total       158,505   122,880       10,726  169,231
+KIND         PROMPT  CACHE READ  CACHE WRITE  COMPLETION   TOTAL
+turn        120,411      94,208       12,000       8,204  128,615
+compaction    6,890       4,096        1,024         412    7,302
+subagent     31,204      24,576        2,048       2,110   33,314
+total       158,505     122,880       15,072      10,726  169,231
 ```
 
 `turn` is the answers you asked for, `compaction` is the summarising above, and
@@ -338,12 +377,12 @@ one, and each is billed, so its total is the sum of every round rather than the
 last. The same applies to what the HTTP API reports back: the `usage` in a
 response covers every round the server ran on the caller's behalf.
 
-`CACHED` is the subset of prompt tokens the provider reports as cache hits. The
-provider or inference server owns the actual prompt cache; mininaru keeps tool
-definitions in a stable order so the shared prefix stays reusable, and records
-`prompt_tokens_details.cached_tokens` when the OpenAI-compatible endpoint returns
-it. A blank or zero value means the provider did not report a hit, not that
-mininaru maintains a second local model cache.
+`CACHE READ` is the subset of prompt tokens served from a provider cache, while
+`CACHE WRITE` is the number written into a new cache entry. OpenAI-compatible
+providers report these as `cached_tokens` and `cache_write_tokens`; Anthropic
+reports `cache_read_input_tokens` and `cache_creation_input_tokens`. A zero
+means the provider reported no cache activity (or the prompt was shorter than
+that model's cache minimum), not that mininaru maintains a second local cache.
 
 **These are tokens, not money.** mininaru talks to whatever provider you point it
 at and has no idea what yours charges, so the conversion is yours to do. Usage

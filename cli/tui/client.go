@@ -625,8 +625,8 @@ func (c *client) usageCommand() tea.Cmd {
 		return nil
 	}
 
-	notice = fmt.Sprintf("%d tokens this session (%d prompt, %d completion, %d cached)",
-		totals.TotalTokens, totals.PromptTokens, totals.CompletionTokens, totals.CachedTokens)
+	notice = fmt.Sprintf("%d tokens this session (%d prompt, %d completion, %d cache read, %d cache write)",
+		totals.TotalTokens, totals.PromptTokens, totals.CompletionTokens, totals.CachedTokens, totals.CacheWriteTokens)
 
 	if totals.TotalTokens == 0 {
 		notice = "no token usage recorded for this session yet"
