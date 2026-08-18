@@ -2,8 +2,7 @@
 
 <img src="assets/logo.png" alt="mininaru" width="80" align="right">
 
-Lightweight terminal chat client for OpenAI-compatible LLM APIs. It ships as one
-Go binary and stores configuration and conversation history locally.
+Local-first multi-provider, multi-agent terminal runtime — MCP tools, skills, persistent memory, an OpenAI-compatible server, and a Discord frontend, all in one Go binary.
 
 ## Install
 
