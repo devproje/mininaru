@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/spinner"
@@ -37,10 +38,12 @@ type compactDoneMsg struct {
 	err       error
 }
 
+type approvalDecision int
+
 type toolApprovalMsg struct {
 	name      string
 	arguments string
-	response  chan bool
+	response  chan approvalDecision
 }
 
 type transcriptEntry struct {
@@ -65,6 +68,9 @@ type client struct {
 	transcript []transcriptEntry
 	sending    bool
 	approval   *toolApprovalMsg
+	approvalAt int
+	allowed    map[string]bool
+	allowMu    sync.Mutex
 	cancel     context.CancelFunc
 	err        error
 
@@ -77,11 +83,57 @@ type client struct {
 }
 
 const (
+	approvalDeny approvalDecision = iota
+	approvalOnce
+	approvalSession
+)
+
+const (
 	transcriptMessage  = "message"
 	transcriptThinking = "thinking"
 	transcriptTool     = "tool"
 	transcriptNotice   = "notice"
 )
+
+func approvalChoices(name string) []string {
+	return []string{
+		"Allow once",
+		"Allow " + name + " for the rest of this session",
+		"Deny",
+	}
+}
+
+func approvalAt(index int) approvalDecision {
+	if index == 1 {
+		return approvalSession
+	}
+
+	if index == 0 {
+		return approvalOnce
+	}
+
+	return approvalDeny
+}
+
+func (c *client) sessionAllowed(name string) bool {
+	var allowed bool
+
+	c.allowMu.Lock()
+	allowed = c.allowed[name]
+	c.allowMu.Unlock()
+
+	return allowed
+}
+
+func (c *client) recordApproval(name string, decision approvalDecision) bool {
+	if decision == approvalSession {
+		c.allowMu.Lock()
+		c.allowed[name] = true
+		c.allowMu.Unlock()
+	}
+
+	return decision != approvalDeny
+}
 
 func newClient(session *core.Session, agent *core.NaruAgent, history []*core.Message) *client {
 	var input textarea.Model
@@ -113,6 +165,7 @@ func newClient(session *core.Session, agent *core.NaruAgent, history []*core.Mes
 		input:   input,
 		spinner: sp,
 		notice:  updateNotice(),
+		allowed: make(map[string]bool),
 		width:   80,
 		height:  24,
 		stored:  len(history) > 0,
@@ -229,14 +282,19 @@ func (c *client) sendPrompt(ctx context.Context, content string) tea.Cmd {
 			c.program.Send(toolEventMsg(event))
 		}, func(approvalCtx context.Context, def modules.Def, arguments string) (bool, error) {
 			var request toolApprovalMsg
-			var approved bool
+			var decision approvalDecision
 
-			request = toolApprovalMsg{name: def.Name, arguments: arguments, response: make(chan bool, 1)}
+			if c.sessionAllowed(def.Name) {
+				return true, nil
+			}
+
+			request = toolApprovalMsg{name: def.Name, arguments: arguments,
+				response: make(chan approvalDecision, 1)}
 			c.program.Send(request)
 
 			select {
-			case approved = <-request.response:
-				return approved, nil
+			case decision = <-request.response:
+				return c.recordApproval(def.Name, decision), nil
 			case <-approvalCtx.Done():
 				return false, approvalCtx.Err()
 			}
@@ -564,14 +622,30 @@ func (c *client) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				c.quitting = true
 				return c, tea.Quit
 			}
-			if keyMsg.String() == "y" {
-				c.approval.response <- true
-				c.approval = nil
+			if keyMsg.Type == tea.KeyUp || keyMsg.String() == "k" {
+				if c.approvalAt > 0 {
+					c.approvalAt--
+				}
+
 				return c, nil
 			}
-			if keyMsg.String() == "n" || keyMsg.Type == tea.KeyEsc {
-				c.approval.response <- false
+			if keyMsg.Type == tea.KeyDown || keyMsg.String() == "j" {
+				if c.approvalAt < len(approvalChoices(c.approval.name))-1 {
+					c.approvalAt++
+				}
+
+				return c, nil
+			}
+			if keyMsg.Type == tea.KeyEnter {
+				c.approval.response <- approvalAt(c.approvalAt)
 				c.approval = nil
+
+				return c, nil
+			}
+			if keyMsg.Type == tea.KeyEsc {
+				c.approval.response <- approvalDeny
+				c.approval = nil
+
 				return c, nil
 			}
 
@@ -659,6 +733,7 @@ func (c *client) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case toolApprovalMsg:
 		approvalMsg = msg.(toolApprovalMsg)
 		c.approval = &approvalMsg
+		c.approvalAt = 0
 
 		return c, nil
 
@@ -861,6 +936,30 @@ func (c *client) hintText() string {
 	return "thinking:" + level
 }
 
+func (c *client) approvalView(arguments string) string {
+	var body strings.Builder
+	var choices []string
+	var index int
+
+	body.WriteString(statusStyle.Render("  approve " + c.approval.name + "?"))
+	body.WriteString(hintStyle.Render("  " + arguments))
+
+	choices = approvalChoices(c.approval.name)
+
+	for index = range choices {
+		body.WriteString("\n")
+
+		if index == c.approvalAt {
+			body.WriteString(statusStyle.Render("  ▸ " + choices[index]))
+			continue
+		}
+
+		body.WriteString(hintStyle.Render("    " + choices[index]))
+	}
+
+	return body.String()
+}
+
 func (c *client) statusView() string {
 	var arguments string
 
@@ -869,7 +968,8 @@ func (c *client) statusView() string {
 		if len(arguments) > 120 {
 			arguments = arguments[:120] + "…"
 		}
-		return statusStyle.Render("  approve "+c.approval.name+"? [y/N]") + hintStyle.Render("  "+arguments)
+
+		return c.approvalView(arguments)
 	}
 
 	if c.sending {

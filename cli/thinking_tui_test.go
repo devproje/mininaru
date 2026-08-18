@@ -131,31 +131,138 @@ func TestPlainTextIsNotTreatedAsCommand(t *testing.T) {
 	}
 }
 
-func TestToolApprovalKeys(t *testing.T) {
+func TestToolApprovalArrowsAndEnter(t *testing.T) {
 	var c *client
-	var response chan bool
-	var approved bool
+	var response chan approvalDecision
+	var decision approvalDecision
 
 	c = tuiClient(t)
 	c.sending = true
-	response = make(chan bool, 1)
+	response = make(chan approvalDecision, 1)
 	c.Update(toolApprovalMsg{name: "bash_exec", arguments: `{"command":"pwd"}`, response: response})
+
 	if c.approval == nil || !strings.Contains(c.statusView(), "approve bash_exec") {
 		t.Fatal("tool approval prompt was not displayed")
 	}
-
-	c.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
-	approved = <-response
-	if !approved || c.approval != nil {
-		t.Fatal("y did not approve and clear the request")
+	if c.approvalAt != 0 {
+		t.Fatalf("cursor started at %d, want the first choice", c.approvalAt)
 	}
 
-	response = make(chan bool, 1)
+	c.Update(tea.KeyMsg{Type: tea.KeyUp})
+	if c.approvalAt != 0 {
+		t.Fatal("cursor moved above the first choice")
+	}
+
+	c.Update(tea.KeyMsg{Type: tea.KeyDown})
+	if c.approvalAt != 1 {
+		t.Fatalf("cursor = %d after one down, want 1", c.approvalAt)
+	}
+
+	c.Update(tea.KeyMsg{Type: tea.KeyDown})
+	c.Update(tea.KeyMsg{Type: tea.KeyDown})
+	if c.approvalAt != 2 {
+		t.Fatalf("cursor = %d, want it clamped to the last choice", c.approvalAt)
+	}
+
+	c.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	decision = <-response
+	if decision != approvalDeny || c.approval != nil {
+		t.Fatalf("enter on the last choice sent %v", decision)
+	}
+}
+
+func TestToolApprovalSelectsSessionAndResetsCursor(t *testing.T) {
+	var c *client
+	var response chan approvalDecision
+	var decision approvalDecision
+
+	c = tuiClient(t)
+	c.sending = true
+	response = make(chan approvalDecision, 1)
 	c.Update(toolApprovalMsg{name: "file_write", arguments: `{}`, response: response})
-	c.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
-	approved = <-response
-	if approved || c.approval != nil {
-		t.Fatal("n did not deny and clear the request")
+
+	c.Update(tea.KeyMsg{Type: tea.KeyDown})
+	c.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	decision = <-response
+	if decision != approvalSession {
+		t.Fatalf("decision = %v, want the session choice", decision)
+	}
+
+	response = make(chan approvalDecision, 1)
+	c.Update(toolApprovalMsg{name: "bash_exec", arguments: `{}`, response: response})
+	if c.approvalAt != 0 {
+		t.Fatalf("cursor = %d on a new approval, want it reset", c.approvalAt)
+	}
+}
+
+func TestToolApprovalEscDenies(t *testing.T) {
+	var c *client
+	var response chan approvalDecision
+	var decision approvalDecision
+
+	c = tuiClient(t)
+	c.sending = true
+	response = make(chan approvalDecision, 1)
+	c.Update(toolApprovalMsg{name: "bash_exec", arguments: `{}`, response: response})
+
+	c.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	decision = <-response
+	if decision != approvalDeny || c.approval != nil {
+		t.Fatalf("esc sent %v", decision)
+	}
+}
+
+func TestToolApprovalMenuRendersEveryChoice(t *testing.T) {
+	var c *client
+	var view string
+
+	c = tuiClient(t)
+	c.sending = true
+	c.Update(toolApprovalMsg{name: "bash_exec", arguments: `{}`,
+		response: make(chan approvalDecision, 1)})
+
+	view = c.statusView()
+
+	if !strings.Contains(view, "Allow once") || !strings.Contains(view, "Deny") {
+		t.Fatalf("menu is missing a choice: %q", view)
+	}
+	if !strings.Contains(view, "Allow bash_exec for the rest of this session") {
+		t.Fatalf("the session choice does not name the tool: %q", view)
+	}
+	if !strings.Contains(view, "▸") {
+		t.Fatalf("no cursor marker: %q", view)
+	}
+}
+
+func TestSessionApprovalRemembersOnlyThatTool(t *testing.T) {
+	var c *client
+
+	c = tuiClient(t)
+
+	if c.sessionAllowed("bash_exec") {
+		t.Fatal("nothing was allowed yet")
+	}
+
+	if !c.recordApproval("bash_exec", approvalSession) {
+		t.Fatal("the session choice should allow the call")
+	}
+	if !c.sessionAllowed("bash_exec") {
+		t.Fatal("the session choice was not remembered")
+	}
+	if c.sessionAllowed("file_write") {
+		t.Fatal("allowing one tool allowed another")
+	}
+
+	if !c.recordApproval("file_write", approvalOnce) {
+		t.Fatal("allow once should allow the call")
+	}
+	if c.sessionAllowed("file_write") {
+		t.Fatal("allow once was remembered as a session grant")
+	}
+
+	if c.recordApproval("grep", approvalDeny) {
+		t.Fatal("deny should not allow the call")
 	}
 }
 
