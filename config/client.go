@@ -33,6 +33,7 @@ type Server struct {
 }
 
 type ClientConfig struct {
+	Mode     string   `json:"mode,omitempty"`
 	Thinking Thinking `json:"thinking"`
 	Context  Context  `json:"context"`
 	Tools    Tools    `json:"tools"`
@@ -43,6 +44,11 @@ type ClientConfig struct {
 const CLIENT_PATH = "client.json"
 
 const NoUpdateCheckEnv = "MININARU_NO_UPDATE_CHECK"
+
+const (
+	ModeClient = "client"
+	ModeServer = "server"
+)
 
 const (
 	ThinkingOff    = "off"
@@ -91,6 +97,14 @@ func UpdateCheckEnabled() bool {
 	}
 
 	return Client.Update.Check
+}
+
+func RemoteClient() bool {
+	if Client.Mode == ModeClient {
+		return true
+	}
+
+	return Client.Mode == "" && Client.Server.Address != ""
 }
 
 func ClientInit() error {

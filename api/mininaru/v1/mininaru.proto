@@ -11,6 +11,8 @@ service PairingService {
 
 service MininaruService {
 	rpc ListAgents(ListAgentsRequest) returns (ListAgentsResponse);
+	rpc ListSkills(ListSkillsRequest) returns (ListSkillsResponse);
+	rpc GetSkill(GetSkillRequest) returns (Skill);
 	rpc ListSessions(ListSessionsRequest) returns (ListSessionsResponse);
 	rpc CreateSession(CreateSessionRequest) returns (Session);
 	rpc GetSession(GetSessionRequest) returns (SessionDetail);
@@ -114,6 +116,23 @@ message ListAgentsResponse {
 	string default_agent_id = 2;
 }
 
+message Skill {
+	string name = 1;
+	string description = 2;
+	string scope = 3;
+	string body = 4;
+}
+
+message ListSkillsRequest {}
+
+message ListSkillsResponse {
+	repeated Skill skills = 1;
+}
+
+message GetSkillRequest {
+	string name = 1;
+}
+
 message ListSessionsRequest {
 	string agent = 1;
 }
@@ -166,6 +185,20 @@ message ChatStart {
 	string session_id = 1;
 	string content = 2;
 	string thinking = 3;
+	repeated ToolDefinition tools = 4;
+}
+
+message ToolDefinition {
+	string name = 1;
+	string description = 2;
+	string parameters_json = 3;
+	string permission = 4;
+}
+
+message ToolResult {
+	string request_id = 1;
+	string result = 2;
+	string error = 3;
 }
 
 message ApprovalDecision {
@@ -185,6 +218,7 @@ message ChatClientEvent {
 		ChatStart start = 1;
 		ApprovalDecision approval = 2;
 		Empty cancel = 3;
+		ToolResult tool_result = 4;
 	}
 }
 
@@ -212,6 +246,12 @@ message ApprovalRequest {
 	string arguments = 3;
 }
 
+message ToolRequest {
+	string request_id = 1;
+	string tool_name = 2;
+	string arguments = 3;
+}
+
 message ChatCompleted {
 	Message message = 1;
 	Usage usage = 2;
@@ -231,5 +271,6 @@ message ChatServerEvent {
 		ApprovalRequest approval = 5;
 		ChatCompleted completed = 6;
 		ChatFailed failed = 7;
+		ToolRequest tool_request = 8;
 	}
 }

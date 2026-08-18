@@ -72,3 +72,32 @@ func TestCompactionCanBeTurnedOffInConfig(t *testing.T) {
 		t.Fatal("compact false in the config was not honoured")
 	}
 }
+
+func TestClientModeUsesThePairedServer(t *testing.T) {
+	Client = defaultClient
+	Client.Mode = ModeClient
+	Client.Server.Address = "naru.example.com:9090"
+
+	if !RemoteClient() {
+		t.Fatal("client mode did not use the paired server")
+	}
+}
+
+func TestServerModeStaysLocalWithAStoredAddress(t *testing.T) {
+	Client = defaultClient
+	Client.Mode = ModeServer
+	Client.Server.Address = "naru.example.com:9090"
+
+	if RemoteClient() {
+		t.Fatal("server mode used a stored client address")
+	}
+}
+
+func TestLegacyPairedConfigStillUsesTheServer(t *testing.T) {
+	Client = defaultClient
+	Client.Server.Address = "naru.example.com:9090"
+
+	if !RemoteClient() {
+		t.Fatal("legacy paired config stopped using the server")
+	}
+}

@@ -708,19 +708,27 @@ mininaru pair naru.example.com:9090 \
 ```
 
 Successful pairing writes the server address to `client.json`, so ordinary
-commands use it automatically. `--server` overrides that default:
+commands use it automatically. Setup also records `mode: client`, which routes
+chat, prompts, agent and skill reads, and session commands to that server.
+`--server` overrides that default:
 
 ```sh
 mininaru
 mininaru -p 'summarise the current session' --session
 mininaru session list
 mininaru session usage <id>
+mininaru agent list
+mininaru skill list
+mininaru skill show <name>
 mininaru --server naru.example.com:9090
 ```
 
 The TUI streams answer and reasoning deltas, tool progress, cancellation, and
-dangerous-tool approval over one bidirectional RPC. Sessions, history, tool
-logs, compaction, and token usage stay in the server's SQLite database.
+dangerous-tool approval over one bidirectional RPC. The model and session stay
+on the server, while tools are advertised and executed by the client. Builtin
+tools therefore operate on the client machine and MCP tools come from the
+client's `mcp.json`. Tool results and logs return to the server-owned session.
+One-shot `-p` still refuses dangerous tools because it has no approval UI.
 
 Manage paired devices on the server host:
 
@@ -841,6 +849,10 @@ mininaru bot pair naru-bot
 Run `/pair code:<code>` in Discord within 10 minutes. The paired Discord user
 becomes an admin. Admins can add regular users with `/user add`; users are
 scoped to that configured bot.
+
+File, search, and shell tools approved through Discord are always rooted at the
+server process user's home directory. They do not inherit the directory from
+which `mininaru serve` happened to start.
 
 The bot answers when an authorized user mentions it in a server channel, and
 answers every authorized message in a DM without requiring a mention. A mention

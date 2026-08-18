@@ -547,6 +547,11 @@ this exists to remove comes straight back. The consequence is that allowing
 `bash_exec` for a session hands over arbitrary commands for that session, so the
 choice renders the tool name inside the label rather than saying "this tool".
 
+Discord administrator turns root file, search, and shell tools at the server
+process user's home directory. The root is captured in that turn's tool
+definitions rather than changing the process working directory, so concurrent
+gRPC clients and other front ends keep their own workspace.
+
 The list lives on the `client` behind a `sync.Mutex` and never touches disk. The
 mutex is not decorative: the approval callback runs on the goroutine `sendPrompt`
 started, while `Update` runs on the bubbletea loop, and before this the two only
@@ -740,15 +745,22 @@ delta followed by `data: [DONE]`.
 The native API in `api/mininaru/v1/mininaru.proto` is deliberately separate
 from the OpenAI-compatible HTTP surface. HTTP callers supply their whole
 history and receive only safe tools. A paired gRPC client names a server-owned
-session and drives `Instance.ChatWithTools`, so it receives persisted history,
-reasoning deltas, tool events, approval requests, compaction, and usage from the
-same path as the local TUI.
+session and advertises the tool definitions discovered on that client. The
+server drives `Instance.ChatWithTools`, but each execution request crosses the
+stream and runs against the client's working directory and MCP sessions. The
+result returns to the server for model continuation and persisted tool logs.
 
-The `Chat` RPC is bidirectional. Its first client event must be `start`; later
-client events answer a tool approval or cancel the turn. Server events carry
-content, reasoning, tool progress, an approval request, and exactly one
-terminal completion or failure. Losing the HTTP/2 stream cancels the core
-context, so a disconnected client cannot leave a model turn running.
+The `Chat` RPC is bidirectional. Its first client event must be `start` and
+carries the local tool schema; later events return a tool result or cancel the
+turn. Server events carry content, reasoning, persisted tool progress, a local
+tool execution request, and exactly one terminal completion or failure. The
+TUI applies its approval menu before executing a dangerous local tool. `-p`
+has no approval callback and refuses it. Losing the HTTP/2 stream cancels the
+core context, so a disconnected client cannot leave a model turn running.
+
+Agent and skill list/show calls, plus session and usage calls, read server
+state in client mode. Provider, MCP, bot, web, and TUI preference management
+remain local; MCP configuration affects the tools advertised by that client.
 
 Pairing and normal RPCs share a TLS 1.3 listener but not an authorization
 policy. `PairingService` accepts a connection without a client certificate,

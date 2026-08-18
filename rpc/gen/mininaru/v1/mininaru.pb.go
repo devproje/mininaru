@@ -131,7 +131,8 @@ type Empty struct {
 
 func (x *Empty) Reset() {
 	var (
-		mi *protoimpl.MessageInfo
+		mi *protoimpl.
+			MessageInfo
 		ms messageState
 	)
 
@@ -149,7 +150,8 @@ func (*Empty) ProtoMessage() {}
 
 func (x *Empty) ProtoReflect() protoreflect.Message {
 	var (
-		mi *protoimpl.MessageInfo
+		mi *protoimpl.
+			MessageInfo
 		ms messageState
 	)
 
@@ -178,7 +180,8 @@ type BeginPairingRequest struct {
 
 func (x *BeginPairingRequest) Reset() {
 	var (
-		mi *protoimpl.MessageInfo
+		mi *protoimpl.
+			MessageInfo
 		ms messageState
 	)
 
@@ -196,7 +199,8 @@ func (*BeginPairingRequest) ProtoMessage() {}
 
 func (x *BeginPairingRequest) ProtoReflect() protoreflect.Message {
 	var (
-		mi *protoimpl.MessageInfo
+		mi *protoimpl.
+			MessageInfo
 		ms messageState
 	)
 
@@ -241,7 +245,8 @@ type BeginPairingResponse struct {
 
 func (x *BeginPairingResponse) Reset() {
 	var (
-		mi *protoimpl.MessageInfo
+		mi *protoimpl.
+			MessageInfo
 		ms messageState
 	)
 
@@ -259,7 +264,8 @@ func (*BeginPairingResponse) ProtoMessage() {}
 
 func (x *BeginPairingResponse) ProtoReflect() protoreflect.Message {
 	var (
-		mi *protoimpl.MessageInfo
+		mi *protoimpl.
+			MessageInfo
 		ms messageState
 	)
 
@@ -315,7 +321,8 @@ type WatchPairingRequest struct {
 
 func (x *WatchPairingRequest) Reset() {
 	var (
-		mi *protoimpl.MessageInfo
+		mi *protoimpl.
+			MessageInfo
 		ms messageState
 	)
 
@@ -333,7 +340,8 @@ func (*WatchPairingRequest) ProtoMessage() {}
 
 func (x *WatchPairingRequest) ProtoReflect() protoreflect.Message {
 	var (
-		mi *protoimpl.MessageInfo
+		mi *protoimpl.
+			MessageInfo
 		ms messageState
 	)
 
@@ -371,7 +379,8 @@ type PairingEvent struct {
 
 func (x *PairingEvent) Reset() {
 	var (
-		mi *protoimpl.MessageInfo
+		mi *protoimpl.
+			MessageInfo
 		ms messageState
 	)
 
@@ -389,7 +398,8 @@ func (*PairingEvent) ProtoMessage() {}
 
 func (x *PairingEvent) ProtoReflect() protoreflect.Message {
 	var (
-		mi *protoimpl.MessageInfo
+		mi *protoimpl.
+			MessageInfo
 		ms messageState
 	)
 
@@ -448,7 +458,8 @@ type Agent struct {
 
 func (x *Agent) Reset() {
 	var (
-		mi *protoimpl.MessageInfo
+		mi *protoimpl.
+			MessageInfo
 		ms messageState
 	)
 
@@ -466,7 +477,8 @@ func (*Agent) ProtoMessage() {}
 
 func (x *Agent) ProtoReflect() protoreflect.Message {
 	var (
-		mi *protoimpl.MessageInfo
+		mi *protoimpl.
+			MessageInfo
 		ms messageState
 	)
 
@@ -524,7 +536,8 @@ type Session struct {
 
 func (x *Session) Reset() {
 	var (
-		mi *protoimpl.MessageInfo
+		mi *protoimpl.
+			MessageInfo
 		ms messageState
 	)
 
@@ -542,7 +555,8 @@ func (*Session) ProtoMessage() {}
 
 func (x *Session) ProtoReflect() protoreflect.Message {
 	var (
-		mi *protoimpl.MessageInfo
+		mi *protoimpl.
+			MessageInfo
 		ms messageState
 	)
 
@@ -597,7 +611,8 @@ type Message struct {
 
 func (x *Message) Reset() {
 	var (
-		mi *protoimpl.MessageInfo
+		mi *protoimpl.
+			MessageInfo
 		ms messageState
 	)
 
@@ -615,7 +630,8 @@ func (*Message) ProtoMessage() {}
 
 func (x *Message) ProtoReflect() protoreflect.Message {
 	var (
-		mi *protoimpl.MessageInfo
+		mi *protoimpl.
+			MessageInfo
 		ms messageState
 	)
 
@@ -699,7 +715,8 @@ type ToolCall struct {
 
 func (x *ToolCall) Reset() {
 	var (
-		mi *protoimpl.MessageInfo
+		mi *protoimpl.
+			MessageInfo
 		ms messageState
 	)
 
@@ -717,7 +734,8 @@ func (*ToolCall) ProtoMessage() {}
 
 func (x *ToolCall) ProtoReflect() protoreflect.Message {
 	var (
-		mi *protoimpl.MessageInfo
+		mi *protoimpl.
+			MessageInfo
 		ms messageState
 	)
 
@@ -806,7 +824,8 @@ type UsageLine struct {
 
 func (x *UsageLine) Reset() {
 	var (
-		mi *protoimpl.MessageInfo
+		mi *protoimpl.
+			MessageInfo
 		ms messageState
 	)
 
@@ -824,7 +843,8 @@ func (*UsageLine) ProtoMessage() {}
 
 func (x *UsageLine) ProtoReflect() protoreflect.Message {
 	var (
-		mi *protoimpl.MessageInfo
+		mi *protoimpl.
+			MessageInfo
 		ms messageState
 	)
 
@@ -900,7 +920,8 @@ type Usage struct {
 
 func (x *Usage) Reset() {
 	var (
-		mi *protoimpl.MessageInfo
+		mi *protoimpl.
+			MessageInfo
 		ms messageState
 	)
 
@@ -918,7 +939,8 @@ func (*Usage) ProtoMessage() {}
 
 func (x *Usage) ProtoReflect() protoreflect.Message {
 	var (
-		mi *protoimpl.MessageInfo
+		mi *protoimpl.
+			MessageInfo
 		ms messageState
 	)
 
@@ -994,7 +1016,8 @@ type ListAgentsRequest struct {
 
 func (x *ListAgentsRequest) Reset() {
 	var (
-		mi *protoimpl.MessageInfo
+		mi *protoimpl.
+			MessageInfo
 		ms messageState
 	)
 
@@ -1012,7 +1035,8 @@ func (*ListAgentsRequest) ProtoMessage() {}
 
 func (x *ListAgentsRequest) ProtoReflect() protoreflect.Message {
 	var (
-		mi *protoimpl.MessageInfo
+		mi *protoimpl.
+			MessageInfo
 		ms messageState
 	)
 
@@ -1041,7 +1065,8 @@ type ListAgentsResponse struct {
 
 func (x *ListAgentsResponse) Reset() {
 	var (
-		mi *protoimpl.MessageInfo
+		mi *protoimpl.
+			MessageInfo
 		ms messageState
 	)
 
@@ -1059,7 +1084,8 @@ func (*ListAgentsResponse) ProtoMessage() {}
 
 func (x *ListAgentsResponse) ProtoReflect() protoreflect.Message {
 	var (
-		mi *protoimpl.MessageInfo
+		mi *protoimpl.
+			MessageInfo
 		ms messageState
 	)
 
@@ -1092,34 +1118,39 @@ func (x *ListAgentsResponse) GetDefaultAgentId() string {
 	return ""
 }
 
-type ListSessionsRequest struct {
+type Skill struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Agent         string                 `protobuf:"bytes,1,opt,name=agent,proto3" json:"agent,omitempty"`
+	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Description   string                 `protobuf:"bytes,2,opt,name=description,proto3" json:"description,omitempty"`
+	Scope         string                 `protobuf:"bytes,3,opt,name=scope,proto3" json:"scope,omitempty"`
+	Body          string                 `protobuf:"bytes,4,opt,name=body,proto3" json:"body,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *ListSessionsRequest) Reset() {
+func (x *Skill) Reset() {
 	var (
-		mi *protoimpl.MessageInfo
+		mi *protoimpl.
+			MessageInfo
 		ms messageState
 	)
 
-	*x = ListSessionsRequest{}
+	*x = Skill{}
 	mi = &file_mininaru_v1_mininaru_proto_msgTypes[13]
 	ms = protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *ListSessionsRequest) String() string {
+func (x *Skill) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*ListSessionsRequest) ProtoMessage() {}
+func (*Skill) ProtoMessage() {}
 
-func (x *ListSessionsRequest) ProtoReflect() protoreflect.Message {
+func (x *Skill) ProtoReflect() protoreflect.Message {
 	var (
-		mi *protoimpl.MessageInfo
+		mi *protoimpl.
+			MessageInfo
 		ms messageState
 	)
 
@@ -1134,8 +1165,241 @@ func (x *ListSessionsRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-func (*ListSessionsRequest) Descriptor() ([]byte, []int) {
+func (*Skill) Descriptor() ([]byte, []int) {
 	return file_mininaru_v1_mininaru_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *Skill) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *Skill) GetDescription() string {
+	if x != nil {
+		return x.Description
+	}
+	return ""
+}
+
+func (x *Skill) GetScope() string {
+	if x != nil {
+		return x.Scope
+	}
+	return ""
+}
+
+func (x *Skill) GetBody() string {
+	if x != nil {
+		return x.Body
+	}
+	return ""
+}
+
+type ListSkillsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListSkillsRequest) Reset() {
+	var (
+		mi *protoimpl.
+			MessageInfo
+		ms messageState
+	)
+
+	*x = ListSkillsRequest{}
+	mi = &file_mininaru_v1_mininaru_proto_msgTypes[14]
+	ms = protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListSkillsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListSkillsRequest) ProtoMessage() {}
+
+func (x *ListSkillsRequest) ProtoReflect() protoreflect.Message {
+	var (
+		mi *protoimpl.
+			MessageInfo
+		ms messageState
+	)
+
+	mi = &file_mininaru_v1_mininaru_proto_msgTypes[14]
+	if x != nil {
+		ms = protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (*ListSkillsRequest) Descriptor() ([]byte, []int) {
+	return file_mininaru_v1_mininaru_proto_rawDescGZIP(), []int{14}
+}
+
+type ListSkillsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Skills        []*Skill               `protobuf:"bytes,1,rep,name=skills,proto3" json:"skills,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListSkillsResponse) Reset() {
+	var (
+		mi *protoimpl.
+			MessageInfo
+		ms messageState
+	)
+
+	*x = ListSkillsResponse{}
+	mi = &file_mininaru_v1_mininaru_proto_msgTypes[15]
+	ms = protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListSkillsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListSkillsResponse) ProtoMessage() {}
+
+func (x *ListSkillsResponse) ProtoReflect() protoreflect.Message {
+	var (
+		mi *protoimpl.
+			MessageInfo
+		ms messageState
+	)
+
+	mi = &file_mininaru_v1_mininaru_proto_msgTypes[15]
+	if x != nil {
+		ms = protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (*ListSkillsResponse) Descriptor() ([]byte, []int) {
+	return file_mininaru_v1_mininaru_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *ListSkillsResponse) GetSkills() []*Skill {
+	if x != nil {
+		return x.Skills
+	}
+	return nil
+}
+
+type GetSkillRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetSkillRequest) Reset() {
+	var (
+		mi *protoimpl.
+			MessageInfo
+		ms messageState
+	)
+
+	*x = GetSkillRequest{}
+	mi = &file_mininaru_v1_mininaru_proto_msgTypes[16]
+	ms = protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetSkillRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetSkillRequest) ProtoMessage() {}
+
+func (x *GetSkillRequest) ProtoReflect() protoreflect.Message {
+	var (
+		mi *protoimpl.
+			MessageInfo
+		ms messageState
+	)
+
+	mi = &file_mininaru_v1_mininaru_proto_msgTypes[16]
+	if x != nil {
+		ms = protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (*GetSkillRequest) Descriptor() ([]byte, []int) {
+	return file_mininaru_v1_mininaru_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *GetSkillRequest) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+type ListSessionsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Agent         string                 `protobuf:"bytes,1,opt,name=agent,proto3" json:"agent,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListSessionsRequest) Reset() {
+	var (
+		mi *protoimpl.
+			MessageInfo
+		ms messageState
+	)
+
+	*x = ListSessionsRequest{}
+	mi = &file_mininaru_v1_mininaru_proto_msgTypes[17]
+	ms = protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListSessionsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListSessionsRequest) ProtoMessage() {}
+
+func (x *ListSessionsRequest) ProtoReflect() protoreflect.Message {
+	var (
+		mi *protoimpl.
+			MessageInfo
+		ms messageState
+	)
+
+	mi = &file_mininaru_v1_mininaru_proto_msgTypes[17]
+	if x != nil {
+		ms = protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (*ListSessionsRequest) Descriptor() ([]byte, []int) {
+	return file_mininaru_v1_mininaru_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *ListSessionsRequest) GetAgent() string {
@@ -1154,12 +1418,13 @@ type ListSessionsResponse struct {
 
 func (x *ListSessionsResponse) Reset() {
 	var (
-		mi *protoimpl.MessageInfo
+		mi *protoimpl.
+			MessageInfo
 		ms messageState
 	)
 
 	*x = ListSessionsResponse{}
-	mi = &file_mininaru_v1_mininaru_proto_msgTypes[14]
+	mi = &file_mininaru_v1_mininaru_proto_msgTypes[18]
 	ms = protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1172,11 +1437,12 @@ func (*ListSessionsResponse) ProtoMessage() {}
 
 func (x *ListSessionsResponse) ProtoReflect() protoreflect.Message {
 	var (
-		mi *protoimpl.MessageInfo
+		mi *protoimpl.
+			MessageInfo
 		ms messageState
 	)
 
-	mi = &file_mininaru_v1_mininaru_proto_msgTypes[14]
+	mi = &file_mininaru_v1_mininaru_proto_msgTypes[18]
 	if x != nil {
 		ms = protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1188,7 +1454,7 @@ func (x *ListSessionsResponse) ProtoReflect() protoreflect.Message {
 }
 
 func (*ListSessionsResponse) Descriptor() ([]byte, []int) {
-	return file_mininaru_v1_mininaru_proto_rawDescGZIP(), []int{14}
+	return file_mininaru_v1_mininaru_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *ListSessionsResponse) GetSessions() []*Session {
@@ -1208,12 +1474,13 @@ type CreateSessionRequest struct {
 
 func (x *CreateSessionRequest) Reset() {
 	var (
-		mi *protoimpl.MessageInfo
+		mi *protoimpl.
+			MessageInfo
 		ms messageState
 	)
 
 	*x = CreateSessionRequest{}
-	mi = &file_mininaru_v1_mininaru_proto_msgTypes[15]
+	mi = &file_mininaru_v1_mininaru_proto_msgTypes[19]
 	ms = protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1226,11 +1493,12 @@ func (*CreateSessionRequest) ProtoMessage() {}
 
 func (x *CreateSessionRequest) ProtoReflect() protoreflect.Message {
 	var (
-		mi *protoimpl.MessageInfo
+		mi *protoimpl.
+			MessageInfo
 		ms messageState
 	)
 
-	mi = &file_mininaru_v1_mininaru_proto_msgTypes[15]
+	mi = &file_mininaru_v1_mininaru_proto_msgTypes[19]
 	if x != nil {
 		ms = protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1242,7 +1510,7 @@ func (x *CreateSessionRequest) ProtoReflect() protoreflect.Message {
 }
 
 func (*CreateSessionRequest) Descriptor() ([]byte, []int) {
-	return file_mininaru_v1_mininaru_proto_rawDescGZIP(), []int{15}
+	return file_mininaru_v1_mininaru_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *CreateSessionRequest) GetAgent() string {
@@ -1268,12 +1536,13 @@ type GetSessionRequest struct {
 
 func (x *GetSessionRequest) Reset() {
 	var (
-		mi *protoimpl.MessageInfo
+		mi *protoimpl.
+			MessageInfo
 		ms messageState
 	)
 
 	*x = GetSessionRequest{}
-	mi = &file_mininaru_v1_mininaru_proto_msgTypes[16]
+	mi = &file_mininaru_v1_mininaru_proto_msgTypes[20]
 	ms = protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1286,11 +1555,12 @@ func (*GetSessionRequest) ProtoMessage() {}
 
 func (x *GetSessionRequest) ProtoReflect() protoreflect.Message {
 	var (
-		mi *protoimpl.MessageInfo
+		mi *protoimpl.
+			MessageInfo
 		ms messageState
 	)
 
-	mi = &file_mininaru_v1_mininaru_proto_msgTypes[16]
+	mi = &file_mininaru_v1_mininaru_proto_msgTypes[20]
 	if x != nil {
 		ms = protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1302,7 +1572,7 @@ func (x *GetSessionRequest) ProtoReflect() protoreflect.Message {
 }
 
 func (*GetSessionRequest) Descriptor() ([]byte, []int) {
-	return file_mininaru_v1_mininaru_proto_rawDescGZIP(), []int{16}
+	return file_mininaru_v1_mininaru_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *GetSessionRequest) GetSessionId() string {
@@ -1327,12 +1597,13 @@ type SessionDetail struct {
 
 func (x *SessionDetail) Reset() {
 	var (
-		mi *protoimpl.MessageInfo
+		mi *protoimpl.
+			MessageInfo
 		ms messageState
 	)
 
 	*x = SessionDetail{}
-	mi = &file_mininaru_v1_mininaru_proto_msgTypes[17]
+	mi = &file_mininaru_v1_mininaru_proto_msgTypes[21]
 	ms = protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1345,11 +1616,12 @@ func (*SessionDetail) ProtoMessage() {}
 
 func (x *SessionDetail) ProtoReflect() protoreflect.Message {
 	var (
-		mi *protoimpl.MessageInfo
+		mi *protoimpl.
+			MessageInfo
 		ms messageState
 	)
 
-	mi = &file_mininaru_v1_mininaru_proto_msgTypes[17]
+	mi = &file_mininaru_v1_mininaru_proto_msgTypes[21]
 	if x != nil {
 		ms = protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1361,7 +1633,7 @@ func (x *SessionDetail) ProtoReflect() protoreflect.Message {
 }
 
 func (*SessionDetail) Descriptor() ([]byte, []int) {
-	return file_mininaru_v1_mininaru_proto_rawDescGZIP(), []int{17}
+	return file_mininaru_v1_mininaru_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *SessionDetail) GetSession() *Session {
@@ -1423,12 +1695,13 @@ type RenameSessionRequest struct {
 
 func (x *RenameSessionRequest) Reset() {
 	var (
-		mi *protoimpl.MessageInfo
+		mi *protoimpl.
+			MessageInfo
 		ms messageState
 	)
 
 	*x = RenameSessionRequest{}
-	mi = &file_mininaru_v1_mininaru_proto_msgTypes[18]
+	mi = &file_mininaru_v1_mininaru_proto_msgTypes[22]
 	ms = protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1441,11 +1714,12 @@ func (*RenameSessionRequest) ProtoMessage() {}
 
 func (x *RenameSessionRequest) ProtoReflect() protoreflect.Message {
 	var (
-		mi *protoimpl.MessageInfo
+		mi *protoimpl.
+			MessageInfo
 		ms messageState
 	)
 
-	mi = &file_mininaru_v1_mininaru_proto_msgTypes[18]
+	mi = &file_mininaru_v1_mininaru_proto_msgTypes[22]
 	if x != nil {
 		ms = protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1457,7 +1731,7 @@ func (x *RenameSessionRequest) ProtoReflect() protoreflect.Message {
 }
 
 func (*RenameSessionRequest) Descriptor() ([]byte, []int) {
-	return file_mininaru_v1_mininaru_proto_rawDescGZIP(), []int{18}
+	return file_mininaru_v1_mininaru_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *RenameSessionRequest) GetSessionId() string {
@@ -1483,12 +1757,13 @@ type DeleteSessionRequest struct {
 
 func (x *DeleteSessionRequest) Reset() {
 	var (
-		mi *protoimpl.MessageInfo
+		mi *protoimpl.
+			MessageInfo
 		ms messageState
 	)
 
 	*x = DeleteSessionRequest{}
-	mi = &file_mininaru_v1_mininaru_proto_msgTypes[19]
+	mi = &file_mininaru_v1_mininaru_proto_msgTypes[23]
 	ms = protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1501,11 +1776,12 @@ func (*DeleteSessionRequest) ProtoMessage() {}
 
 func (x *DeleteSessionRequest) ProtoReflect() protoreflect.Message {
 	var (
-		mi *protoimpl.MessageInfo
+		mi *protoimpl.
+			MessageInfo
 		ms messageState
 	)
 
-	mi = &file_mininaru_v1_mininaru_proto_msgTypes[19]
+	mi = &file_mininaru_v1_mininaru_proto_msgTypes[23]
 	if x != nil {
 		ms = protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1517,7 +1793,7 @@ func (x *DeleteSessionRequest) ProtoReflect() protoreflect.Message {
 }
 
 func (*DeleteSessionRequest) Descriptor() ([]byte, []int) {
-	return file_mininaru_v1_mininaru_proto_rawDescGZIP(), []int{19}
+	return file_mininaru_v1_mininaru_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *DeleteSessionRequest) GetSessionId() string {
@@ -1536,12 +1812,13 @@ type GetUsageRequest struct {
 
 func (x *GetUsageRequest) Reset() {
 	var (
-		mi *protoimpl.MessageInfo
+		mi *protoimpl.
+			MessageInfo
 		ms messageState
 	)
 
 	*x = GetUsageRequest{}
-	mi = &file_mininaru_v1_mininaru_proto_msgTypes[20]
+	mi = &file_mininaru_v1_mininaru_proto_msgTypes[24]
 	ms = protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1554,11 +1831,12 @@ func (*GetUsageRequest) ProtoMessage() {}
 
 func (x *GetUsageRequest) ProtoReflect() protoreflect.Message {
 	var (
-		mi *protoimpl.MessageInfo
+		mi *protoimpl.
+			MessageInfo
 		ms messageState
 	)
 
-	mi = &file_mininaru_v1_mininaru_proto_msgTypes[20]
+	mi = &file_mininaru_v1_mininaru_proto_msgTypes[24]
 	if x != nil {
 		ms = protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1570,7 +1848,7 @@ func (x *GetUsageRequest) ProtoReflect() protoreflect.Message {
 }
 
 func (*GetUsageRequest) Descriptor() ([]byte, []int) {
-	return file_mininaru_v1_mininaru_proto_rawDescGZIP(), []int{20}
+	return file_mininaru_v1_mininaru_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *GetUsageRequest) GetSessionId() string {
@@ -1589,12 +1867,13 @@ type CompactSessionRequest struct {
 
 func (x *CompactSessionRequest) Reset() {
 	var (
-		mi *protoimpl.MessageInfo
+		mi *protoimpl.
+			MessageInfo
 		ms messageState
 	)
 
 	*x = CompactSessionRequest{}
-	mi = &file_mininaru_v1_mininaru_proto_msgTypes[21]
+	mi = &file_mininaru_v1_mininaru_proto_msgTypes[25]
 	ms = protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1607,11 +1886,12 @@ func (*CompactSessionRequest) ProtoMessage() {}
 
 func (x *CompactSessionRequest) ProtoReflect() protoreflect.Message {
 	var (
-		mi *protoimpl.MessageInfo
+		mi *protoimpl.
+			MessageInfo
 		ms messageState
 	)
 
-	mi = &file_mininaru_v1_mininaru_proto_msgTypes[21]
+	mi = &file_mininaru_v1_mininaru_proto_msgTypes[25]
 	if x != nil {
 		ms = protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1623,7 +1903,7 @@ func (x *CompactSessionRequest) ProtoReflect() protoreflect.Message {
 }
 
 func (*CompactSessionRequest) Descriptor() ([]byte, []int) {
-	return file_mininaru_v1_mininaru_proto_rawDescGZIP(), []int{21}
+	return file_mininaru_v1_mininaru_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *CompactSessionRequest) GetSessionId() string {
@@ -1642,12 +1922,13 @@ type CompactSessionResponse struct {
 
 func (x *CompactSessionResponse) Reset() {
 	var (
-		mi *protoimpl.MessageInfo
+		mi *protoimpl.
+			MessageInfo
 		ms messageState
 	)
 
 	*x = CompactSessionResponse{}
-	mi = &file_mininaru_v1_mininaru_proto_msgTypes[22]
+	mi = &file_mininaru_v1_mininaru_proto_msgTypes[26]
 	ms = protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1660,11 +1941,12 @@ func (*CompactSessionResponse) ProtoMessage() {}
 
 func (x *CompactSessionResponse) ProtoReflect() protoreflect.Message {
 	var (
-		mi *protoimpl.MessageInfo
+		mi *protoimpl.
+			MessageInfo
 		ms messageState
 	)
 
-	mi = &file_mininaru_v1_mininaru_proto_msgTypes[22]
+	mi = &file_mininaru_v1_mininaru_proto_msgTypes[26]
 	if x != nil {
 		ms = protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1676,7 +1958,7 @@ func (x *CompactSessionResponse) ProtoReflect() protoreflect.Message {
 }
 
 func (*CompactSessionResponse) Descriptor() ([]byte, []int) {
-	return file_mininaru_v1_mininaru_proto_rawDescGZIP(), []int{22}
+	return file_mininaru_v1_mininaru_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *CompactSessionResponse) GetCompacted() bool {
@@ -1691,18 +1973,20 @@ type ChatStart struct {
 	SessionId     string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
 	Content       string                 `protobuf:"bytes,2,opt,name=content,proto3" json:"content,omitempty"`
 	Thinking      string                 `protobuf:"bytes,3,opt,name=thinking,proto3" json:"thinking,omitempty"`
+	Tools         []*ToolDefinition      `protobuf:"bytes,4,rep,name=tools,proto3" json:"tools,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ChatStart) Reset() {
 	var (
-		mi *protoimpl.MessageInfo
+		mi *protoimpl.
+			MessageInfo
 		ms messageState
 	)
 
 	*x = ChatStart{}
-	mi = &file_mininaru_v1_mininaru_proto_msgTypes[23]
+	mi = &file_mininaru_v1_mininaru_proto_msgTypes[27]
 	ms = protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1715,11 +1999,12 @@ func (*ChatStart) ProtoMessage() {}
 
 func (x *ChatStart) ProtoReflect() protoreflect.Message {
 	var (
-		mi *protoimpl.MessageInfo
+		mi *protoimpl.
+			MessageInfo
 		ms messageState
 	)
 
-	mi = &file_mininaru_v1_mininaru_proto_msgTypes[23]
+	mi = &file_mininaru_v1_mininaru_proto_msgTypes[27]
 	if x != nil {
 		ms = protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1731,7 +2016,7 @@ func (x *ChatStart) ProtoReflect() protoreflect.Message {
 }
 
 func (*ChatStart) Descriptor() ([]byte, []int) {
-	return file_mininaru_v1_mininaru_proto_rawDescGZIP(), []int{23}
+	return file_mininaru_v1_mininaru_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *ChatStart) GetSessionId() string {
@@ -1755,6 +2040,163 @@ func (x *ChatStart) GetThinking() string {
 	return ""
 }
 
+func (x *ChatStart) GetTools() []*ToolDefinition {
+	if x != nil {
+		return x.Tools
+	}
+	return nil
+}
+
+type ToolDefinition struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	Name           string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Description    string                 `protobuf:"bytes,2,opt,name=description,proto3" json:"description,omitempty"`
+	ParametersJson string                 `protobuf:"bytes,3,opt,name=parameters_json,json=parametersJson,proto3" json:"parameters_json,omitempty"`
+	Permission     string                 `protobuf:"bytes,4,opt,name=permission,proto3" json:"permission,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *ToolDefinition) Reset() {
+	var (
+		mi *protoimpl.
+			MessageInfo
+		ms messageState
+	)
+
+	*x = ToolDefinition{}
+	mi = &file_mininaru_v1_mininaru_proto_msgTypes[28]
+	ms = protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ToolDefinition) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ToolDefinition) ProtoMessage() {}
+
+func (x *ToolDefinition) ProtoReflect() protoreflect.Message {
+	var (
+		mi *protoimpl.
+			MessageInfo
+		ms messageState
+	)
+
+	mi = &file_mininaru_v1_mininaru_proto_msgTypes[28]
+	if x != nil {
+		ms = protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (*ToolDefinition) Descriptor() ([]byte, []int) {
+	return file_mininaru_v1_mininaru_proto_rawDescGZIP(), []int{28}
+}
+
+func (x *ToolDefinition) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *ToolDefinition) GetDescription() string {
+	if x != nil {
+		return x.Description
+	}
+	return ""
+}
+
+func (x *ToolDefinition) GetParametersJson() string {
+	if x != nil {
+		return x.ParametersJson
+	}
+	return ""
+}
+
+func (x *ToolDefinition) GetPermission() string {
+	if x != nil {
+		return x.Permission
+	}
+	return ""
+}
+
+type ToolResult struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	RequestId     string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	Result        string                 `protobuf:"bytes,2,opt,name=result,proto3" json:"result,omitempty"`
+	Error         string                 `protobuf:"bytes,3,opt,name=error,proto3" json:"error,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ToolResult) Reset() {
+	var (
+		mi *protoimpl.
+			MessageInfo
+		ms messageState
+	)
+
+	*x = ToolResult{}
+	mi = &file_mininaru_v1_mininaru_proto_msgTypes[29]
+	ms = protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ToolResult) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ToolResult) ProtoMessage() {}
+
+func (x *ToolResult) ProtoReflect() protoreflect.Message {
+	var (
+		mi *protoimpl.
+			MessageInfo
+		ms messageState
+	)
+
+	mi = &file_mininaru_v1_mininaru_proto_msgTypes[29]
+	if x != nil {
+		ms = protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (*ToolResult) Descriptor() ([]byte, []int) {
+	return file_mininaru_v1_mininaru_proto_rawDescGZIP(), []int{29}
+}
+
+func (x *ToolResult) GetRequestId() string {
+	if x != nil {
+		return x.RequestId
+	}
+	return ""
+}
+
+func (x *ToolResult) GetResult() string {
+	if x != nil {
+		return x.Result
+	}
+	return ""
+}
+
+func (x *ToolResult) GetError() string {
+	if x != nil {
+		return x.Error
+	}
+	return ""
+}
+
 type ApprovalDecision struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	RequestId     string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
@@ -1765,12 +2207,13 @@ type ApprovalDecision struct {
 
 func (x *ApprovalDecision) Reset() {
 	var (
-		mi *protoimpl.MessageInfo
+		mi *protoimpl.
+			MessageInfo
 		ms messageState
 	)
 
 	*x = ApprovalDecision{}
-	mi = &file_mininaru_v1_mininaru_proto_msgTypes[24]
+	mi = &file_mininaru_v1_mininaru_proto_msgTypes[30]
 	ms = protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1783,11 +2226,12 @@ func (*ApprovalDecision) ProtoMessage() {}
 
 func (x *ApprovalDecision) ProtoReflect() protoreflect.Message {
 	var (
-		mi *protoimpl.MessageInfo
+		mi *protoimpl.
+			MessageInfo
 		ms messageState
 	)
 
-	mi = &file_mininaru_v1_mininaru_proto_msgTypes[24]
+	mi = &file_mininaru_v1_mininaru_proto_msgTypes[30]
 	if x != nil {
 		ms = protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1799,7 +2243,7 @@ func (x *ApprovalDecision) ProtoReflect() protoreflect.Message {
 }
 
 func (*ApprovalDecision) Descriptor() ([]byte, []int) {
-	return file_mininaru_v1_mininaru_proto_rawDescGZIP(), []int{24}
+	return file_mininaru_v1_mininaru_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *ApprovalDecision) GetRequestId() string {
@@ -1825,12 +2269,13 @@ type ChatClientEvent struct {
 
 func (x *ChatClientEvent) Reset() {
 	var (
-		mi *protoimpl.MessageInfo
+		mi *protoimpl.
+			MessageInfo
 		ms messageState
 	)
 
 	*x = ChatClientEvent{}
-	mi = &file_mininaru_v1_mininaru_proto_msgTypes[25]
+	mi = &file_mininaru_v1_mininaru_proto_msgTypes[31]
 	ms = protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1843,11 +2288,12 @@ func (*ChatClientEvent) ProtoMessage() {}
 
 func (x *ChatClientEvent) ProtoReflect() protoreflect.Message {
 	var (
-		mi *protoimpl.MessageInfo
+		mi *protoimpl.
+			MessageInfo
 		ms messageState
 	)
 
-	mi = &file_mininaru_v1_mininaru_proto_msgTypes[25]
+	mi = &file_mininaru_v1_mininaru_proto_msgTypes[31]
 	if x != nil {
 		ms = protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1859,7 +2305,7 @@ func (x *ChatClientEvent) ProtoReflect() protoreflect.Message {
 }
 
 func (*ChatClientEvent) Descriptor() ([]byte, []int) {
-	return file_mininaru_v1_mininaru_proto_rawDescGZIP(), []int{25}
+	return file_mininaru_v1_mininaru_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *ChatClientEvent) GetEvent() isChatClientEvent_Event {
@@ -1911,6 +2357,20 @@ func (x *ChatClientEvent) GetCancel() *Empty {
 	return nil
 }
 
+func (x *ChatClientEvent) GetToolResult() *ToolResult {
+	var (
+		xValue *ChatClientEvent_ToolResult
+		ok     bool
+	)
+
+	if x != nil {
+		if xValue, ok = x.Event.(*ChatClientEvent_ToolResult); ok {
+			return xValue.ToolResult
+		}
+	}
+	return nil
+}
+
 type isChatClientEvent_Event interface {
 	isChatClientEvent_Event()
 }
@@ -1927,11 +2387,17 @@ type ChatClientEvent_Cancel struct {
 	Cancel *Empty `protobuf:"bytes,3,opt,name=cancel,proto3,oneof"`
 }
 
+type ChatClientEvent_ToolResult struct {
+	ToolResult *ToolResult `protobuf:"bytes,4,opt,name=tool_result,json=toolResult,proto3,oneof"`
+}
+
 func (*ChatClientEvent_Start) isChatClientEvent_Event() {}
 
 func (*ChatClientEvent_Approval) isChatClientEvent_Event() {}
 
 func (*ChatClientEvent_Cancel) isChatClientEvent_Event() {}
+
+func (*ChatClientEvent_ToolResult) isChatClientEvent_Event() {}
 
 type ChatStarted struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -1942,12 +2408,13 @@ type ChatStarted struct {
 
 func (x *ChatStarted) Reset() {
 	var (
-		mi *protoimpl.MessageInfo
+		mi *protoimpl.
+			MessageInfo
 		ms messageState
 	)
 
 	*x = ChatStarted{}
-	mi = &file_mininaru_v1_mininaru_proto_msgTypes[26]
+	mi = &file_mininaru_v1_mininaru_proto_msgTypes[32]
 	ms = protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1960,11 +2427,12 @@ func (*ChatStarted) ProtoMessage() {}
 
 func (x *ChatStarted) ProtoReflect() protoreflect.Message {
 	var (
-		mi *protoimpl.MessageInfo
+		mi *protoimpl.
+			MessageInfo
 		ms messageState
 	)
 
-	mi = &file_mininaru_v1_mininaru_proto_msgTypes[26]
+	mi = &file_mininaru_v1_mininaru_proto_msgTypes[32]
 	if x != nil {
 		ms = protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1976,7 +2444,7 @@ func (x *ChatStarted) ProtoReflect() protoreflect.Message {
 }
 
 func (*ChatStarted) Descriptor() ([]byte, []int) {
-	return file_mininaru_v1_mininaru_proto_rawDescGZIP(), []int{26}
+	return file_mininaru_v1_mininaru_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *ChatStarted) GetTurnId() string {
@@ -1995,12 +2463,13 @@ type TextDelta struct {
 
 func (x *TextDelta) Reset() {
 	var (
-		mi *protoimpl.MessageInfo
+		mi *protoimpl.
+			MessageInfo
 		ms messageState
 	)
 
 	*x = TextDelta{}
-	mi = &file_mininaru_v1_mininaru_proto_msgTypes[27]
+	mi = &file_mininaru_v1_mininaru_proto_msgTypes[33]
 	ms = protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2013,11 +2482,12 @@ func (*TextDelta) ProtoMessage() {}
 
 func (x *TextDelta) ProtoReflect() protoreflect.Message {
 	var (
-		mi *protoimpl.MessageInfo
+		mi *protoimpl.
+			MessageInfo
 		ms messageState
 	)
 
-	mi = &file_mininaru_v1_mininaru_proto_msgTypes[27]
+	mi = &file_mininaru_v1_mininaru_proto_msgTypes[33]
 	if x != nil {
 		ms = protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2029,7 +2499,7 @@ func (x *TextDelta) ProtoReflect() protoreflect.Message {
 }
 
 func (*TextDelta) Descriptor() ([]byte, []int) {
-	return file_mininaru_v1_mininaru_proto_rawDescGZIP(), []int{27}
+	return file_mininaru_v1_mininaru_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *TextDelta) GetText() string {
@@ -2054,12 +2524,13 @@ type ToolEvent struct {
 
 func (x *ToolEvent) Reset() {
 	var (
-		mi *protoimpl.MessageInfo
+		mi *protoimpl.
+			MessageInfo
 		ms messageState
 	)
 
 	*x = ToolEvent{}
-	mi = &file_mininaru_v1_mininaru_proto_msgTypes[28]
+	mi = &file_mininaru_v1_mininaru_proto_msgTypes[34]
 	ms = protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2072,11 +2543,12 @@ func (*ToolEvent) ProtoMessage() {}
 
 func (x *ToolEvent) ProtoReflect() protoreflect.Message {
 	var (
-		mi *protoimpl.MessageInfo
+		mi *protoimpl.
+			MessageInfo
 		ms messageState
 	)
 
-	mi = &file_mininaru_v1_mininaru_proto_msgTypes[28]
+	mi = &file_mininaru_v1_mininaru_proto_msgTypes[34]
 	if x != nil {
 		ms = protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2088,7 +2560,7 @@ func (x *ToolEvent) ProtoReflect() protoreflect.Message {
 }
 
 func (*ToolEvent) Descriptor() ([]byte, []int) {
-	return file_mininaru_v1_mininaru_proto_rawDescGZIP(), []int{28}
+	return file_mininaru_v1_mininaru_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *ToolEvent) GetPhase() string {
@@ -2151,12 +2623,13 @@ type ApprovalRequest struct {
 
 func (x *ApprovalRequest) Reset() {
 	var (
-		mi *protoimpl.MessageInfo
+		mi *protoimpl.
+			MessageInfo
 		ms messageState
 	)
 
 	*x = ApprovalRequest{}
-	mi = &file_mininaru_v1_mininaru_proto_msgTypes[29]
+	mi = &file_mininaru_v1_mininaru_proto_msgTypes[35]
 	ms = protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2169,11 +2642,12 @@ func (*ApprovalRequest) ProtoMessage() {}
 
 func (x *ApprovalRequest) ProtoReflect() protoreflect.Message {
 	var (
-		mi *protoimpl.MessageInfo
+		mi *protoimpl.
+			MessageInfo
 		ms messageState
 	)
 
-	mi = &file_mininaru_v1_mininaru_proto_msgTypes[29]
+	mi = &file_mininaru_v1_mininaru_proto_msgTypes[35]
 	if x != nil {
 		ms = protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2185,7 +2659,7 @@ func (x *ApprovalRequest) ProtoReflect() protoreflect.Message {
 }
 
 func (*ApprovalRequest) Descriptor() ([]byte, []int) {
-	return file_mininaru_v1_mininaru_proto_rawDescGZIP(), []int{29}
+	return file_mininaru_v1_mininaru_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *ApprovalRequest) GetRequestId() string {
@@ -2209,6 +2683,77 @@ func (x *ApprovalRequest) GetArguments() string {
 	return ""
 }
 
+type ToolRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	RequestId     string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	ToolName      string                 `protobuf:"bytes,2,opt,name=tool_name,json=toolName,proto3" json:"tool_name,omitempty"`
+	Arguments     string                 `protobuf:"bytes,3,opt,name=arguments,proto3" json:"arguments,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ToolRequest) Reset() {
+	var (
+		mi *protoimpl.
+			MessageInfo
+		ms messageState
+	)
+
+	*x = ToolRequest{}
+	mi = &file_mininaru_v1_mininaru_proto_msgTypes[36]
+	ms = protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ToolRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ToolRequest) ProtoMessage() {}
+
+func (x *ToolRequest) ProtoReflect() protoreflect.Message {
+	var (
+		mi *protoimpl.
+			MessageInfo
+		ms messageState
+	)
+
+	mi = &file_mininaru_v1_mininaru_proto_msgTypes[36]
+	if x != nil {
+		ms = protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (*ToolRequest) Descriptor() ([]byte, []int) {
+	return file_mininaru_v1_mininaru_proto_rawDescGZIP(), []int{36}
+}
+
+func (x *ToolRequest) GetRequestId() string {
+	if x != nil {
+		return x.RequestId
+	}
+	return ""
+}
+
+func (x *ToolRequest) GetToolName() string {
+	if x != nil {
+		return x.ToolName
+	}
+	return ""
+}
+
+func (x *ToolRequest) GetArguments() string {
+	if x != nil {
+		return x.Arguments
+	}
+	return ""
+}
+
 type ChatCompleted struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Message       *Message               `protobuf:"bytes,1,opt,name=message,proto3" json:"message,omitempty"`
@@ -2219,12 +2764,13 @@ type ChatCompleted struct {
 
 func (x *ChatCompleted) Reset() {
 	var (
-		mi *protoimpl.MessageInfo
+		mi *protoimpl.
+			MessageInfo
 		ms messageState
 	)
 
 	*x = ChatCompleted{}
-	mi = &file_mininaru_v1_mininaru_proto_msgTypes[30]
+	mi = &file_mininaru_v1_mininaru_proto_msgTypes[37]
 	ms = protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2237,11 +2783,12 @@ func (*ChatCompleted) ProtoMessage() {}
 
 func (x *ChatCompleted) ProtoReflect() protoreflect.Message {
 	var (
-		mi *protoimpl.MessageInfo
+		mi *protoimpl.
+			MessageInfo
 		ms messageState
 	)
 
-	mi = &file_mininaru_v1_mininaru_proto_msgTypes[30]
+	mi = &file_mininaru_v1_mininaru_proto_msgTypes[37]
 	if x != nil {
 		ms = protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2253,7 +2800,7 @@ func (x *ChatCompleted) ProtoReflect() protoreflect.Message {
 }
 
 func (*ChatCompleted) Descriptor() ([]byte, []int) {
-	return file_mininaru_v1_mininaru_proto_rawDescGZIP(), []int{30}
+	return file_mininaru_v1_mininaru_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *ChatCompleted) GetMessage() *Message {
@@ -2280,12 +2827,13 @@ type ChatFailed struct {
 
 func (x *ChatFailed) Reset() {
 	var (
-		mi *protoimpl.MessageInfo
+		mi *protoimpl.
+			MessageInfo
 		ms messageState
 	)
 
 	*x = ChatFailed{}
-	mi = &file_mininaru_v1_mininaru_proto_msgTypes[31]
+	mi = &file_mininaru_v1_mininaru_proto_msgTypes[38]
 	ms = protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2298,11 +2846,12 @@ func (*ChatFailed) ProtoMessage() {}
 
 func (x *ChatFailed) ProtoReflect() protoreflect.Message {
 	var (
-		mi *protoimpl.MessageInfo
+		mi *protoimpl.
+			MessageInfo
 		ms messageState
 	)
 
-	mi = &file_mininaru_v1_mininaru_proto_msgTypes[31]
+	mi = &file_mininaru_v1_mininaru_proto_msgTypes[38]
 	if x != nil {
 		ms = protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2314,7 +2863,7 @@ func (x *ChatFailed) ProtoReflect() protoreflect.Message {
 }
 
 func (*ChatFailed) Descriptor() ([]byte, []int) {
-	return file_mininaru_v1_mininaru_proto_rawDescGZIP(), []int{31}
+	return file_mininaru_v1_mininaru_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *ChatFailed) GetCode() string {
@@ -2340,12 +2889,13 @@ type ChatServerEvent struct {
 
 func (x *ChatServerEvent) Reset() {
 	var (
-		mi *protoimpl.MessageInfo
+		mi *protoimpl.
+			MessageInfo
 		ms messageState
 	)
 
 	*x = ChatServerEvent{}
-	mi = &file_mininaru_v1_mininaru_proto_msgTypes[32]
+	mi = &file_mininaru_v1_mininaru_proto_msgTypes[39]
 	ms = protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2358,11 +2908,12 @@ func (*ChatServerEvent) ProtoMessage() {}
 
 func (x *ChatServerEvent) ProtoReflect() protoreflect.Message {
 	var (
-		mi *protoimpl.MessageInfo
+		mi *protoimpl.
+			MessageInfo
 		ms messageState
 	)
 
-	mi = &file_mininaru_v1_mininaru_proto_msgTypes[32]
+	mi = &file_mininaru_v1_mininaru_proto_msgTypes[39]
 	if x != nil {
 		ms = protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2374,7 +2925,7 @@ func (x *ChatServerEvent) ProtoReflect() protoreflect.Message {
 }
 
 func (*ChatServerEvent) Descriptor() ([]byte, []int) {
-	return file_mininaru_v1_mininaru_proto_rawDescGZIP(), []int{32}
+	return file_mininaru_v1_mininaru_proto_rawDescGZIP(), []int{39}
 }
 
 func (x *ChatServerEvent) GetEvent() isChatServerEvent_Event {
@@ -2482,6 +3033,20 @@ func (x *ChatServerEvent) GetFailed() *ChatFailed {
 	return nil
 }
 
+func (x *ChatServerEvent) GetToolRequest() *ToolRequest {
+	var (
+		xValue *ChatServerEvent_ToolRequest
+		ok     bool
+	)
+
+	if x != nil {
+		if xValue, ok = x.Event.(*ChatServerEvent_ToolRequest); ok {
+			return xValue.ToolRequest
+		}
+	}
+	return nil
+}
+
 type isChatServerEvent_Event interface {
 	isChatServerEvent_Event()
 }
@@ -2514,6 +3079,10 @@ type ChatServerEvent_Failed struct {
 	Failed *ChatFailed `protobuf:"bytes,7,opt,name=failed,proto3,oneof"`
 }
 
+type ChatServerEvent_ToolRequest struct {
+	ToolRequest *ToolRequest `protobuf:"bytes,8,opt,name=tool_request,json=toolRequest,proto3,oneof"`
+}
+
 func (*ChatServerEvent_Started) isChatServerEvent_Event() {}
 
 func (*ChatServerEvent_Content) isChatServerEvent_Event() {}
@@ -2527,6 +3096,8 @@ func (*ChatServerEvent_Approval) isChatServerEvent_Event() {}
 func (*ChatServerEvent_Completed) isChatServerEvent_Event() {}
 
 func (*ChatServerEvent_Failed) isChatServerEvent_Event() {}
+
+func (*ChatServerEvent_ToolRequest) isChatServerEvent_Event() {}
 
 var File_mininaru_v1_mininaru_proto protoreflect.FileDescriptor
 
@@ -2600,7 +3171,17 @@ const file_mininaru_v1_mininaru_proto_rawDesc = "" +
 	"\x11ListAgentsRequest\"j\n" +
 	"\x12ListAgentsResponse\x12*\n" +
 	"\x06agents\x18\x01 \x03(\v2\x12.mininaru.v1.AgentR\x06agents\x12(\n" +
-	"\x10default_agent_id\x18\x02 \x01(\tR\x0edefaultAgentId\"+\n" +
+	"\x10default_agent_id\x18\x02 \x01(\tR\x0edefaultAgentId\"g\n" +
+	"\x05Skill\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12 \n" +
+	"\vdescription\x18\x02 \x01(\tR\vdescription\x12\x14\n" +
+	"\x05scope\x18\x03 \x01(\tR\x05scope\x12\x12\n" +
+	"\x04body\x18\x04 \x01(\tR\x04body\"\x13\n" +
+	"\x11ListSkillsRequest\"@\n" +
+	"\x12ListSkillsResponse\x12*\n" +
+	"\x06skills\x18\x01 \x03(\v2\x12.mininaru.v1.SkillR\x06skills\"%\n" +
+	"\x0fGetSkillRequest\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\"+\n" +
 	"\x13ListSessionsRequest\x12\x14\n" +
 	"\x05agent\x18\x01 \x01(\tR\x05agent\"H\n" +
 	"\x14ListSessionsResponse\x120\n" +
@@ -2634,20 +3215,36 @@ const file_mininaru_v1_mininaru_proto_rawDesc = "" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\"6\n" +
 	"\x16CompactSessionResponse\x12\x1c\n" +
-	"\tcompacted\x18\x01 \x01(\bR\tcompacted\"`\n" +
+	"\tcompacted\x18\x01 \x01(\bR\tcompacted\"\x93\x01\n" +
 	"\tChatStart\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x18\n" +
 	"\acontent\x18\x02 \x01(\tR\acontent\x12\x1a\n" +
-	"\bthinking\x18\x03 \x01(\tR\bthinking\"f\n" +
+	"\bthinking\x18\x03 \x01(\tR\bthinking\x121\n" +
+	"\x05tools\x18\x04 \x03(\v2\x1b.mininaru.v1.ToolDefinitionR\x05tools\"\x8f\x01\n" +
+	"\x0eToolDefinition\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12 \n" +
+	"\vdescription\x18\x02 \x01(\tR\vdescription\x12'\n" +
+	"\x0fparameters_json\x18\x03 \x01(\tR\x0eparametersJson\x12\x1e\n" +
+	"\n" +
+	"permission\x18\x04 \x01(\tR\n" +
+	"permission\"Y\n" +
+	"\n" +
+	"ToolResult\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x01 \x01(\tR\trequestId\x12\x16\n" +
+	"\x06result\x18\x02 \x01(\tR\x06result\x12\x14\n" +
+	"\x05error\x18\x03 \x01(\tR\x05error\"f\n" +
 	"\x10ApprovalDecision\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x123\n" +
-	"\x06choice\x18\x02 \x01(\x0e2\x1b.mininaru.v1.ApprovalChoiceR\x06choice\"\xb5\x01\n" +
+	"\x06choice\x18\x02 \x01(\x0e2\x1b.mininaru.v1.ApprovalChoiceR\x06choice\"\xf1\x01\n" +
 	"\x0fChatClientEvent\x12.\n" +
 	"\x05start\x18\x01 \x01(\v2\x16.mininaru.v1.ChatStartH\x00R\x05start\x12;\n" +
 	"\bapproval\x18\x02 \x01(\v2\x1d.mininaru.v1.ApprovalDecisionH\x00R\bapproval\x12,\n" +
-	"\x06cancel\x18\x03 \x01(\v2\x12.mininaru.v1.EmptyH\x00R\x06cancelB\a\n" +
+	"\x06cancel\x18\x03 \x01(\v2\x12.mininaru.v1.EmptyH\x00R\x06cancel\x12:\n" +
+	"\vtool_result\x18\x04 \x01(\v2\x17.mininaru.v1.ToolResultH\x00R\n" +
+	"toolResultB\a\n" +
 	"\x05event\"&\n" +
 	"\vChatStarted\x12\x17\n" +
 	"\aturn_id\x18\x01 \x01(\tR\x06turnId\"\x1f\n" +
@@ -2665,6 +3262,11 @@ const file_mininaru_v1_mininaru_proto_rawDesc = "" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12\x1b\n" +
 	"\ttool_name\x18\x02 \x01(\tR\btoolName\x12\x1c\n" +
+	"\targuments\x18\x03 \x01(\tR\targuments\"g\n" +
+	"\vToolRequest\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x01 \x01(\tR\trequestId\x12\x1b\n" +
+	"\ttool_name\x18\x02 \x01(\tR\btoolName\x12\x1c\n" +
 	"\targuments\x18\x03 \x01(\tR\targuments\"i\n" +
 	"\rChatCompleted\x12.\n" +
 	"\amessage\x18\x01 \x01(\v2\x14.mininaru.v1.MessageR\amessage\x12(\n" +
@@ -2672,7 +3274,7 @@ const file_mininaru_v1_mininaru_proto_rawDesc = "" +
 	"\n" +
 	"ChatFailed\x12\x12\n" +
 	"\x04code\x18\x01 \x01(\tR\x04code\x12\x18\n" +
-	"\amessage\x18\x02 \x01(\tR\amessage\"\x95\x03\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage\"\xd4\x03\n" +
 	"\x0fChatServerEvent\x124\n" +
 	"\astarted\x18\x01 \x01(\v2\x18.mininaru.v1.ChatStartedH\x00R\astarted\x122\n" +
 	"\acontent\x18\x02 \x01(\v2\x16.mininaru.v1.TextDeltaH\x00R\acontent\x126\n" +
@@ -2680,7 +3282,8 @@ const file_mininaru_v1_mininaru_proto_rawDesc = "" +
 	"\x04tool\x18\x04 \x01(\v2\x16.mininaru.v1.ToolEventH\x00R\x04tool\x12:\n" +
 	"\bapproval\x18\x05 \x01(\v2\x1c.mininaru.v1.ApprovalRequestH\x00R\bapproval\x12:\n" +
 	"\tcompleted\x18\x06 \x01(\v2\x1a.mininaru.v1.ChatCompletedH\x00R\tcompleted\x121\n" +
-	"\x06failed\x18\a \x01(\v2\x17.mininaru.v1.ChatFailedH\x00R\x06failedB\a\n" +
+	"\x06failed\x18\a \x01(\v2\x17.mininaru.v1.ChatFailedH\x00R\x06failed\x12=\n" +
+	"\ftool_request\x18\b \x01(\v2\x18.mininaru.v1.ToolRequestH\x00R\vtoolRequestB\a\n" +
 	"\x05event*\x99\x01\n" +
 	"\fPairingState\x12\x1d\n" +
 	"\x19PAIRING_STATE_UNSPECIFIED\x10\x00\x12\x19\n" +
@@ -2695,10 +3298,13 @@ const file_mininaru_v1_mininaru_proto_rawDesc = "" +
 	"\x17APPROVAL_CHOICE_SESSION\x10\x032\xa6\x01\n" +
 	"\x0ePairingService\x12L\n" +
 	"\x05Begin\x12 .mininaru.v1.BeginPairingRequest\x1a!.mininaru.v1.BeginPairingResponse\x12F\n" +
-	"\x05Watch\x12 .mininaru.v1.WatchPairingRequest\x1a\x19.mininaru.v1.PairingEvent0\x012\xbc\x05\n" +
+	"\x05Watch\x12 .mininaru.v1.WatchPairingRequest\x1a\x19.mininaru.v1.PairingEvent0\x012\xc9\x06\n" +
 	"\x0fMininaruService\x12M\n" +
 	"\n" +
-	"ListAgents\x12\x1e.mininaru.v1.ListAgentsRequest\x1a\x1f.mininaru.v1.ListAgentsResponse\x12S\n" +
+	"ListAgents\x12\x1e.mininaru.v1.ListAgentsRequest\x1a\x1f.mininaru.v1.ListAgentsResponse\x12M\n" +
+	"\n" +
+	"ListSkills\x12\x1e.mininaru.v1.ListSkillsRequest\x1a\x1f.mininaru.v1.ListSkillsResponse\x12<\n" +
+	"\bGetSkill\x12\x1c.mininaru.v1.GetSkillRequest\x1a\x12.mininaru.v1.Skill\x12S\n" +
 	"\fListSessions\x12 .mininaru.v1.ListSessionsRequest\x1a!.mininaru.v1.ListSessionsResponse\x12H\n" +
 	"\rCreateSession\x12!.mininaru.v1.CreateSessionRequest\x1a\x14.mininaru.v1.Session\x12H\n" +
 	"\n" +
@@ -2722,7 +3328,7 @@ func file_mininaru_v1_mininaru_proto_rawDescGZIP() []byte {
 }
 
 var file_mininaru_v1_mininaru_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_mininaru_v1_mininaru_proto_msgTypes = make([]protoimpl.MessageInfo, 33)
+var file_mininaru_v1_mininaru_proto_msgTypes = make([]protoimpl.MessageInfo, 40)
 var file_mininaru_v1_mininaru_proto_goTypes = []any{
 	(PairingState)(0),              // 0: mininaru.v1.PairingState
 	(ApprovalChoice)(0),            // 1: mininaru.v1.ApprovalChoice
@@ -2739,76 +3345,91 @@ var file_mininaru_v1_mininaru_proto_goTypes = []any{
 	(*Usage)(nil),                  // 12: mininaru.v1.Usage
 	(*ListAgentsRequest)(nil),      // 13: mininaru.v1.ListAgentsRequest
 	(*ListAgentsResponse)(nil),     // 14: mininaru.v1.ListAgentsResponse
-	(*ListSessionsRequest)(nil),    // 15: mininaru.v1.ListSessionsRequest
-	(*ListSessionsResponse)(nil),   // 16: mininaru.v1.ListSessionsResponse
-	(*CreateSessionRequest)(nil),   // 17: mininaru.v1.CreateSessionRequest
-	(*GetSessionRequest)(nil),      // 18: mininaru.v1.GetSessionRequest
-	(*SessionDetail)(nil),          // 19: mininaru.v1.SessionDetail
-	(*RenameSessionRequest)(nil),   // 20: mininaru.v1.RenameSessionRequest
-	(*DeleteSessionRequest)(nil),   // 21: mininaru.v1.DeleteSessionRequest
-	(*GetUsageRequest)(nil),        // 22: mininaru.v1.GetUsageRequest
-	(*CompactSessionRequest)(nil),  // 23: mininaru.v1.CompactSessionRequest
-	(*CompactSessionResponse)(nil), // 24: mininaru.v1.CompactSessionResponse
-	(*ChatStart)(nil),              // 25: mininaru.v1.ChatStart
-	(*ApprovalDecision)(nil),       // 26: mininaru.v1.ApprovalDecision
-	(*ChatClientEvent)(nil),        // 27: mininaru.v1.ChatClientEvent
-	(*ChatStarted)(nil),            // 28: mininaru.v1.ChatStarted
-	(*TextDelta)(nil),              // 29: mininaru.v1.TextDelta
-	(*ToolEvent)(nil),              // 30: mininaru.v1.ToolEvent
-	(*ApprovalRequest)(nil),        // 31: mininaru.v1.ApprovalRequest
-	(*ChatCompleted)(nil),          // 32: mininaru.v1.ChatCompleted
-	(*ChatFailed)(nil),             // 33: mininaru.v1.ChatFailed
-	(*ChatServerEvent)(nil),        // 34: mininaru.v1.ChatServerEvent
+	(*Skill)(nil),                  // 15: mininaru.v1.Skill
+	(*ListSkillsRequest)(nil),      // 16: mininaru.v1.ListSkillsRequest
+	(*ListSkillsResponse)(nil),     // 17: mininaru.v1.ListSkillsResponse
+	(*GetSkillRequest)(nil),        // 18: mininaru.v1.GetSkillRequest
+	(*ListSessionsRequest)(nil),    // 19: mininaru.v1.ListSessionsRequest
+	(*ListSessionsResponse)(nil),   // 20: mininaru.v1.ListSessionsResponse
+	(*CreateSessionRequest)(nil),   // 21: mininaru.v1.CreateSessionRequest
+	(*GetSessionRequest)(nil),      // 22: mininaru.v1.GetSessionRequest
+	(*SessionDetail)(nil),          // 23: mininaru.v1.SessionDetail
+	(*RenameSessionRequest)(nil),   // 24: mininaru.v1.RenameSessionRequest
+	(*DeleteSessionRequest)(nil),   // 25: mininaru.v1.DeleteSessionRequest
+	(*GetUsageRequest)(nil),        // 26: mininaru.v1.GetUsageRequest
+	(*CompactSessionRequest)(nil),  // 27: mininaru.v1.CompactSessionRequest
+	(*CompactSessionResponse)(nil), // 28: mininaru.v1.CompactSessionResponse
+	(*ChatStart)(nil),              // 29: mininaru.v1.ChatStart
+	(*ToolDefinition)(nil),         // 30: mininaru.v1.ToolDefinition
+	(*ToolResult)(nil),             // 31: mininaru.v1.ToolResult
+	(*ApprovalDecision)(nil),       // 32: mininaru.v1.ApprovalDecision
+	(*ChatClientEvent)(nil),        // 33: mininaru.v1.ChatClientEvent
+	(*ChatStarted)(nil),            // 34: mininaru.v1.ChatStarted
+	(*TextDelta)(nil),              // 35: mininaru.v1.TextDelta
+	(*ToolEvent)(nil),              // 36: mininaru.v1.ToolEvent
+	(*ApprovalRequest)(nil),        // 37: mininaru.v1.ApprovalRequest
+	(*ToolRequest)(nil),            // 38: mininaru.v1.ToolRequest
+	(*ChatCompleted)(nil),          // 39: mininaru.v1.ChatCompleted
+	(*ChatFailed)(nil),             // 40: mininaru.v1.ChatFailed
+	(*ChatServerEvent)(nil),        // 41: mininaru.v1.ChatServerEvent
 }
 var file_mininaru_v1_mininaru_proto_depIdxs = []int32{
 	0,  // 0: mininaru.v1.PairingEvent.state:type_name -> mininaru.v1.PairingState
 	11, // 1: mininaru.v1.Usage.lines:type_name -> mininaru.v1.UsageLine
 	7,  // 2: mininaru.v1.ListAgentsResponse.agents:type_name -> mininaru.v1.Agent
-	8,  // 3: mininaru.v1.ListSessionsResponse.sessions:type_name -> mininaru.v1.Session
-	8,  // 4: mininaru.v1.SessionDetail.session:type_name -> mininaru.v1.Session
-	7,  // 5: mininaru.v1.SessionDetail.agent:type_name -> mininaru.v1.Agent
-	9,  // 6: mininaru.v1.SessionDetail.messages:type_name -> mininaru.v1.Message
-	10, // 7: mininaru.v1.SessionDetail.tool_calls:type_name -> mininaru.v1.ToolCall
-	1,  // 8: mininaru.v1.ApprovalDecision.choice:type_name -> mininaru.v1.ApprovalChoice
-	25, // 9: mininaru.v1.ChatClientEvent.start:type_name -> mininaru.v1.ChatStart
-	26, // 10: mininaru.v1.ChatClientEvent.approval:type_name -> mininaru.v1.ApprovalDecision
-	2,  // 11: mininaru.v1.ChatClientEvent.cancel:type_name -> mininaru.v1.Empty
-	9,  // 12: mininaru.v1.ChatCompleted.message:type_name -> mininaru.v1.Message
-	12, // 13: mininaru.v1.ChatCompleted.usage:type_name -> mininaru.v1.Usage
-	28, // 14: mininaru.v1.ChatServerEvent.started:type_name -> mininaru.v1.ChatStarted
-	29, // 15: mininaru.v1.ChatServerEvent.content:type_name -> mininaru.v1.TextDelta
-	29, // 16: mininaru.v1.ChatServerEvent.reasoning:type_name -> mininaru.v1.TextDelta
-	30, // 17: mininaru.v1.ChatServerEvent.tool:type_name -> mininaru.v1.ToolEvent
-	31, // 18: mininaru.v1.ChatServerEvent.approval:type_name -> mininaru.v1.ApprovalRequest
-	32, // 19: mininaru.v1.ChatServerEvent.completed:type_name -> mininaru.v1.ChatCompleted
-	33, // 20: mininaru.v1.ChatServerEvent.failed:type_name -> mininaru.v1.ChatFailed
-	3,  // 21: mininaru.v1.PairingService.Begin:input_type -> mininaru.v1.BeginPairingRequest
-	5,  // 22: mininaru.v1.PairingService.Watch:input_type -> mininaru.v1.WatchPairingRequest
-	13, // 23: mininaru.v1.MininaruService.ListAgents:input_type -> mininaru.v1.ListAgentsRequest
-	15, // 24: mininaru.v1.MininaruService.ListSessions:input_type -> mininaru.v1.ListSessionsRequest
-	17, // 25: mininaru.v1.MininaruService.CreateSession:input_type -> mininaru.v1.CreateSessionRequest
-	18, // 26: mininaru.v1.MininaruService.GetSession:input_type -> mininaru.v1.GetSessionRequest
-	20, // 27: mininaru.v1.MininaruService.RenameSession:input_type -> mininaru.v1.RenameSessionRequest
-	21, // 28: mininaru.v1.MininaruService.DeleteSession:input_type -> mininaru.v1.DeleteSessionRequest
-	22, // 29: mininaru.v1.MininaruService.GetUsage:input_type -> mininaru.v1.GetUsageRequest
-	23, // 30: mininaru.v1.MininaruService.CompactSession:input_type -> mininaru.v1.CompactSessionRequest
-	27, // 31: mininaru.v1.MininaruService.Chat:input_type -> mininaru.v1.ChatClientEvent
-	4,  // 32: mininaru.v1.PairingService.Begin:output_type -> mininaru.v1.BeginPairingResponse
-	6,  // 33: mininaru.v1.PairingService.Watch:output_type -> mininaru.v1.PairingEvent
-	14, // 34: mininaru.v1.MininaruService.ListAgents:output_type -> mininaru.v1.ListAgentsResponse
-	16, // 35: mininaru.v1.MininaruService.ListSessions:output_type -> mininaru.v1.ListSessionsResponse
-	8,  // 36: mininaru.v1.MininaruService.CreateSession:output_type -> mininaru.v1.Session
-	19, // 37: mininaru.v1.MininaruService.GetSession:output_type -> mininaru.v1.SessionDetail
-	8,  // 38: mininaru.v1.MininaruService.RenameSession:output_type -> mininaru.v1.Session
-	2,  // 39: mininaru.v1.MininaruService.DeleteSession:output_type -> mininaru.v1.Empty
-	12, // 40: mininaru.v1.MininaruService.GetUsage:output_type -> mininaru.v1.Usage
-	24, // 41: mininaru.v1.MininaruService.CompactSession:output_type -> mininaru.v1.CompactSessionResponse
-	34, // 42: mininaru.v1.MininaruService.Chat:output_type -> mininaru.v1.ChatServerEvent
-	32, // [32:43] is the sub-list for method output_type
-	21, // [21:32] is the sub-list for method input_type
-	21, // [21:21] is the sub-list for extension type_name
-	21, // [21:21] is the sub-list for extension extendee
-	0,  // [0:21] is the sub-list for field type_name
+	15, // 3: mininaru.v1.ListSkillsResponse.skills:type_name -> mininaru.v1.Skill
+	8,  // 4: mininaru.v1.ListSessionsResponse.sessions:type_name -> mininaru.v1.Session
+	8,  // 5: mininaru.v1.SessionDetail.session:type_name -> mininaru.v1.Session
+	7,  // 6: mininaru.v1.SessionDetail.agent:type_name -> mininaru.v1.Agent
+	9,  // 7: mininaru.v1.SessionDetail.messages:type_name -> mininaru.v1.Message
+	10, // 8: mininaru.v1.SessionDetail.tool_calls:type_name -> mininaru.v1.ToolCall
+	30, // 9: mininaru.v1.ChatStart.tools:type_name -> mininaru.v1.ToolDefinition
+	1,  // 10: mininaru.v1.ApprovalDecision.choice:type_name -> mininaru.v1.ApprovalChoice
+	29, // 11: mininaru.v1.ChatClientEvent.start:type_name -> mininaru.v1.ChatStart
+	32, // 12: mininaru.v1.ChatClientEvent.approval:type_name -> mininaru.v1.ApprovalDecision
+	2,  // 13: mininaru.v1.ChatClientEvent.cancel:type_name -> mininaru.v1.Empty
+	31, // 14: mininaru.v1.ChatClientEvent.tool_result:type_name -> mininaru.v1.ToolResult
+	9,  // 15: mininaru.v1.ChatCompleted.message:type_name -> mininaru.v1.Message
+	12, // 16: mininaru.v1.ChatCompleted.usage:type_name -> mininaru.v1.Usage
+	34, // 17: mininaru.v1.ChatServerEvent.started:type_name -> mininaru.v1.ChatStarted
+	35, // 18: mininaru.v1.ChatServerEvent.content:type_name -> mininaru.v1.TextDelta
+	35, // 19: mininaru.v1.ChatServerEvent.reasoning:type_name -> mininaru.v1.TextDelta
+	36, // 20: mininaru.v1.ChatServerEvent.tool:type_name -> mininaru.v1.ToolEvent
+	37, // 21: mininaru.v1.ChatServerEvent.approval:type_name -> mininaru.v1.ApprovalRequest
+	39, // 22: mininaru.v1.ChatServerEvent.completed:type_name -> mininaru.v1.ChatCompleted
+	40, // 23: mininaru.v1.ChatServerEvent.failed:type_name -> mininaru.v1.ChatFailed
+	38, // 24: mininaru.v1.ChatServerEvent.tool_request:type_name -> mininaru.v1.ToolRequest
+	3,  // 25: mininaru.v1.PairingService.Begin:input_type -> mininaru.v1.BeginPairingRequest
+	5,  // 26: mininaru.v1.PairingService.Watch:input_type -> mininaru.v1.WatchPairingRequest
+	13, // 27: mininaru.v1.MininaruService.ListAgents:input_type -> mininaru.v1.ListAgentsRequest
+	16, // 28: mininaru.v1.MininaruService.ListSkills:input_type -> mininaru.v1.ListSkillsRequest
+	18, // 29: mininaru.v1.MininaruService.GetSkill:input_type -> mininaru.v1.GetSkillRequest
+	19, // 30: mininaru.v1.MininaruService.ListSessions:input_type -> mininaru.v1.ListSessionsRequest
+	21, // 31: mininaru.v1.MininaruService.CreateSession:input_type -> mininaru.v1.CreateSessionRequest
+	22, // 32: mininaru.v1.MininaruService.GetSession:input_type -> mininaru.v1.GetSessionRequest
+	24, // 33: mininaru.v1.MininaruService.RenameSession:input_type -> mininaru.v1.RenameSessionRequest
+	25, // 34: mininaru.v1.MininaruService.DeleteSession:input_type -> mininaru.v1.DeleteSessionRequest
+	26, // 35: mininaru.v1.MininaruService.GetUsage:input_type -> mininaru.v1.GetUsageRequest
+	27, // 36: mininaru.v1.MininaruService.CompactSession:input_type -> mininaru.v1.CompactSessionRequest
+	33, // 37: mininaru.v1.MininaruService.Chat:input_type -> mininaru.v1.ChatClientEvent
+	4,  // 38: mininaru.v1.PairingService.Begin:output_type -> mininaru.v1.BeginPairingResponse
+	6,  // 39: mininaru.v1.PairingService.Watch:output_type -> mininaru.v1.PairingEvent
+	14, // 40: mininaru.v1.MininaruService.ListAgents:output_type -> mininaru.v1.ListAgentsResponse
+	17, // 41: mininaru.v1.MininaruService.ListSkills:output_type -> mininaru.v1.ListSkillsResponse
+	15, // 42: mininaru.v1.MininaruService.GetSkill:output_type -> mininaru.v1.Skill
+	20, // 43: mininaru.v1.MininaruService.ListSessions:output_type -> mininaru.v1.ListSessionsResponse
+	8,  // 44: mininaru.v1.MininaruService.CreateSession:output_type -> mininaru.v1.Session
+	23, // 45: mininaru.v1.MininaruService.GetSession:output_type -> mininaru.v1.SessionDetail
+	8,  // 46: mininaru.v1.MininaruService.RenameSession:output_type -> mininaru.v1.Session
+	2,  // 47: mininaru.v1.MininaruService.DeleteSession:output_type -> mininaru.v1.Empty
+	12, // 48: mininaru.v1.MininaruService.GetUsage:output_type -> mininaru.v1.Usage
+	28, // 49: mininaru.v1.MininaruService.CompactSession:output_type -> mininaru.v1.CompactSessionResponse
+	41, // 50: mininaru.v1.MininaruService.Chat:output_type -> mininaru.v1.ChatServerEvent
+	38, // [38:51] is the sub-list for method output_type
+	25, // [25:38] is the sub-list for method input_type
+	25, // [25:25] is the sub-list for extension type_name
+	25, // [25:25] is the sub-list for extension extendee
+	0,  // [0:25] is the sub-list for field type_name
 }
 
 func init() { file_mininaru_v1_mininaru_proto_init() }
@@ -2817,12 +3438,13 @@ func file_mininaru_v1_mininaru_proto_init() {
 	if File_mininaru_v1_mininaru_proto != nil {
 		return
 	}
-	file_mininaru_v1_mininaru_proto_msgTypes[25].OneofWrappers = []any{
+	file_mininaru_v1_mininaru_proto_msgTypes[31].OneofWrappers = []any{
 		(*ChatClientEvent_Start)(nil),
 		(*ChatClientEvent_Approval)(nil),
 		(*ChatClientEvent_Cancel)(nil),
+		(*ChatClientEvent_ToolResult)(nil),
 	}
-	file_mininaru_v1_mininaru_proto_msgTypes[32].OneofWrappers = []any{
+	file_mininaru_v1_mininaru_proto_msgTypes[39].OneofWrappers = []any{
 		(*ChatServerEvent_Started)(nil),
 		(*ChatServerEvent_Content)(nil),
 		(*ChatServerEvent_Reasoning)(nil),
@@ -2830,6 +3452,7 @@ func file_mininaru_v1_mininaru_proto_init() {
 		(*ChatServerEvent_Approval)(nil),
 		(*ChatServerEvent_Completed)(nil),
 		(*ChatServerEvent_Failed)(nil),
+		(*ChatServerEvent_ToolRequest)(nil),
 	}
 	type x struct{}
 
@@ -2838,7 +3461,7 @@ func file_mininaru_v1_mininaru_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_mininaru_v1_mininaru_proto_rawDesc), len(file_mininaru_v1_mininaru_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   33,
+			NumMessages:   40,
 			NumExtensions: 0,
 			NumServices:   2,
 		},

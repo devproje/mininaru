@@ -32,9 +32,10 @@ func NewPairingServiceClient(cc grpc.ClientConnInterface) PairingServiceClient {
 
 func (c *pairingServiceClient) Begin(ctx context.Context, in *BeginPairingRequest, opts ...grpc.CallOption) (*BeginPairingResponse, error) {
 	var (
-		cOpts []grpc.CallOption
-		out   *BeginPairingResponse
-		err   error
+		cOpts []grpc.
+			CallOption
+		out *BeginPairingResponse
+		err error
 	)
 
 	cOpts = append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
@@ -48,10 +49,15 @@ func (c *pairingServiceClient) Begin(ctx context.Context, in *BeginPairingReques
 
 func (c *pairingServiceClient) Watch(ctx context.Context, in *WatchPairingRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[PairingEvent], error) {
 	var (
-		cOpts  []grpc.CallOption
-		stream grpc.ClientStream
-		x      *grpc.GenericClientStream[WatchPairingRequest, PairingEvent]
-		err    error
+		cOpts []grpc.
+			CallOption
+		stream grpc.
+			ClientStream
+		x *grpc.
+			GenericClientStream[WatchPairingRequest,
+
+			PairingEvent]
+		err error
 	)
 
 	cOpts = append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
@@ -106,8 +112,9 @@ func RegisterPairingServiceServer(s grpc.ServiceRegistrar, srv PairingServiceSer
 
 func _PairingService_Begin_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	var (
-		in      *BeginPairingRequest
-		info    *grpc.UnaryServerInfo
+		in   *BeginPairingRequest
+		info *grpc.
+			UnaryServerInfo
 		handler func(ctx context.Context, req interface{}) (interface{}, error)
 		err     error
 	)
@@ -165,6 +172,8 @@ var PairingService_ServiceDesc = grpc.ServiceDesc{
 
 const (
 	MininaruService_ListAgents_FullMethodName     = "/mininaru.v1.MininaruService/ListAgents"
+	MininaruService_ListSkills_FullMethodName     = "/mininaru.v1.MininaruService/ListSkills"
+	MininaruService_GetSkill_FullMethodName       = "/mininaru.v1.MininaruService/GetSkill"
 	MininaruService_ListSessions_FullMethodName   = "/mininaru.v1.MininaruService/ListSessions"
 	MininaruService_CreateSession_FullMethodName  = "/mininaru.v1.MininaruService/CreateSession"
 	MininaruService_GetSession_FullMethodName     = "/mininaru.v1.MininaruService/GetSession"
@@ -177,6 +186,8 @@ const (
 
 type MininaruServiceClient interface {
 	ListAgents(ctx context.Context, in *ListAgentsRequest, opts ...grpc.CallOption) (*ListAgentsResponse, error)
+	ListSkills(ctx context.Context, in *ListSkillsRequest, opts ...grpc.CallOption) (*ListSkillsResponse, error)
+	GetSkill(ctx context.Context, in *GetSkillRequest, opts ...grpc.CallOption) (*Skill, error)
 	ListSessions(ctx context.Context, in *ListSessionsRequest, opts ...grpc.CallOption) (*ListSessionsResponse, error)
 	CreateSession(ctx context.Context, in *CreateSessionRequest, opts ...grpc.CallOption) (*Session, error)
 	GetSession(ctx context.Context, in *GetSessionRequest, opts ...grpc.CallOption) (*SessionDetail, error)
@@ -197,9 +208,10 @@ func NewMininaruServiceClient(cc grpc.ClientConnInterface) MininaruServiceClient
 
 func (c *mininaruServiceClient) ListAgents(ctx context.Context, in *ListAgentsRequest, opts ...grpc.CallOption) (*ListAgentsResponse, error) {
 	var (
-		cOpts []grpc.CallOption
-		out   *ListAgentsResponse
-		err   error
+		cOpts []grpc.
+			CallOption
+		out *ListAgentsResponse
+		err error
 	)
 
 	cOpts = append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
@@ -211,11 +223,46 @@ func (c *mininaruServiceClient) ListAgents(ctx context.Context, in *ListAgentsRe
 	return out, nil
 }
 
+func (c *mininaruServiceClient) ListSkills(ctx context.Context, in *ListSkillsRequest, opts ...grpc.CallOption) (*ListSkillsResponse, error) {
+	var (
+		cOpts []grpc.
+			CallOption
+		out *ListSkillsResponse
+		err error
+	)
+
+	cOpts = append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out = new(ListSkillsResponse)
+	err = c.cc.Invoke(ctx, MininaruService_ListSkills_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *mininaruServiceClient) GetSkill(ctx context.Context, in *GetSkillRequest, opts ...grpc.CallOption) (*Skill, error) {
+	var (
+		cOpts []grpc.
+			CallOption
+		out *Skill
+		err error
+	)
+
+	cOpts = append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out = new(Skill)
+	err = c.cc.Invoke(ctx, MininaruService_GetSkill_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *mininaruServiceClient) ListSessions(ctx context.Context, in *ListSessionsRequest, opts ...grpc.CallOption) (*ListSessionsResponse, error) {
 	var (
-		cOpts []grpc.CallOption
-		out   *ListSessionsResponse
-		err   error
+		cOpts []grpc.
+			CallOption
+		out *ListSessionsResponse
+		err error
 	)
 
 	cOpts = append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
@@ -229,9 +276,10 @@ func (c *mininaruServiceClient) ListSessions(ctx context.Context, in *ListSessio
 
 func (c *mininaruServiceClient) CreateSession(ctx context.Context, in *CreateSessionRequest, opts ...grpc.CallOption) (*Session, error) {
 	var (
-		cOpts []grpc.CallOption
-		out   *Session
-		err   error
+		cOpts []grpc.
+			CallOption
+		out *Session
+		err error
 	)
 
 	cOpts = append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
@@ -245,9 +293,10 @@ func (c *mininaruServiceClient) CreateSession(ctx context.Context, in *CreateSes
 
 func (c *mininaruServiceClient) GetSession(ctx context.Context, in *GetSessionRequest, opts ...grpc.CallOption) (*SessionDetail, error) {
 	var (
-		cOpts []grpc.CallOption
-		out   *SessionDetail
-		err   error
+		cOpts []grpc.
+			CallOption
+		out *SessionDetail
+		err error
 	)
 
 	cOpts = append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
@@ -261,9 +310,10 @@ func (c *mininaruServiceClient) GetSession(ctx context.Context, in *GetSessionRe
 
 func (c *mininaruServiceClient) RenameSession(ctx context.Context, in *RenameSessionRequest, opts ...grpc.CallOption) (*Session, error) {
 	var (
-		cOpts []grpc.CallOption
-		out   *Session
-		err   error
+		cOpts []grpc.
+			CallOption
+		out *Session
+		err error
 	)
 
 	cOpts = append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
@@ -277,9 +327,10 @@ func (c *mininaruServiceClient) RenameSession(ctx context.Context, in *RenameSes
 
 func (c *mininaruServiceClient) DeleteSession(ctx context.Context, in *DeleteSessionRequest, opts ...grpc.CallOption) (*Empty, error) {
 	var (
-		cOpts []grpc.CallOption
-		out   *Empty
-		err   error
+		cOpts []grpc.
+			CallOption
+		out *Empty
+		err error
 	)
 
 	cOpts = append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
@@ -293,9 +344,10 @@ func (c *mininaruServiceClient) DeleteSession(ctx context.Context, in *DeleteSes
 
 func (c *mininaruServiceClient) GetUsage(ctx context.Context, in *GetUsageRequest, opts ...grpc.CallOption) (*Usage, error) {
 	var (
-		cOpts []grpc.CallOption
-		out   *Usage
-		err   error
+		cOpts []grpc.
+			CallOption
+		out *Usage
+		err error
 	)
 
 	cOpts = append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
@@ -309,9 +361,10 @@ func (c *mininaruServiceClient) GetUsage(ctx context.Context, in *GetUsageReques
 
 func (c *mininaruServiceClient) CompactSession(ctx context.Context, in *CompactSessionRequest, opts ...grpc.CallOption) (*CompactSessionResponse, error) {
 	var (
-		cOpts []grpc.CallOption
-		out   *CompactSessionResponse
-		err   error
+		cOpts []grpc.
+			CallOption
+		out *CompactSessionResponse
+		err error
 	)
 
 	cOpts = append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
@@ -325,10 +378,15 @@ func (c *mininaruServiceClient) CompactSession(ctx context.Context, in *CompactS
 
 func (c *mininaruServiceClient) Chat(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[ChatClientEvent, ChatServerEvent], error) {
 	var (
-		cOpts  []grpc.CallOption
-		stream grpc.ClientStream
-		x      *grpc.GenericClientStream[ChatClientEvent, ChatServerEvent]
-		err    error
+		cOpts []grpc.
+			CallOption
+		stream grpc.
+			ClientStream
+		x *grpc.
+			GenericClientStream[ChatClientEvent,
+
+			ChatServerEvent]
+		err error
 	)
 
 	cOpts = append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
@@ -344,6 +402,8 @@ type MininaruService_ChatClient = grpc.BidiStreamingClient[ChatClientEvent, Chat
 
 type MininaruServiceServer interface {
 	ListAgents(context.Context, *ListAgentsRequest) (*ListAgentsResponse, error)
+	ListSkills(context.Context, *ListSkillsRequest) (*ListSkillsResponse, error)
+	GetSkill(context.Context, *GetSkillRequest) (*Skill, error)
 	ListSessions(context.Context, *ListSessionsRequest) (*ListSessionsResponse, error)
 	CreateSession(context.Context, *CreateSessionRequest) (*Session, error)
 	GetSession(context.Context, *GetSessionRequest) (*SessionDetail, error)
@@ -359,6 +419,12 @@ type UnimplementedMininaruServiceServer struct{}
 
 func (UnimplementedMininaruServiceServer) ListAgents(context.Context, *ListAgentsRequest) (*ListAgentsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListAgents not implemented")
+}
+func (UnimplementedMininaruServiceServer) ListSkills(context.Context, *ListSkillsRequest) (*ListSkillsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListSkills not implemented")
+}
+func (UnimplementedMininaruServiceServer) GetSkill(context.Context, *GetSkillRequest) (*Skill, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetSkill not implemented")
 }
 func (UnimplementedMininaruServiceServer) ListSessions(context.Context, *ListSessionsRequest) (*ListSessionsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListSessions not implemented")
@@ -405,8 +471,9 @@ func RegisterMininaruServiceServer(s grpc.ServiceRegistrar, srv MininaruServiceS
 
 func _MininaruService_ListAgents_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	var (
-		in      *ListAgentsRequest
-		info    *grpc.UnaryServerInfo
+		in   *ListAgentsRequest
+		info *grpc.
+			UnaryServerInfo
 		handler func(ctx context.Context, req interface{}) (interface{}, error)
 		err     error
 	)
@@ -428,10 +495,63 @@ func _MininaruService_ListAgents_Handler(srv interface{}, ctx context.Context, d
 	return interceptor(ctx, in, info, handler)
 }
 
+func _MininaruService_ListSkills_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	var (
+		in   *ListSkillsRequest
+		info *grpc.
+			UnaryServerInfo
+		handler func(ctx context.Context, req interface{}) (interface{}, error)
+		err     error
+	)
+
+	in = new(ListSkillsRequest)
+	if err = dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MininaruServiceServer).ListSkills(ctx, in)
+	}
+	info = &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MininaruService_ListSkills_FullMethodName,
+	}
+	handler = func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MininaruServiceServer).ListSkills(ctx, req.(*ListSkillsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MininaruService_GetSkill_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	var (
+		in   *GetSkillRequest
+		info *grpc.
+			UnaryServerInfo
+		handler func(ctx context.Context, req interface{}) (interface{}, error)
+		err     error
+	)
+
+	in = new(GetSkillRequest)
+	if err = dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MininaruServiceServer).GetSkill(ctx, in)
+	}
+	info = &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MininaruService_GetSkill_FullMethodName,
+	}
+	handler = func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MininaruServiceServer).GetSkill(ctx, req.(*GetSkillRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _MininaruService_ListSessions_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	var (
-		in      *ListSessionsRequest
-		info    *grpc.UnaryServerInfo
+		in   *ListSessionsRequest
+		info *grpc.
+			UnaryServerInfo
 		handler func(ctx context.Context, req interface{}) (interface{}, error)
 		err     error
 	)
@@ -455,8 +575,9 @@ func _MininaruService_ListSessions_Handler(srv interface{}, ctx context.Context,
 
 func _MininaruService_CreateSession_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	var (
-		in      *CreateSessionRequest
-		info    *grpc.UnaryServerInfo
+		in   *CreateSessionRequest
+		info *grpc.
+			UnaryServerInfo
 		handler func(ctx context.Context, req interface{}) (interface{}, error)
 		err     error
 	)
@@ -480,8 +601,9 @@ func _MininaruService_CreateSession_Handler(srv interface{}, ctx context.Context
 
 func _MininaruService_GetSession_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	var (
-		in      *GetSessionRequest
-		info    *grpc.UnaryServerInfo
+		in   *GetSessionRequest
+		info *grpc.
+			UnaryServerInfo
 		handler func(ctx context.Context, req interface{}) (interface{}, error)
 		err     error
 	)
@@ -505,8 +627,9 @@ func _MininaruService_GetSession_Handler(srv interface{}, ctx context.Context, d
 
 func _MininaruService_RenameSession_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	var (
-		in      *RenameSessionRequest
-		info    *grpc.UnaryServerInfo
+		in   *RenameSessionRequest
+		info *grpc.
+			UnaryServerInfo
 		handler func(ctx context.Context, req interface{}) (interface{}, error)
 		err     error
 	)
@@ -530,8 +653,9 @@ func _MininaruService_RenameSession_Handler(srv interface{}, ctx context.Context
 
 func _MininaruService_DeleteSession_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	var (
-		in      *DeleteSessionRequest
-		info    *grpc.UnaryServerInfo
+		in   *DeleteSessionRequest
+		info *grpc.
+			UnaryServerInfo
 		handler func(ctx context.Context, req interface{}) (interface{}, error)
 		err     error
 	)
@@ -555,8 +679,9 @@ func _MininaruService_DeleteSession_Handler(srv interface{}, ctx context.Context
 
 func _MininaruService_GetUsage_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	var (
-		in      *GetUsageRequest
-		info    *grpc.UnaryServerInfo
+		in   *GetUsageRequest
+		info *grpc.
+			UnaryServerInfo
 		handler func(ctx context.Context, req interface{}) (interface{}, error)
 		err     error
 	)
@@ -580,8 +705,9 @@ func _MininaruService_GetUsage_Handler(srv interface{}, ctx context.Context, dec
 
 func _MininaruService_CompactSession_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	var (
-		in      *CompactSessionRequest
-		info    *grpc.UnaryServerInfo
+		in   *CompactSessionRequest
+		info *grpc.
+			UnaryServerInfo
 		handler func(ctx context.Context, req interface{}) (interface{}, error)
 		err     error
 	)
@@ -616,6 +742,14 @@ var MininaruService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListAgents",
 			Handler:    _MininaruService_ListAgents_Handler,
+		},
+		{
+			MethodName: "ListSkills",
+			Handler:    _MininaruService_ListSkills_Handler,
+		},
+		{
+			MethodName: "GetSkill",
+			Handler:    _MininaruService_GetSkill_Handler,
 		},
 		{
 			MethodName: "ListSessions",

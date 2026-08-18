@@ -5,6 +5,7 @@ package handlers
 
 import (
 	"context"
+	"os"
 	"strings"
 	"sync"
 	"unicode"
@@ -245,6 +246,7 @@ func (d *Discord) answerFor(ctx context.Context, channelId, sourceChannelId, sou
 	var defs []modules.Def
 	var message *core.Message
 	var replyTo string
+	var home string
 
 	var err error
 
@@ -292,7 +294,20 @@ func (d *Discord) answerFor(ctx context.Context, channelId, sourceChannelId, sou
 		status.log("✗", "`"+label+"` — "+toolFailureReason(event.Error))
 	}
 	if role == core.DiscordRoleAdmin {
-		defs = modules.DefaultTools()
+		home, err = os.UserHomeDir()
+		if err != nil {
+			indicator.stop()
+			status.finish("❌", "Failed")
+			d.sendReplyTo(channelId, replyTo, conversationFailure("resolving the tool workspace", err))
+			return
+		}
+		defs, err = modules.DefaultToolsAt(home)
+		if err != nil {
+			indicator.stop()
+			status.finish("❌", "Failed")
+			d.sendReplyTo(channelId, replyTo, conversationFailure("opening the tool workspace", err))
+			return
+		}
 		message, err = target.ChatInput(ctx, session, content, parts, defs, onReasoning, onTool,
 			func(ctx context.Context, def modules.Def, arguments string) (bool, error) {
 				return d.approve(ctx, channelId, userId, def, arguments)
