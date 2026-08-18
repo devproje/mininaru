@@ -9,7 +9,7 @@ LD_FLAGS := -s -w						\
 			-X main.hash=$(GIT_HASH)$(DIRTY)
 
 TARGET  = out/mininaru
-FMT_DIR = bot/ cli/ config/ core/ modules/ server/ util/
+FMT_DIR = bot/ cli/ config/ core/ modules/ rpc/ server/ util/
 
 COVER_OUT = out/coverage.out
 
@@ -19,12 +19,15 @@ GOARCH  ?= $(shell go env GOARCH)
 DIST_NAME = mininaru_$(GOOS)_$(GOARCH)
 DIST_BIN  = $(DIST_DIR)/$(DIST_NAME)/mininaru$(if $(filter windows,$(GOOS)),.exe,)
 
-.PHONY: all build fmt vet test test-race test-cover test-all dist install uninstall clean
+.PHONY: all build generate fmt vet test test-race test-cover test-all dist install uninstall clean
 
 all: build
 
 build:
 	go build -ldflags "$(LD_FLAGS)" -o $(TARGET) ./cli
+
+generate:
+	sh ./scripts/generate-proto.sh
 
 dist:
 	@mkdir -p $(dir $(DIST_BIN))

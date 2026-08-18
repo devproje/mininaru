@@ -4,11 +4,42 @@
 package main
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestSetupStartsByChoosingClientOrServer(t *testing.T) {
+	var previous func(context.Context, string, string, string) error
+	var address string
+	var name string
+	var expected string
+
+	var err error
+
+	fakeSession(t, "client\nnaru.example.com:9090\nlaptop\n")
+	previous = setupPair
+	setupPair = func(ctx context.Context, gotAddress, gotName, gotExpected string) error {
+		address = gotAddress
+		name = gotName
+		expected = gotExpected
+
+		return nil
+	}
+	t.Cleanup(func() {
+		setupPair = previous
+	})
+
+	err = setupExecute(setup, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if address != "naru.example.com:9090" || name != "laptop" || expected != "" {
+		t.Fatalf("pairing input = %q, %q, %q", address, name, expected)
+	}
+}
 
 func TestSetupEnvFileCreatesAPrivateFile(t *testing.T) {
 	var path string

@@ -146,8 +146,11 @@ Builds reporting `dev` never show it. To turn the check off entirely, set
 
 ## First run
 
-`setup` walks through the whole thing -- provider, agent, the thinking and tool
-defaults, and finally the systemd user daemon -- asking one question at a time:
+`setup` first asks whether this installation is a server or a paired client.
+Client setup asks for the remote gRPC address, verifies its fingerprint, and
+waits for pairing approval. Server setup walks through provider, agent, thinking
+and tool defaults, and finally the systemd user daemon -- asking one question at
+a time:
 
 ```sh
 ./out/mininaru setup
@@ -662,6 +665,76 @@ mininaru serve --api-key '<KEY>'                 # 127.0.0.1:8080
 mininaru serve --host 0.0.0.0 --port 3000 --api-key '<KEY>'
 ```
 
+The same command starts the native session-aware gRPC server on
+`127.0.0.1:9090`. Its listener is independent from the HTTP API:
+
+```sh
+mininaru serve --api-key '<KEY>' --grpc-host 0.0.0.0 --grpc-port 9090
+mininaru serve --grpc-only --grpc-host 0.0.0.0
+```
+
+The HTTP API remains stateless and API-key authenticated. The native gRPC API
+owns sessions on the server and accepts only paired client devices over mutual
+TLS; HTTP credentials and gRPC identities are not interchangeable.
+
+### Pairing a gRPC client
+
+The server creates a local Ed25519 certificate authority and server identity on
+first start. Its public-key fingerprint is printed when the gRPC listener
+starts. On the client machine, compare that value while pairing:
+
+```sh
+mininaru pair naru.example.com:9090 --name laptop
+```
+
+The client shows the server fingerprint before trusting it, creates its own
+Ed25519 key locally, and prints a six-digit code plus its client fingerprint.
+The server operator approves that request on the server host:
+
+```sh
+mininaru client pending
+mininaru client approve 482193
+```
+
+Codes expire after five minutes and pairing attempts are rate limited. The
+client private key never leaves the client; approval returns a client
+certificate signed by the server's local CA. Pair non-interactively only when
+the expected fingerprint came through another trusted channel:
+
+```sh
+mininaru pair naru.example.com:9090 \
+  --name ci-runner \
+  --fingerprint 'SHA256:...'
+```
+
+Successful pairing writes the server address to `client.json`, so ordinary
+commands use it automatically. `--server` overrides that default:
+
+```sh
+mininaru
+mininaru -p 'summarise the current session' --session
+mininaru session list
+mininaru session usage <id>
+mininaru --server naru.example.com:9090
+```
+
+The TUI streams answer and reasoning deltas, tool progress, cancellation, and
+dangerous-tool approval over one bidirectional RPC. Sessions, history, tool
+logs, compaction, and token usage stay in the server's SQLite database.
+
+Manage paired devices on the server host:
+
+```sh
+mininaru client list
+mininaru client deny 482193
+mininaru client revoke 'SHA256:...'
+```
+
+Revocation takes effect on the next RPC, including over an already open HTTP/2
+connection. Server CA keys and server keys live under `.mininaru/pki`; client
+keys and certificates live under `.mininaru/identity`. Private material and the
+trust store are written with mode `0600`.
+
 An API key is required. Pass `--api-key` or set `MININARU_API_KEY`; the server
 refuses to start without one and answers `401` unless the request carries
 `Authorization: Bearer <KEY>`.
@@ -924,6 +997,7 @@ rule: only ones classified safe are exposed, and a server configured with
 ## Development
 
 ```sh
+make generate    # regenerate protobuf and gRPC Go sources
 make fmt         # gofmt check, fails on unformatted files
 make vet         # go vet
 make test        # fmt + vet + unit tests

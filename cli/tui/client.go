@@ -74,6 +74,7 @@ type slashCommand struct {
 type client struct {
 	session *core.Session
 	agent   *core.NaruAgent
+	backend Backend
 	program *tea.Program
 
 	input   textarea.Model
@@ -171,7 +172,7 @@ func (c *client) recordApproval(name string, decision approvalDecision) bool {
 	return decision != approvalDeny
 }
 
-func newClient(session *core.Session, agent *core.NaruAgent, history []*core.Message) *client {
+func newClientWithBackend(session *core.Session, agent *core.NaruAgent, history []*core.Message, backend Backend) *client {
 	var input textarea.Model
 	var sp spinner.Model
 	var view viewport.Model
@@ -204,6 +205,7 @@ func newClient(session *core.Session, agent *core.NaruAgent, history []*core.Mes
 	c = client{
 		session:  session,
 		agent:    agent,
+		backend:  backend,
 		input:    input,
 		spinner:  sp,
 		view:     view,
@@ -222,7 +224,7 @@ func newClient(session *core.Session, agent *core.NaruAgent, history []*core.Mes
 		if cur.Role != "user" {
 			continue
 		}
-		calls, err = core.ToolCallList(cur.Id)
+		calls, err = c.backend.ToolCalls(cur.Id)
 		if err != nil {
 			c.transcript = append(c.transcript, transcriptEntry{kind: transcriptNotice, content: "tool log error: " + err.Error()})
 			continue
@@ -239,7 +241,11 @@ func newClient(session *core.Session, agent *core.NaruAgent, history []*core.Mes
 	return &c
 }
 
-func Run(session *core.Session, agent *core.NaruAgent, history []*core.Message, notice string) error {
+func newClient(session *core.Session, agent *core.NaruAgent, history []*core.Message) *client {
+	return newClientWithBackend(session, agent, history, localBackend{})
+}
+
+func RunWithBackend(session *core.Session, agent *core.NaruAgent, history []*core.Message, notice string, backend Backend) error {
 	var c *client
 	var p *tea.Program
 	var release func()
@@ -247,11 +253,11 @@ func Run(session *core.Session, agent *core.NaruAgent, history []*core.Message, 
 	var err error
 
 	agent.ModelContextWindow(context.Background())
-	c = newClient(session, agent, history)
+	if backend == nil {
+		backend = localBackend{}
+	}
+	c = newClientWithBackend(session, agent, history, backend)
 	c.notice = notice
-	// Do not enable terminal mouse reporting here. It steals ordinary drag
-	// selection from the terminal, which prevents users from copying chat text
-	// with the mouse. Keyboard scrolling remains available via PageUp/PageDown.
 	p = tea.NewProgram(c, tea.WithAltScreen())
 	c.program = p
 
@@ -266,6 +272,10 @@ func Run(session *core.Session, agent *core.NaruAgent, history []*core.Message, 
 	}
 
 	return err
+}
+
+func Run(session *core.Session, agent *core.NaruAgent, history []*core.Message, notice string) error {
+	return RunWithBackend(session, agent, history, notice, localBackend{})
 }
 
 func (c *client) contentWidth() int {
@@ -388,7 +398,7 @@ func (c *client) sendPrompt(ctx context.Context, content string) tea.Cmd {
 
 		var err error
 
-		message, err = core.ChatWithApproval(ctx, c.session, c.agent, content, func(delta string) {
+		message, err = c.backend.Chat(ctx, c.session, c.agent, content, func(delta string) {
 			c.program.Send(chatDeltaMsg(delta))
 		}, func(delta string) {
 			c.program.Send(chatThinkMsg(delta))
@@ -561,7 +571,7 @@ func (c *client) compactRun(ctx context.Context) tea.Cmd {
 
 		var err error
 
-		compacted, err = core.CompactNow(ctx, c.agent, c.session)
+		compacted, err = c.backend.Compact(ctx, c.agent, c.session)
 
 		return compactDoneMsg{compacted: compacted, err: err}
 	}
@@ -616,7 +626,7 @@ func (c *client) usageCommand() tea.Cmd {
 
 	var err error
 
-	totals, err = core.SessionUsage(c.session.Id)
+	totals, err = c.backend.Usage(c.session.Id)
 	if err != nil {
 		c.transcript = append(c.transcript, transcriptEntry{kind: transcriptNotice,
 			content: "could not read token usage: " + err.Error()})
@@ -1482,7 +1492,7 @@ func (c *client) refreshContextUsage() {
 
 	var err error
 
-	tokens, window, known, err = core.SessionContextTokens(c.session.Id)
+	tokens, window, known, err = c.backend.Context(c.session.Id)
 	if err != nil {
 		return
 	}

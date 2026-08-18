@@ -28,11 +28,16 @@ type Update struct {
 	Check bool `json:"check"`
 }
 
+type Server struct {
+	Address string `json:"address"`
+}
+
 type ClientConfig struct {
 	Thinking Thinking `json:"thinking"`
 	Context  Context  `json:"context"`
 	Tools    Tools    `json:"tools"`
 	Update   Update   `json:"update"`
+	Server   Server   `json:"server"`
 }
 
 const CLIENT_PATH = "client.json"

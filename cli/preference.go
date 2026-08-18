@@ -755,6 +755,10 @@ func sessionListExecute(cmd *cobra.Command, args []string) error {
 
 	var err error
 
+	if activeServerAddress() != "" {
+		return remoteSessionListExecute(cmd.Context())
+	}
+
 	target, err = sessionAgent()
 	if err != nil {
 		return err
@@ -821,6 +825,10 @@ func sessionUsageExecute(cmd *cobra.Command, args []string) error {
 
 	var err error
 
+	if activeServerAddress() != "" {
+		return remoteSessionUsageExecute(cmd.Context(), args)
+	}
+
 	session, err = sessionUsageTarget(args)
 	if err != nil {
 		return err
@@ -857,6 +865,10 @@ func sessionRemoveExecute(cmd *cobra.Command, args []string) error {
 
 	var err error
 
+	if activeServerAddress() != "" {
+		return remoteSessionRemoveExecute(cmd.Context(), args[0])
+	}
+
 	target, err = sessionAgent()
 	if err != nil {
 		return err
@@ -886,6 +898,9 @@ func sessionRenameExecute(cmd *cobra.Command, args []string) error {
 
 	if sessionNameRef == "" {
 		return usageErrorf("session name is required, pass --name")
+	}
+	if activeServerAddress() != "" {
+		return remoteSessionRenameExecute(cmd.Context(), args[0], sessionNameRef)
 	}
 
 	return core.SessionUpdate(args[0], sessionNameRef)

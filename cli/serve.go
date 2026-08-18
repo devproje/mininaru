@@ -14,6 +14,7 @@ import (
 	"github.com/devproje/mininaru/config"
 	"github.com/devproje/mininaru/core"
 	"github.com/devproje/mininaru/modules"
+	mininarurpc "github.com/devproje/mininaru/rpc"
 	"github.com/devproje/mininaru/server"
 	"github.com/devproje/mininaru/util"
 	"github.com/spf13/cobra"
@@ -22,19 +23,23 @@ import (
 const apiKeyEnv = "MININARU_API_KEY"
 
 var (
-	serveHostRef   string
-	servePortRef   int
-	serveApiKeyRef string
+	serveHostRef     string
+	servePortRef     int
+	serveApiKeyRef   string
+	serveGRPCHostRef string
+	serveGRPCPortRef int
+	serveGRPCOnlyRef bool
 )
 
 var serve *cobra.Command = &cobra.Command{
 	Use:   "serve",
-	Short: "serve the api and any configured bot front ends",
-	Long: `Run the OpenAI compatible HTTP API, plus every enabled bot.
+	Short: "serve the gRPC and HTTP APIs plus configured bot front ends",
+	Long: `Run the paired gRPC API, OpenAI compatible HTTP API, and every enabled bot.
 
-The API is stateless and exposes each agent as a model name. Requests need the
-bearer token from --api-key or ` + "`" + apiKeyEnv + "`" + `, and only safe tools are offered.
-Send SIGHUP to reload configuration without restarting.`,
+gRPC clients use server-owned sessions and paired mTLS identities. The HTTP API
+is stateless, exposes each agent as a model name, requires the bearer token from
+--api-key or ` + "`" + apiKeyEnv + "`" + `, and offers only safe tools. Send SIGHUP to reload
+configuration without restarting.`,
 	Example: `  mininaru serve
   mininaru serve --host 0.0.0.0 --port 8080`,
 	Args: usageArgs(cobra.NoArgs),
@@ -144,19 +149,50 @@ func startBots(registry *core.Registry) ([]*bot.Discord, error) {
 	return started, nil
 }
 
+func serveAll(ctx context.Context, httpConfig server.Config, grpcConfig mininarurpc.Config, registry *core.Registry) error {
+	var running context.Context
+	var cancel context.CancelFunc
+	var results chan error
+	var first error
+	var second error
+
+	running, cancel = context.WithCancel(ctx)
+	defer cancel()
+
+	results = make(chan error, 2)
+	go func() {
+		results <- mininarurpc.Serve(running, grpcConfig, registry)
+	}()
+	go func() {
+		results <- server.Serve(running, httpConfig, registry)
+	}()
+
+	first = <-results
+	cancel()
+	second = <-results
+
+	if first != nil {
+		return first
+	}
+
+	return second
+}
+
 func serveExecute(cmd *cobra.Command, args []string) error {
 	var cfg server.Config
+	var grpcCfg mininarurpc.Config
 	var registry *core.Registry
 	var started []*bot.Discord
 
 	var err error
 
 	cfg = server.Config{Host: serveHostRef, Port: servePortRef, ApiKey: serveApiKeyRef}
+	grpcCfg = mininarurpc.Config{Host: serveGRPCHostRef, Port: serveGRPCPortRef}
 	if cfg.ApiKey == "" {
 		cfg.ApiKey = os.Getenv(apiKeyEnv)
 	}
 
-	if cfg.ApiKey == "" {
+	if cfg.ApiKey == "" && !serveGRPCOnlyRef {
 		return configErrorf("api key is required, pass --api-key or set %s", apiKeyEnv)
 	}
 
@@ -190,14 +226,22 @@ func serveExecute(cmd *cobra.Command, args []string) error {
 	}
 
 	defer stopBots(started)
+	if serveGRPCOnlyRef {
+		uiNote("serving %d agent(s) on grpc://%s:%d", len(registry.List()), grpcCfg.Host, grpcCfg.Port)
 
-	uiNote("serving %d agent(s) on http://%s:%d", len(registry.List()), cfg.Host, cfg.Port)
+		return mininarurpc.Serve(cmd.Context(), grpcCfg, registry)
+	}
 
-	return server.Serve(cmd.Context(), cfg, registry)
+	uiNote("serving %d agent(s) on http://%s:%d and grpc://%s:%d", len(registry.List()), cfg.Host, cfg.Port, grpcCfg.Host, grpcCfg.Port)
+
+	return serveAll(cmd.Context(), cfg, grpcCfg, registry)
 }
 
 func init() {
 	serve.Flags().StringVar(&serveHostRef, "host", server.DefaultHost, "address to bind the api server")
 	serve.Flags().IntVar(&servePortRef, "port", server.DefaultPort, "port to bind the api server")
 	serve.Flags().StringVar(&serveApiKeyRef, "api-key", "", "bearer token required by api clients, defaults to "+apiKeyEnv)
+	serve.Flags().StringVar(&serveGRPCHostRef, "grpc-host", mininarurpc.DefaultHost, "address to bind the gRPC server")
+	serve.Flags().IntVar(&serveGRPCPortRef, "grpc-port", mininarurpc.DefaultPort, "port to bind the gRPC server")
+	serve.Flags().BoolVar(&serveGRPCOnlyRef, "grpc-only", false, "serve paired gRPC clients without starting the HTTP API")
 }
