@@ -185,7 +185,7 @@ func deltaReasoning(delta openai.ChatCompletionChunkChoiceDelta) string {
 }
 
 func chatWithToolPolicy(ctx context.Context, session *Session, agent *NaruAgent, content string, parts []openai.ChatCompletionContentPartUnionParam,
-	defs []modules.Def, onContent, onReasoning func(string), onTool ToolEventFunc, approve ToolApprovalFunc, allowDangerous bool) (*Message, error) {
+	defs []modules.Def, thinking string, onContent, onReasoning func(string), onTool ToolEventFunc, approve ToolApprovalFunc, allowDangerous bool) (*Message, error) {
 	var history []*Message
 	var calls map[string][]*ToolCall
 	var prompt string
@@ -248,8 +248,8 @@ func chatWithToolPolicy(ctx context.Context, session *Session, agent *NaruAgent,
 		params.Tools = toolParams(defs)
 	}
 
-	if config.ThinkingEnabled() {
-		params.ReasoningEffort = openai.ReasoningEffort(config.Client.Thinking.Level)
+	if thinking != "" && thinking != config.ThinkingOff {
+		params.ReasoningEffort = openai.ReasoningEffort(thinking)
 	}
 
 	pending, err = messageStart(session.Id, content)
@@ -285,7 +285,7 @@ func chatWithToolPolicy(ctx context.Context, session *Session, agent *NaruAgent,
 }
 
 func chatWithTools(ctx context.Context, session *Session, agent *NaruAgent, content string, defs []modules.Def, onContent, onReasoning func(string), onTool ToolEventFunc, approve ToolApprovalFunc) (*Message, error) {
-	return chatWithToolPolicy(ctx, session, agent, content, nil, defs, onContent, onReasoning, onTool, approve, config.AllowDangerousTools)
+	return chatWithToolPolicy(ctx, session, agent, content, nil, defs, config.Client.Thinking.Level, onContent, onReasoning, onTool, approve, config.AllowDangerousTools)
 }
 
 func Chat(ctx context.Context, session *Session, agent *NaruAgent, content string, onContent, onReasoning func(string)) (*Message, error) {

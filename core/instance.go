@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/devproje/mininaru/config"
 	"github.com/devproje/mininaru/modules"
 	"github.com/openai/openai-go"
 )
@@ -93,11 +94,11 @@ func (i *Instance) Chat(ctx context.Context, session *Session, content string,
 	}
 	defer i.locks.release(session.Id)
 
-	return chatWithToolPolicy(ctx, session, i.Agent, content, nil, i.Tools, onContent, onReasoning, onTool, nil, false)
+	return chatWithToolPolicy(ctx, session, i.Agent, content, nil, i.Tools, config.Client.Thinking.Level, onContent, onReasoning, onTool, nil, false)
 }
 
-func (i *Instance) ChatWithTools(ctx context.Context, session *Session, content string, defs []modules.Def,
-	onReasoning func(string), onTool ToolEventFunc, approve ToolApprovalFunc) (*Message, error) {
+func (i *Instance) ChatWithTools(ctx context.Context, session *Session, content string, defs []modules.Def, thinking string,
+	onContent, onReasoning func(string), onTool ToolEventFunc, approve ToolApprovalFunc) (*Message, error) {
 	var err error
 
 	if session == nil {
@@ -112,7 +113,7 @@ func (i *Instance) ChatWithTools(ctx context.Context, session *Session, content 
 	}
 	defer i.locks.release(session.Id)
 
-	return chatWithToolPolicy(ctx, session, i.Agent, content, nil, defs, nil, onReasoning, onTool, approve, false)
+	return chatWithToolPolicy(ctx, session, i.Agent, content, nil, defs, thinking, onContent, onReasoning, onTool, approve, false)
 }
 
 func (i *Instance) ChatInput(ctx context.Context, session *Session, content string, parts []openai.ChatCompletionContentPartUnionParam,
@@ -131,7 +132,7 @@ func (i *Instance) ChatInput(ctx context.Context, session *Session, content stri
 	}
 	defer i.locks.release(session.Id)
 
-	return chatWithToolPolicy(ctx, session, i.Agent, content, parts, defs, nil, onReasoning, onTool, approve, false)
+	return chatWithToolPolicy(ctx, session, i.Agent, content, parts, defs, config.Client.Thinking.Level, nil, onReasoning, onTool, approve, false)
 }
 
 func (i *Instance) Session(name string) (*Session, error) {

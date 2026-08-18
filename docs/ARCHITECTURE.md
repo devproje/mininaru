@@ -1,8 +1,9 @@
 # Architecture
 
 mininaru is a single Go binary that talks to OpenAI-compatible providers and
-the native Anthropic Messages API. It
-ships two front ends over one core: a terminal chat client and an HTTP API.
+the native Anthropic Messages API. It ships a local terminal client, a paired
+session-aware gRPC client, and a stateless OpenAI-compatible HTTP API over one
+core.
 
 ## Packages
 
@@ -12,16 +13,17 @@ core/      providers, agents, sessions, messages, the tool-calling loop
 modules/   tool implementations, the in-process MCP server exposing them, the
            MCP client manager, mcp.json, web.json, and skill discovery
 server/    stateless OpenAI-compatible HTTP API
+rpc/       protobuf contract, paired mTLS transport, session API, and PKI
 bot/       chat front ends that live inside the daemon (Discord)
 config/    client.json preferences (thinking, context budget, tool switch)
 cli/tui/   interactive terminal model, rendering, input, and approvals
 util/      data directory layout, SQLite handle, migrations, version info
 ```
 
-Dependencies point one way: `cli` depends on `server` and `bot`, both of which
-depend on `core`, and `core` depends on `modules`, `config`, and `util`. Nothing
-in `core` imports its callers, and `server` and `bot` do not import each other —
-`cli/serve.go` is the only place that knows about both. `modules` stays a leaf:
+Dependencies point one way: `cli` depends on `server`, `rpc`, and `bot`, all of
+which depend on `core`, and `core` depends on `modules`, `config`, and `util`.
+Nothing in `core` imports its callers, and the front ends do not import each
+other — `cli/serve.go` is the only place that knows about them. `modules` stays a leaf:
 it imports `util` and the MCP SDK and nothing else in the tree. MCP process
 lifetime is owned by `cli`; `core` never starts or stops anything.
 
@@ -37,12 +39,12 @@ Every front end drives the same tool-calling loop, `completionRun` in
 model keeps emitting tool calls it executes them and feeds the results back, up
 to `maxToolRounds` (8) times.
 
-| | `core.Chat` (TUI, `-p`) | `core.Complete` (server) |
+| | `core.Chat` (local and gRPC TUI, `-p`) | `core.Complete` (HTTP server) |
 |---|---|---|
-| History | loaded from SQLite by session | supplied in the request |
+| History | loaded from server-side SQLite by session | supplied in the request |
 | Persistence | messages and tool calls written | nothing written |
 | Tools | `modules.DefaultTools()` | `modules.SafeTools()` |
-| Dangerous tools | approval callback, or `--allow-dangerous-tools` | never offered |
+| Dangerous tools | local or gRPC approval callback | never offered |
 | Context management | provider token usage and model window drive `compactHistory` | client's responsibility |
 | Token accounting | recorded against the session | returned in the response |
 
@@ -733,10 +735,56 @@ carried as `reasoning_content` deltas. Once the stream has started the status
 code is already sent, so a mid-stream failure arrives as an `[error]` content
 delta followed by `data: [DONE]`.
 
+## Native gRPC
+
+The native API in `api/mininaru/v1/mininaru.proto` is deliberately separate
+from the OpenAI-compatible HTTP surface. HTTP callers supply their whole
+history and receive only safe tools. A paired gRPC client names a server-owned
+session and drives `Instance.ChatWithTools`, so it receives persisted history,
+reasoning deltas, tool events, approval requests, compaction, and usage from the
+same path as the local TUI.
+
+The `Chat` RPC is bidirectional. Its first client event must be `start`; later
+client events answer a tool approval or cancel the turn. Server events carry
+content, reasoning, tool progress, an approval request, and exactly one
+terminal completion or failure. Losing the HTTP/2 stream cancels the core
+context, so a disconnected client cannot leave a model turn running.
+
+Pairing and normal RPCs share a TLS 1.3 listener but not an authorization
+policy. `PairingService` accepts a connection without a client certificate,
+rate limits `Begin` by peer address, and addresses a pending request by an
+unguessable UUID. Every `MininaruService` unary and streaming call passes an
+interceptor that requires a CA-verified client certificate and then checks its
+public-key fingerprint, certificate serial, and revocation state in SQLite.
+
+The client verifies the server twice. Before pairing, the operator compares the
+server public-key fingerprint through another trusted channel. Afterwards the
+client pins that fingerprint and also verifies the server certificate against
+the CA returned by the approved pairing. Renewal can therefore keep the server
+key without another trust prompt, while a changed key fails closed.
+
+The CA and server key are generated as Ed25519 keys under `pki/`; each client
+generates its own Ed25519 key and sends only its DER public key. Approval signs
+a one-year client certificate, stores its serial and fingerprint, and makes a
+previous certificate for the same key unusable. Revocation is checked on every
+RPC rather than only during the TLS handshake, so it also applies to an
+existing connection.
+
+`rpc_clients` and `rpc_pairings` are introduced by migration 0014. Pairing
+codes expire after five minutes. The code only identifies a request for the
+operator; the UUID held by the waiting client is the capability used to collect
+the issued certificate.
+
+Generated Go sources live under `rpc/gen`. `make generate` runs the pinned
+protobuf toolchain supplied by the developer, adds the repository SPDX header,
+and strips generator comments so generated files still follow the project
+comment convention.
+
 ## Development
 
 ```sh
 make build     # -> out/mininaru
+make generate  # regenerate protobuf and gRPC sources
 make test      # gofmt -l, go vet, go test ./...
 make install   # scripts/binary-install.sh
 ```

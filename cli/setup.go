@@ -20,15 +20,17 @@ import (
 var setup *cobra.Command = &cobra.Command{
 	Use:   "setup",
 	Short: "walk through the first run configuration",
-	Long: `Configure a provider, an agent and the defaults in one guided pass.
+	Long: `Choose a paired client or server installation in one guided pass.
 
-Existing configuration is offered back as the default at every step, so this is
-safe to re-run. It needs a terminal; without one, use ` + "`provider add`" + ` and
-` + "`agent add`" + ` instead.`,
+Client mode verifies the remote server fingerprint and requests pairing. Server
+mode configures a provider, an agent and local defaults. Existing configuration
+is offered back as the default, so this is safe to re-run.`,
 	Example: `  mininaru setup`,
 	Args:    usageArgs(cobra.NoArgs),
 	RunE:    setupExecute,
 }
+
+var setupPair = pairWithServer
 
 func setupProvider() (*core.Provider, error) {
 	var reuse bool
@@ -242,16 +244,31 @@ func setupDaemon(cmd *cobra.Command) error {
 	return daemonInstallExecute(cmd, nil)
 }
 
-func setupExecute(cmd *cobra.Command, args []string) error {
-	var prov *core.Provider
+func setupClient(cmd *cobra.Command) error {
+	var address string
+	var name string
 
 	var err error
 
-	if !askInteractive() {
-		return usageErrorf("setup needs a terminal, configure with `provider add` and `agent add` instead")
+	fmt.Fprintln(askOut, "\npair this device with a mininaru server")
+
+	address, err = askRequired("server address (host:port)")
+	if err != nil {
+		return err
 	}
 
-	fmt.Fprintf(askOut, "configuring mininaru in %s\n", util.RootDir)
+	name, err = askText("device name", pairDeviceName())
+	if err != nil {
+		return err
+	}
+
+	return setupPair(cmd.Context(), address, name, "")
+}
+
+func setupServer(cmd *cobra.Command) error {
+	var prov *core.Provider
+
+	var err error
 
 	prov, err = setupProvider()
 	if err != nil {
@@ -277,4 +294,27 @@ func setupExecute(cmd *cobra.Command, args []string) error {
 	fmt.Fprintf(askOut, "\nready, run `mininaru` to start chatting with %s\n", core.Global.Name)
 
 	return nil
+}
+
+func setupExecute(cmd *cobra.Command, args []string) error {
+	var mode string
+
+	var err error
+
+	if !askInteractive() {
+		return usageErrorf("setup needs a terminal, configure the server with `provider add` and `agent add`, or pair a client with `mininaru pair`")
+	}
+
+	fmt.Fprintf(askOut, "configuring mininaru in %s\n\n", util.RootDir)
+
+	mode, err = askChoice("mode", []string{"server", "client"}, "server")
+	if err != nil {
+		return err
+	}
+
+	if mode == "client" {
+		return setupClient(cmd)
+	}
+
+	return setupServer(cmd)
 }

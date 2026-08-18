@@ -39,6 +39,7 @@ var (
 	resumeRef    string
 	chatAgentRef string
 	promptRef    string
+	serverRef    string
 
 	logLevelRef  string
 	logFormatRef string
@@ -51,7 +52,8 @@ var root *cobra.Command = &cobra.Command{
 
 Running it with no arguments opens the chat client with the global agent, either
 resuming the session you name or starting a fresh one. The subcommands configure
-providers, agents, tools and bots, and serve the OpenAI compatible API.`,
+providers, agents, tools and bots, and serve the paired gRPC and OpenAI
+compatible APIs.`,
 	Example: `  mininaru
   mininaru --resume
   mininaru -a reviewer -p "summarise the diff on stdin" -
@@ -252,6 +254,24 @@ func execute(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
+	if promptRef != "" {
+		content, err = promptContent(promptRef, os.Stdin)
+		if err != nil {
+			return err
+		}
+
+		if content == "" {
+			return fmt.Errorf("prompt is empty")
+		}
+	}
+
+	if serverRef == "" {
+		serverRef = config.Client.Server.Address
+	}
+	if serverRef != "" {
+		return executeRemote(cmd.Context(), args, content)
+	}
+
 	if config.Client.Tools.Enabled {
 		err = withProgress(cmd.Context(), "connecting to mcp servers", func() error {
 			return modules.MCPInit(cmd.Context())
@@ -264,17 +284,6 @@ func execute(cmd *cobra.Command, args []string) error {
 	agent, err = resolveAgent()
 	if err != nil {
 		return err
-	}
-
-	if promptRef != "" {
-		content, err = promptContent(promptRef, os.Stdin)
-		if err != nil {
-			return err
-		}
-
-		if content == "" {
-			return fmt.Errorf("prompt is empty")
-		}
 	}
 
 	session, err = resolveSession(agent, args)
@@ -301,6 +310,7 @@ func rootInit() {
 		"diagnostic log level: "+strings.Join(util.LogLevels(), ", ")+" (default info, or "+util.LogLevelEnv+")")
 	root.PersistentFlags().StringVar(&logFormatRef, "log-format", "",
 		"diagnostic log format: "+strings.Join(util.LogFormats(), ", ")+" (default auto, or "+util.LogFormatEnv+")")
+	root.PersistentFlags().StringVar(&serverRef, "server", "", "paired gRPC server address, defaults to client.json")
 
 	root.PersistentFlags().BoolVar(&util.AppDebug, "debug", false, "enable debugging mode")
 	root.PersistentFlags().BoolVar(&config.AllowDangerousTools, "allow-dangerous-tools", false, "allow file writes and shell commands for this run")
@@ -335,8 +345,9 @@ func rootInit() {
 	skillConfig.GroupID = groupConfig
 	webConfig.GroupID = groupConfig
 	botConfig.GroupID = groupConfig
-
 	serve.GroupID = groupService
+	clientConfig.GroupID = groupService
+	pairCmd.GroupID = groupService
 	daemonConfig.GroupID = groupService
 	updateCmd.GroupID = groupService
 
@@ -352,6 +363,8 @@ func rootInit() {
 	root.AddCommand(skillConfig)
 	root.AddCommand(webConfig)
 	root.AddCommand(botConfig)
+	root.AddCommand(clientConfig)
+	root.AddCommand(pairCmd)
 	root.AddCommand(daemonConfig)
 	root.AddCommand(updateCmd)
 }

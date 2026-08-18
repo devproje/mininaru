@@ -143,9 +143,6 @@ func migrations(db *sql.DB) error {
 	return nil
 }
 
-// ensureTokenUsageCachedTokens repairs databases that recorded migration 0012
-// before cached_tokens was added to that migration file. Migration files are
-// immutable once shipped, so those databases otherwise never see the column.
 func ensureTokenUsageCachedTokens(db *sql.DB) error {
 	var rows *sql.Rows
 	var name string
