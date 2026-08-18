@@ -50,6 +50,10 @@ func (s *testChatStream) Send(event *mininaruv1.ChatServerEvent) error {
 		s.incoming <- &mininaruv1.ChatClientEvent{Event: &mininaruv1.ChatClientEvent_Approval{Approval: &mininaruv1.ApprovalDecision{
 			RequestId: event.GetApproval().GetRequestId(), Choice: mininaruv1.ApprovalChoice_APPROVAL_CHOICE_DENY}}}
 	}
+	if s.autoDeny && event.GetToolRequest() != nil {
+		s.incoming <- &mininaruv1.ChatClientEvent{Event: &mininaruv1.ChatClientEvent_ToolResult{ToolResult: &mininaruv1.ToolResult{
+			RequestId: event.GetToolRequest().GetRequestId(), Error: "user denied dangerous tool"}}}
+	}
 
 	return nil
 }
@@ -526,7 +530,7 @@ func TestChatStreamsAndPersistsServerSession(t *testing.T) {
 	}
 }
 
-func TestChatCarriesToolApprovalOverTheStream(t *testing.T) {
+func TestChatRunsAdvertisedToolsOnTheClient(t *testing.T) {
 	var calls atomic.Int32
 	var upstream *httptest.Server
 	var registry *core.Registry
@@ -572,14 +576,15 @@ func TestChatCarriesToolApprovalOverTheStream(t *testing.T) {
 	defer cancel()
 	stream = testChatStream{ctx: ctx, incoming: make(chan *mininaruv1.ChatClientEvent, 1), autoDeny: true}
 	stream.incoming <- &mininaruv1.ChatClientEvent{Event: &mininaruv1.ChatClientEvent_Start{Start: &mininaruv1.ChatStart{
-		SessionId: session.Id, Content: "run it", Thinking: config.ThinkingOff}}}
+		SessionId: session.Id, Content: "run it", Thinking: config.ThinkingOff, Tools: []*mininaruv1.ToolDefinition{{
+			Name: "bash_exec", Description: "run a command", ParametersJson: `{"type":"object"}`, Permission: "dangerous"}}}}}
 
 	err = (&mininaruService{registry: registry, slots: make(chan struct{}, 1)}).Chat(&stream)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, event = range stream.outgoing {
-		if event.GetApproval() != nil && event.GetApproval().GetToolName() == "bash_exec" {
+		if event.GetToolRequest() != nil && event.GetToolRequest().GetToolName() == "bash_exec" {
 			requested = true
 		}
 		if event.GetCompleted() != nil {
@@ -587,7 +592,7 @@ func TestChatCarriesToolApprovalOverTheStream(t *testing.T) {
 		}
 	}
 	if !requested {
-		t.Fatal("dangerous tool produced no approval request")
+		t.Fatal("advertised tool produced no client execution request")
 	}
 	if completed == nil || completed.GetMessage().GetContent() != "denied safely" {
 		t.Fatalf("completed = %#v", completed)

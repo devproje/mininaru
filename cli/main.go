@@ -265,12 +265,7 @@ func execute(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	if serverRef == "" {
-		serverRef = config.Client.Server.Address
-	}
-	if serverRef != "" {
-		return executeRemote(cmd.Context(), args, content)
-	}
+	serverRef = activeServerAddress()
 
 	if config.Client.Tools.Enabled {
 		err = withProgress(cmd.Context(), "connecting to mcp servers", func() error {
@@ -279,6 +274,9 @@ func execute(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return err
 		}
+	}
+	if serverRef != "" {
+		return executeRemote(cmd.Context(), args, content)
 	}
 
 	agent, err = resolveAgent()

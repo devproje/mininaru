@@ -5,13 +5,13 @@ package rpc
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"sync"
 	"time"
 
-	"github.com/devproje/mininaru/config"
 	"github.com/devproje/mininaru/core"
 	"github.com/devproje/mininaru/modules"
 	mininaruv1 "github.com/devproje/mininaru/rpc/gen/mininaru/v1"
@@ -49,6 +49,19 @@ func rpcAgent(agent *core.NaruAgent) *mininaruv1.Agent {
 	}
 
 	return &mininaruv1.Agent{Id: agent.Id, Name: agent.Name, Model: agent.Model, Provider: providerName}
+}
+
+func rpcSkill(skill *modules.Skill, includeBody bool) *mininaruv1.Skill {
+	var body string
+
+	if skill == nil {
+		return nil
+	}
+	if includeBody {
+		body = skill.Body
+	}
+
+	return &mininaruv1.Skill{Name: skill.Name, Description: skill.Description, Scope: skill.Scope, Body: body}
 }
 
 func rpcSession(session *core.Session) *mininaruv1.Session {
@@ -132,6 +145,36 @@ func (s *mininaruService) ListAgents(ctx context.Context, request *mininaruv1.Li
 	}
 
 	return &response, nil
+}
+
+func (s *mininaruService) ListSkills(ctx context.Context, request *mininaruv1.ListSkillsRequest) (*mininaruv1.ListSkillsResponse, error) {
+	var response mininaruv1.ListSkillsResponse
+	var skill modules.Skill
+
+	for _, skill = range modules.SkillAll() {
+		response.Skills = append(response.Skills, rpcSkill(&skill, false))
+	}
+
+	return &response, nil
+}
+
+func (s *mininaruService) GetSkill(ctx context.Context, request *mininaruv1.GetSkillRequest) (*mininaruv1.Skill, error) {
+	var skill *modules.Skill
+	var body string
+
+	var err error
+
+	skill = modules.SkillFind(request.GetName())
+	if skill == nil {
+		return nil, status.Error(codes.NotFound, "skill not found")
+	}
+	body, err = modules.SkillResult(skill.Name, "")
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+	skill = &modules.Skill{Name: skill.Name, Description: skill.Description, Scope: skill.Scope, Body: body}
+
+	return rpcSkill(skill, true), nil
 }
 
 func (s *mininaruService) ListSessions(ctx context.Context, request *mininaruv1.ListSessionsRequest) (*mininaruv1.ListSessionsResponse, error) {
@@ -419,6 +462,66 @@ func chatApprover(ctx context.Context, stream mininaruv1.MininaruService_ChatSer
 	}
 }
 
+func remoteToolExecute(ctx context.Context, stream mininaruv1.MininaruService_ChatServer,
+	incoming <-chan *mininaruv1.ChatClientEvent, sendMu *sync.Mutex, name string) func(context.Context, string) (string, error) {
+	return func(callCtx context.Context, arguments string) (string, error) {
+		var requestId string
+		var event *mininaruv1.ChatClientEvent
+		var result *mininaruv1.ToolResult
+
+		var err error
+
+		requestId = uuid.NewString()
+		sendMu.Lock()
+		err = stream.Send(&mininaruv1.ChatServerEvent{Event: &mininaruv1.ChatServerEvent_ToolRequest{ToolRequest: &mininaruv1.ToolRequest{
+			RequestId: requestId, ToolName: name, Arguments: arguments}}})
+		sendMu.Unlock()
+		if err != nil {
+			return "", err
+		}
+		for {
+			select {
+			case event = <-incoming:
+				result = event.GetToolResult()
+				if result == nil || result.GetRequestId() != requestId {
+					continue
+				}
+				if result.GetError() != "" {
+					return "", errors.New(result.GetError())
+				}
+				return result.GetResult(), nil
+			case <-callCtx.Done():
+				return "", callCtx.Err()
+			case <-ctx.Done():
+				return "", ctx.Err()
+			}
+		}
+	}
+}
+
+func remoteToolDefs(ctx context.Context, stream mininaruv1.MininaruService_ChatServer,
+	incoming <-chan *mininaruv1.ChatClientEvent, sendMu *sync.Mutex, advertised []*mininaruv1.ToolDefinition) ([]modules.Def, error) {
+	var item *mininaruv1.ToolDefinition
+	var parameters map[string]any
+	var defs []modules.Def
+	var def modules.Def
+
+	var err error
+
+	for _, item = range advertised {
+		parameters = nil
+		err = json.Unmarshal([]byte(item.GetParametersJson()), &parameters)
+		if err != nil {
+			return nil, status.Error(codes.InvalidArgument, "invalid tool parameters")
+		}
+		def = modules.Def{Name: item.GetName(), Description: item.GetDescription(), Parameters: parameters,
+			Execute: remoteToolExecute(ctx, stream, incoming, sendMu, item.GetName())}
+		defs = append(defs, def)
+	}
+
+	return defs, nil
+}
+
 func errorsIsContext(err error) bool {
 	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
 }
@@ -488,8 +591,9 @@ func (s *mininaruService) Chat(stream mininaruv1.MininaruService_ChatServer) err
 		return err
 	}
 
-	if config.Client.Tools.Enabled {
-		defs = modules.DefaultTools()
+	defs, err = remoteToolDefs(chatCtx, stream, incoming, &sendMu, start.GetTools())
+	if err != nil {
+		return err
 	}
 
 	message, err = instance.ChatWithTools(chatCtx, session, start.GetContent(), defs, start.GetThinking(),

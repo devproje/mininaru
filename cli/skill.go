@@ -57,6 +57,10 @@ func skillListExecute(cmd *cobra.Command, args []string) error {
 	var current modules.Skill
 	var rows *uiRows
 
+	if activeServerAddress() != "" {
+		return remoteSkillListExecute(cmd.Context())
+	}
+
 	all = modules.SkillAll()
 	if len(all) == 0 {
 		uiEmpty("no skills installed")
@@ -79,6 +83,10 @@ func skillShowExecute(cmd *cobra.Command, args []string) error {
 	var result string
 
 	var err error
+
+	if activeServerAddress() != "" {
+		return remoteSkillShowExecute(cmd.Context(), args[0])
+	}
 
 	result, err = modules.SkillResult(args[0], "")
 	if err != nil {

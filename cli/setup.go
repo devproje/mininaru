@@ -270,6 +270,8 @@ func setupServer(cmd *cobra.Command) error {
 
 	var err error
 
+	config.Client.Mode = config.ModeServer
+
 	prov, err = setupProvider()
 	if err != nil {
 		return err

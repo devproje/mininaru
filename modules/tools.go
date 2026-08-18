@@ -60,6 +60,34 @@ func DefaultTools() []Def {
 	return tools
 }
 
+func DefaultToolsAt(root string) ([]Def, error) {
+	var resolved string
+	var rooted []Def
+	var replacement map[string]Def
+	var tools []Def
+	var index int
+
+	var err error
+
+	resolved, err = toolRoot(root)
+	if err != nil {
+		return nil, err
+	}
+	rooted = []Def{FileRead(resolved), FileWrite(resolved), FileEdit(resolved), Glob(resolved), Grep(resolved), BashExec(resolved)}
+	replacement = make(map[string]Def)
+	for index = range rooted {
+		replacement[rooted[index].Name] = rooted[index]
+	}
+	tools = DefaultTools()
+	for index = range tools {
+		if replacement[tools[index].Name].Name != "" {
+			tools[index] = replacement[tools[index].Name]
+		}
+	}
+
+	return tools, nil
+}
+
 func SafeTools() []Def {
 	var def Def
 	var tools []Def

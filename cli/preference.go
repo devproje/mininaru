@@ -528,6 +528,10 @@ func agentListExecute(cmd *cobra.Command, args []string) error {
 	var cur *core.NaruAgent
 	var mark string
 
+	if activeServerAddress() != "" {
+		return remoteAgentListExecute(cmd.Context())
+	}
+
 	all = core.AgentAll()
 	if len(all) == 0 {
 		uiEmpty("no agents yet, add one with `mininaru agent add`")

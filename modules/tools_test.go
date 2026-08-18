@@ -5,9 +5,44 @@ package modules
 
 import (
 	"context"
+	"os"
 	"strings"
 	"testing"
 )
+
+func TestDefaultToolsAtRootsFileAccessAtTheGivenDirectory(t *testing.T) {
+	var root string
+	var defs []Def
+	var def Def
+	var result string
+
+	var err error
+
+	root = t.TempDir()
+	err = os.WriteFile(root+"/inside.txt", []byte("home-root"), 0600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defs, err = DefaultToolsAt(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, def = range defs {
+		if def.Name != "file_read" {
+			continue
+		}
+		result, err = def.Execute(context.Background(), `{"path":"inside.txt"}`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(result, "home-root") {
+			t.Fatalf("file_read result = %q", result)
+		}
+		return
+	}
+
+	t.Fatal("file_read tool not found")
+}
 
 func TestCurrentTime(t *testing.T) {
 	var result string

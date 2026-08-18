@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -28,6 +29,9 @@ func activeServerAddress() string {
 	if serverRef != "" {
 		return serverRef
 	}
+	if !config.RemoteClient() {
+		return ""
+	}
 
 	return config.Client.Server.Address
 }
@@ -43,6 +47,86 @@ func remoteConnect(ctx context.Context) (*grpc.ClientConn, mininaruv1.MininaruSe
 	}
 
 	return connection, mininaruv1.NewMininaruServiceClient(connection), nil
+}
+
+func remoteAgentListExecute(ctx context.Context) error {
+	var connection *grpc.ClientConn
+	var client mininaruv1.MininaruServiceClient
+	var response *mininaruv1.ListAgentsResponse
+	var agent *mininaruv1.Agent
+	var mark string
+	var rows *uiRows
+
+	var err error
+
+	connection, client, err = remoteConnect(ctx)
+	if err != nil {
+		return err
+	}
+	defer connection.Close()
+	response, err = client.ListAgents(ctx, &mininaruv1.ListAgentsRequest{})
+	if err != nil {
+		return err
+	}
+	rows = uiTable("ID", "NAME", "MODEL", "PROVIDER", "")
+	for _, agent = range response.GetAgents() {
+		mark = ""
+		if agent.GetId() == response.GetDefaultAgentId() {
+			mark = "[global]"
+		}
+		rows.row(agent.GetId(), agent.GetName(), agent.GetModel(), agent.GetProvider(), mark)
+	}
+	rows.flush()
+
+	return nil
+}
+
+func remoteSkillListExecute(ctx context.Context) error {
+	var connection *grpc.ClientConn
+	var client mininaruv1.MininaruServiceClient
+	var response *mininaruv1.ListSkillsResponse
+	var skill *mininaruv1.Skill
+	var rows *uiRows
+
+	var err error
+
+	connection, client, err = remoteConnect(ctx)
+	if err != nil {
+		return err
+	}
+	defer connection.Close()
+	response, err = client.ListSkills(ctx, &mininaruv1.ListSkillsRequest{})
+	if err != nil {
+		return err
+	}
+	rows = uiTable("NAME", "SCOPE", "DESCRIPTION")
+	for _, skill = range response.GetSkills() {
+		rows.row(skill.GetName(), skill.GetScope(), skill.GetDescription())
+	}
+	rows.flush()
+
+	return nil
+}
+
+func remoteSkillShowExecute(ctx context.Context, name string) error {
+	var connection *grpc.ClientConn
+	var client mininaruv1.MininaruServiceClient
+	var skill *mininaruv1.Skill
+
+	var err error
+
+	connection, client, err = remoteConnect(ctx)
+	if err != nil {
+		return err
+	}
+	defer connection.Close()
+	skill, err = client.GetSkill(ctx, &mininaruv1.GetSkillRequest{Name: name})
+	if err != nil {
+		return err
+	}
+	fmt.Println(skill.GetBody())
+
+	return nil
 }
 
 func coreMessage(message *mininaruv1.Message) *core.Message {
@@ -131,11 +215,65 @@ func remoteApproval(ctx context.Context, stream mininaruv1.MininaruService_ChatC
 		RequestId: request.GetRequestId(), Choice: choice}}})
 }
 
+func remoteToolDefinitions(defs []modules.Def) ([]*mininaruv1.ToolDefinition, error) {
+	var def modules.Def
+	var raw []byte
+	var result []*mininaruv1.ToolDefinition
+
+	var err error
+
+	for _, def = range defs {
+		raw, err = json.Marshal(def.Parameters)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, &mininaruv1.ToolDefinition{Name: def.Name, Description: def.Description,
+			ParametersJson: string(raw), Permission: def.Permission.String()})
+	}
+
+	return result, nil
+}
+
+func executeLocalTool(ctx context.Context, request *mininaruv1.ToolRequest, defs []modules.Def,
+	approve core.ToolApprovalFunc) (string, error) {
+	var def modules.Def
+	var allowed bool
+
+	var err error
+
+	for _, def = range defs {
+		if def.Name != request.GetToolName() {
+			continue
+		}
+		if def.Permission == modules.PermissionDangerous {
+			if approve == nil {
+				return "", fmt.Errorf("dangerous tool %q requires user approval", def.Name)
+			}
+			allowed, err = approve(ctx, def, request.GetArguments())
+			if err != nil {
+				return "", err
+			}
+			if !allowed {
+				return "", fmt.Errorf("user denied dangerous tool %q", def.Name)
+			}
+		}
+
+		return def.Execute(ctx, request.GetArguments())
+	}
+
+	return "", fmt.Errorf("unknown local tool %q", request.GetToolName())
+}
+
 func (r *remoteBackend) Chat(ctx context.Context, session *core.Session, agent *core.NaruAgent, content string,
 	onContent, onReasoning func(string), onTool core.ToolEventFunc, approve core.ToolApprovalFunc) (*core.Message, error) {
 	var stream mininaruv1.MininaruService_ChatClient
 	var event *mininaruv1.ChatServerEvent
 	var failed *mininaruv1.ChatFailed
+	var defs []modules.Def
+	var advertised []*mininaruv1.ToolDefinition
+	var request *mininaruv1.ToolRequest
+	var result string
+	var resultError string
 
 	var err error
 
@@ -144,8 +282,16 @@ func (r *remoteBackend) Chat(ctx context.Context, session *core.Session, agent *
 		return nil, err
 	}
 
+	if config.Client.Tools.Enabled {
+		defs = modules.DefaultTools()
+		advertised, err = remoteToolDefinitions(defs)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	err = stream.Send(&mininaruv1.ChatClientEvent{Event: &mininaruv1.ChatClientEvent_Start{Start: &mininaruv1.ChatStart{
-		SessionId: session.Id, Content: content, Thinking: config.Client.Thinking.Level}}})
+		SessionId: session.Id, Content: content, Thinking: config.Client.Thinking.Level, Tools: advertised}}})
 	if err != nil {
 		return nil, err
 	}
@@ -169,6 +315,20 @@ func (r *remoteBackend) Chat(ctx context.Context, session *core.Session, agent *
 		}
 		if event.GetApproval() != nil {
 			err = remoteApproval(ctx, stream, event.GetApproval(), approve)
+			if err != nil {
+				return nil, err
+			}
+		}
+		request = event.GetToolRequest()
+		if request != nil {
+			result = ""
+			result, err = executeLocalTool(ctx, request, defs, approve)
+			resultError = ""
+			if err != nil {
+				resultError = err.Error()
+			}
+			err = stream.Send(&mininaruv1.ChatClientEvent{Event: &mininaruv1.ChatClientEvent_ToolResult{ToolResult: &mininaruv1.ToolResult{
+				RequestId: request.GetRequestId(), Result: result, Error: resultError}}})
 			if err != nil {
 				return nil, err
 			}

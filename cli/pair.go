@@ -89,6 +89,7 @@ func pairWithServer(ctx context.Context, address, name, expected string) error {
 	}
 
 	config.Client.Server.Address = address
+	config.Client.Mode = config.ModeClient
 	err = config.ClientSave()
 	if err != nil {
 		return err
