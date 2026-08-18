@@ -75,13 +75,14 @@ func runSubagent(ctx context.Context, policy subagentPolicy, target *NaruAgent, 
 	params.StreamOptions.IncludeUsage = param.NewOpt(true)
 	params.Messages = append(params.Messages, openai.SystemMessage(systemPrompt(target, defs)))
 	params.Messages = append(params.Messages, openai.UserMessage(prompt))
+	applyOpenAICache(&params, agentProvider(target))
 
 	if len(defs) > 0 {
 		params.Tools = toolParams(defs)
 	}
 
 	run = completionRun{
-		AI: target.AI, Params: params, Defs: defs,
+		AI: target.AI, Anthropic: target.Anthropic, Provider: agentProvider(target), Params: params, Defs: defs,
 		AllowDangerous: policy.AllowDangerous, AllowPrivileged: policy.AllowPrivileged,
 		AgentId: target.Id, SessionId: policy.SessionId, Depth: policy.Depth + 1,
 		Approve: policy.Approve,

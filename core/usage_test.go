@@ -14,11 +14,10 @@ import (
 
 	"github.com/devproje/mininaru/modules"
 	"github.com/devproje/mininaru/util"
-	"github.com/openai/openai-go"
 )
 
-func usageOf(prompt, completion int64) openai.CompletionUsage {
-	return openai.CompletionUsage{
+func usageOf(prompt, completion int64) TokenUsage {
+	return TokenUsage{
 		PromptTokens: prompt, CompletionTokens: completion, TotalTokens: prompt + completion,
 	}
 }
@@ -33,7 +32,7 @@ func cachedUsageChunk(id string, prompt, completion, cached int) string {
 	return `data: {"id":"` + id + `","object":"chat.completion.chunk","created":1,"model":"m","choices":[],` +
 		`"usage":{"prompt_tokens":` + strconv.Itoa(prompt) + `,"completion_tokens":` + strconv.Itoa(completion) +
 		`,"total_tokens":` + strconv.Itoa(prompt+completion) + `,"prompt_tokens_details":{"cached_tokens":` +
-		strconv.Itoa(cached) + `}}}` + "\n\n"
+		strconv.Itoa(cached) + `,"cache_write_tokens":` + strconv.Itoa(prompt-cached) + `}}}` + "\n\n"
 }
 
 func usageRows(t *testing.T, sessionId, kind string) int {
@@ -110,6 +109,9 @@ func TestTurnUsageIsRecordedAndSummedAcrossRounds(t *testing.T) {
 	}
 	if totals.CachedTokens != 240 {
 		t.Fatalf("cached tokens = %d, want both rounds summed", totals.CachedTokens)
+	}
+	if totals.CacheWriteTokens != 60 {
+		t.Fatalf("cache write tokens = %d, want both rounds summed", totals.CacheWriteTokens)
 	}
 	if usageRows(t, session.Id, UsageTurn) != 1 {
 		t.Fatal("the turn should be one row carrying the sum, not one per round")

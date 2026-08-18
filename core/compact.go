@@ -104,7 +104,7 @@ func summaryTranscript(previous string, dropped []*Message) string {
 	return builder.String()
 }
 
-func summarize(ctx context.Context, agent *NaruAgent, previous string, dropped []*Message) (string, openai.CompletionUsage, error) {
+func summarize(ctx context.Context, agent *NaruAgent, previous string, dropped []*Message) (string, TokenUsage, error) {
 	var messages []openai.ChatCompletionMessageParamUnion
 	var result *Completion
 	var text string
@@ -116,7 +116,7 @@ func summarize(ctx context.Context, agent *NaruAgent, previous string, dropped [
 
 	result, err = Complete(ctx, agent, messages, nil, config.ThinkingOff, nil, nil)
 	if err != nil {
-		return "", openai.CompletionUsage{}, err
+		return "", TokenUsage{}, err
 	}
 
 	text = strings.TrimSpace(result.Content)
@@ -138,7 +138,7 @@ func CompactNow(ctx context.Context, agent *NaruAgent, session *Session) (bool, 
 	var text string
 	var tail []*Message
 	var updated string
-	var usage openai.CompletionUsage
+	var usage TokenUsage
 
 	var err error
 
@@ -189,7 +189,7 @@ func compactHistory(ctx context.Context, agent *NaruAgent, session *Session, his
 	var text string
 	var tail []*Message
 	var updated string
-	var usage openai.CompletionUsage
+	var usage TokenUsage
 	var tokens int64
 	var window int64
 	var known bool

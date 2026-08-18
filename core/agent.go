@@ -15,10 +15,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/anthropics/anthropic-sdk-go"
+	anthropicoption "github.com/anthropics/anthropic-sdk-go/option"
 	"github.com/devproje/mininaru/util"
 	"github.com/google/uuid"
 	"github.com/openai/openai-go"
-	"github.com/openai/openai-go/option"
+	openaioption "github.com/openai/openai-go/option"
 )
 
 type NaruAgent struct {
@@ -29,7 +31,8 @@ type NaruAgent struct {
 	Model      string `json:"model"`
 	ProviderId string `json:"provider_id"`
 
-	AI *openai.Client `json:"-"`
+	AI        *openai.Client    `json:"-"`
+	Anthropic *anthropic.Client `json:"-"`
 }
 
 var modelContextWindows sync.Map
@@ -92,7 +95,7 @@ func (a *NaruAgent) ModelContextWindow(ctx context.Context) int64 {
 		return 0
 	}
 	provider, err = ProviderFind(a.ProviderId)
-	if err != nil || provider.BaseURL == "" {
+	if err != nil || provider.BaseURL == "" || provider.ProviderKind() == ProviderAnthropic {
 		return 0
 	}
 	cacheKey = a.modelContextCacheKey()
@@ -152,7 +155,7 @@ var Agents []*NaruAgent
 var emptyAgentObj AgentConfig = AgentConfig{}
 
 func newClient(prov *Provider) *openai.Client {
-	var opts []option.RequestOption
+	var opts []openaioption.RequestOption
 	var ai openai.Client
 
 	if prov == nil {
@@ -160,16 +163,56 @@ func newClient(prov *Provider) *openai.Client {
 	}
 
 	if prov.ApiKey != "" {
-		opts = append(opts, option.WithAPIKey(prov.ApiKey))
+		opts = append(opts, openaioption.WithAPIKey(prov.ApiKey))
 	}
 
 	if prov.BaseURL != "" {
-		opts = append(opts, option.WithBaseURL(prov.BaseURL))
+		opts = append(opts, openaioption.WithBaseURL(prov.BaseURL))
+	}
+
+	if prov.ResponseCache && isOpenRouter(prov.BaseURL) {
+		opts = append(opts, openaioption.WithHeader("X-OpenRouter-Cache", "true"))
+		if prov.ResponseCacheTTL > 0 {
+			opts = append(opts, openaioption.WithHeader("X-OpenRouter-Cache-TTL", fmt.Sprintf("%d", prov.ResponseCacheTTL)))
+		}
 	}
 
 	ai = openai.NewClient(opts...)
 
 	return &ai
+}
+
+func newAnthropicClient(prov *Provider) *anthropic.Client {
+	var opts []anthropicoption.RequestOption
+	var ai anthropic.Client
+
+	if prov == nil || prov.ProviderKind() != ProviderAnthropic {
+		return nil
+	}
+	if prov.ApiKey != "" {
+		opts = append(opts, anthropicoption.WithAPIKey(prov.ApiKey))
+	}
+	if prov.BaseURL != "" {
+		opts = append(opts, anthropicoption.WithBaseURL(prov.BaseURL))
+	}
+
+	ai = anthropic.NewClient(opts...)
+	return &ai
+}
+
+func configureAgentClients(agent *NaruAgent, prov *Provider) {
+	if agent == nil {
+		return
+	}
+
+	if prov != nil && prov.ProviderKind() == ProviderAnthropic {
+		agent.AI = nil
+		agent.Anthropic = newAnthropicClient(prov)
+		return
+	}
+
+	agent.AI = newClient(prov)
+	agent.Anthropic = nil
 }
 
 func AgentNew(name, role, soul, model string, prov *Provider) *NaruAgent {
@@ -186,9 +229,8 @@ func AgentNew(name, role, soul, model string, prov *Provider) *NaruAgent {
 		Soul:       soul,
 		Model:      model,
 		ProviderId: prov.Id,
-
-		AI: newClient(prov),
 	}
+	configureAgentClients(&agent, prov)
 
 	return &agent
 }
@@ -238,11 +280,11 @@ func AgentInit() error {
 	Agents = cfg.Agents
 
 	if Global != nil {
-		Global.AI = newClient(agentProvider(Global))
+		configureAgentClients(Global, agentProvider(Global))
 	}
 
 	for _, cur = range Agents {
-		cur.AI = newClient(agentProvider(cur))
+		configureAgentClients(cur, agentProvider(cur))
 	}
 
 	return nil
@@ -412,7 +454,7 @@ func AgentRefreshClient(agent *NaruAgent) error {
 		return err
 	}
 
-	agent.AI = newClient(prov)
+	configureAgentClients(agent, prov)
 
 	return nil
 }
@@ -449,7 +491,7 @@ func AgentUpdateFields(id string, name, role, soul, model, providerId *string) e
 
 		if providerId != nil {
 			update.ProviderId = *providerId
-			update.AI = newClient(agentProvider(&update))
+			configureAgentClients(&update, agentProvider(&update))
 		}
 
 		Agents[index] = &update
