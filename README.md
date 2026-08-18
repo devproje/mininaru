@@ -272,7 +272,8 @@ Dangerous tools are denied in this mode because there is nobody to approve them
 
 Inside the TUI, use `/help`, `/thinking`, `/usage`, or `ctrl+t`. `/compact` folds the
 conversation so far into a summary straight away, without waiting for the
-context budget to force it. Press `esc` to interrupt the current response, and
+context budget to force it; the completion notice reports the context reduction.
+Press `esc` to interrupt the current response, and
 `/exit`, `/quit`, or `ctrl+c` to leave. The client runs in the terminal's
 alternate full-screen buffer; use `PageUp` and `PageDown` to scroll the
 transcript and `End` to return to the latest message. Completed assistant
