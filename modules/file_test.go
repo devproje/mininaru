@@ -11,6 +11,17 @@ import (
 	"testing"
 )
 
+func readBeforeModify(t *testing.T, root, path string) {
+	var err error
+
+	t.Helper()
+
+	_, err = FileRead(root).Execute(context.Background(), `{"path":"`+path+`"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestFileReadAndWriteStayUnderRoot(t *testing.T) {
 	var root string
 	var outside string
@@ -24,7 +35,7 @@ func TestFileReadAndWriteStayUnderRoot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(result, "5 bytes") {
+	if !strings.Contains(result, "--- a/note.txt") || !strings.Contains(result, "+hello") {
 		t.Fatalf("write result = %q", result)
 	}
 
@@ -132,12 +143,14 @@ func TestFileEditReplacesOneOccurrence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	readBeforeModify(t, root, "note.txt")
 
 	result, err = FileEdit(root).Execute(context.Background(), `{"path":"note.txt","old_string":"beta","new_string":"delta"}`)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(result, "replaced 1") {
+	if !strings.Contains(result, "--- a/note.txt") || !strings.Contains(result, "-alpha beta gamma") ||
+		!strings.Contains(result, "+alpha delta gamma") {
 		t.Fatalf("edit result = %q", result)
 	}
 
@@ -169,6 +182,7 @@ func TestFileEditRejectsAmbiguousMatch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	readBeforeModify(t, root, "dup.txt")
 
 	_, err = FileEdit(root).Execute(context.Background(), `{"path":"dup.txt","old_string":"x","new_string":"y"}`)
 	if err == nil {
@@ -199,12 +213,13 @@ func TestFileEditReplacesAll(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	readBeforeModify(t, root, "dup.txt")
 
 	result, err = FileEdit(root).Execute(context.Background(), `{"path":"dup.txt","old_string":"x","new_string":"y","replace_all":true}`)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(result, "replaced 2") {
+	if !strings.Contains(result, "--- a/dup.txt") || !strings.Contains(result, "+y") {
 		t.Fatalf("replace_all result = %q", result)
 	}
 
@@ -227,6 +242,7 @@ func TestFileEditRejectsMissingAndIdenticalStrings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	readBeforeModify(t, root, "note.txt")
 
 	_, err = FileEdit(root).Execute(context.Background(), `{"path":"note.txt","old_string":"absent","new_string":"x"}`)
 	if err == nil {
@@ -269,5 +285,91 @@ func TestFileEditStaysUnderRoot(t *testing.T) {
 	}
 	if string(buf) != "secret" {
 		t.Fatalf("file outside the root was rewritten to %q", string(buf))
+	}
+}
+
+func TestFileModifyRequiresFreshRead(t *testing.T) {
+	var root string
+	var path string
+	var buf []byte
+
+	var err error
+
+	root = t.TempDir()
+	path = filepath.Join(root, "note.txt")
+	err = os.WriteFile(path, []byte("one"), 0600)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = FileEdit(root).Execute(context.Background(), `{"path":"note.txt","old_string":"one","new_string":"two"}`)
+	if err == nil || !strings.Contains(err.Error(), "file_read") {
+		t.Fatalf("edit without read error = %v", err)
+	}
+
+	readBeforeModify(t, root, "note.txt")
+	err = os.WriteFile(path, []byte("external"), 0600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = FileWrite(root).Execute(context.Background(), `{"path":"note.txt","content":"overwrite"}`)
+	if err == nil || !strings.Contains(err.Error(), "changed since file_read") {
+		t.Fatalf("stale write error = %v", err)
+	}
+
+	buf, err = os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(buf) != "external" {
+		t.Fatalf("stale write changed file to %q", string(buf))
+	}
+}
+
+func TestFileWriteReplacesAtomicallyAndReturnsDiff(t *testing.T) {
+	var root string
+	var path string
+	var result string
+	var info os.FileInfo
+
+	var err error
+
+	root = t.TempDir()
+	path = filepath.Join(root, "note.txt")
+	err = os.WriteFile(path, []byte("old\n"), 0640)
+	if err != nil {
+		t.Fatal(err)
+	}
+	readBeforeModify(t, root, "note.txt")
+
+	result, err = FileWrite(root).Execute(context.Background(), `{"path":"note.txt","content":"new\n"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(result, "-old") || !strings.Contains(result, "+new") {
+		t.Fatalf("write diff = %q", result)
+	}
+	info, err = os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0640 {
+		t.Fatalf("write changed mode to %v", info.Mode().Perm())
+	}
+}
+
+func TestFileReadRejectsBinaryContent(t *testing.T) {
+	var root string
+
+	var err error
+
+	root = t.TempDir()
+	err = os.WriteFile(filepath.Join(root, "binary.dat"), []byte{'a', 0, 'b'}, 0600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = FileRead(root).Execute(context.Background(), `{"path":"binary.dat"}`)
+	if err == nil || !strings.Contains(err.Error(), "binary") {
+		t.Fatalf("binary read error = %v", err)
 	}
 }
