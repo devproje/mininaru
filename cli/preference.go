@@ -803,14 +803,14 @@ func sessionUsageExecute(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	rows = uiTable("KIND", "PROMPT", "COMPLETION", "TOTAL")
+	rows = uiTable("KIND", "PROMPT", "CACHED", "COMPLETION", "TOTAL")
 
 	for _, line = range totals.Lines {
-		rows.row(line.Kind, tokenCount(line.PromptTokens), tokenCount(line.CompletionTokens),
+		rows.row(line.Kind, tokenCount(line.PromptTokens), tokenCount(line.CachedTokens), tokenCount(line.CompletionTokens),
 			tokenCount(line.TotalTokens))
 	}
 
-	rows.row("total", tokenCount(totals.PromptTokens), tokenCount(totals.CompletionTokens),
+	rows.row("total", tokenCount(totals.PromptTokens), tokenCount(totals.CachedTokens), tokenCount(totals.CompletionTokens),
 		tokenCount(totals.TotalTokens))
 	rows.flush()
 

@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/devproje/mininaru/cli/tui"
 	"github.com/devproje/mininaru/config"
 	"github.com/devproje/mininaru/core"
 	"github.com/devproje/mininaru/modules"
@@ -290,7 +291,7 @@ func execute(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	return runClient(session, agent, history)
+	return tui.Run(session, agent, history, updateNotice())
 }
 
 func rootInit() {

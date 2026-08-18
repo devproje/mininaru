@@ -184,51 +184,15 @@ func CompactNow(ctx context.Context, agent *NaruAgent, session *Session) (bool, 
 	return true, nil
 }
 
-func SessionContextChars(sessionId string) (int, error) {
-	var summary *Summary
-	var history []*Message
-	var tail []*Message
-	var kept []*Message
-	var calls map[string][]*ToolCall
-	var message *Message
-	var used int
-
-	var err error
-
-	history, err = MessageList(sessionId)
-	if err != nil {
-		return 0, err
-	}
-	summary, err = SummaryLoad(sessionId)
-	if err != nil {
-		return 0, err
-	}
-	calls, err = toolCallsBySession(sessionId)
-	if err != nil {
-		return 0, err
-	}
-	tail = history
-	if summary != nil {
-		used = len(summary.Content)
-		tail = summaryTail(history, summary.ThroughMessageId)
-	}
-	kept = trimHistory(tail, calls, config.Client.Context.MaxChars, used)
-	for _, message = range kept {
-		used += len(message.Content) + toolCost(calls[message.Id])
-	}
-
-	return used, nil
-}
-
-func compactHistory(ctx context.Context, agent *NaruAgent, session *Session, history []*Message,
-	calls map[string][]*ToolCall, reserved int) (string, []*Message) {
+func compactHistory(ctx context.Context, agent *NaruAgent, session *Session, history []*Message) (string, []*Message) {
 	var previous *Summary
 	var text string
 	var tail []*Message
-	var kept []*Message
-	var dropped []*Message
 	var updated string
 	var usage openai.CompletionUsage
+	var tokens int64
+	var window int64
+	var known bool
 
 	var err error
 
@@ -243,33 +207,31 @@ func compactHistory(ctx context.Context, agent *NaruAgent, session *Session, his
 		tail = summaryTail(history, previous.ThroughMessageId)
 	}
 
-	kept = trimHistory(tail, calls, config.Client.Context.MaxChars, reserved+len(text))
-	if len(kept) == len(tail) || !config.Client.Context.Compact {
-		return text, kept
+	tokens, window, known, err = SessionContextTokens(session.Id)
+	if !config.Client.Context.Compact || !known || window <= 0 || tokens*100 < window*90 || len(tail) == 0 {
+		return text, tail
 	}
 
-	dropped = tail[:len(tail)-len(kept)]
-
-	updated, usage, err = summarize(ctx, agent, text, dropped)
+	updated, usage, err = summarize(ctx, agent, text, tail)
 	usageRecord(session.Id, "", UsageCompaction, usage)
 
 	if err != nil {
-		util.Log.Warn("compacting the conversation failed, dropping its oldest turns instead",
-			"session", session.Id, "turns", len(dropped), "error", err)
+		util.Log.Warn("compacting the conversation failed",
+			"session", session.Id, "turns", len(tail), "error", err)
 
-		return text, kept
+		return text, tail
 	}
 
-	err = SummarySave(session.Id, updated, dropped[len(dropped)-1].Id)
+	err = SummarySave(session.Id, updated, tail[len(tail)-1].Id)
 	if err != nil {
-		util.Log.Warn("saving the conversation summary failed, dropping its oldest turns instead",
+		util.Log.Warn("saving the conversation summary failed",
 			"session", session.Id, "error", err)
 
-		return text, kept
+		return text, tail
 	}
 
 	util.Log.Debug("compacted the conversation",
-		"session", session.Id, "turns", len(dropped), "summary_chars", len(updated))
+		"session", session.Id, "turns", len(tail), "summary_chars", len(updated))
 
-	return updated, kept
+	return updated, nil
 }

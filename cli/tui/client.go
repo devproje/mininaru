@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Wonhyeok Kim (Project_IO)
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package main
+package tui
 
 import (
 	"context"
@@ -40,8 +40,6 @@ type chatDoneMsg struct {
 
 type compactDoneMsg struct {
 	compacted bool
-	before    int
-	after     int
 	err       error
 }
 
@@ -100,13 +98,15 @@ type client struct {
 	cancel     context.CancelFunc
 	err        error
 
-	width        int
-	height       int
-	started      bool
-	quitting     bool
-	stored       bool
-	newOutput    bool
-	contextChars int
+	width         int
+	height        int
+	started       bool
+	quitting      bool
+	stored        bool
+	newOutput     bool
+	contextTokens int64
+	contextWindow int64
+	contextKnown  bool
 }
 
 const (
@@ -208,7 +208,6 @@ func newClient(session *core.Session, agent *core.NaruAgent, history []*core.Mes
 		spinner:  sp,
 		view:     view,
 		hilView:  hilView,
-		notice:   updateNotice(),
 		allowed:  make(map[string]bool),
 		markdown: make(map[string]string),
 		width:    80,
@@ -240,14 +239,16 @@ func newClient(session *core.Session, agent *core.NaruAgent, history []*core.Mes
 	return &c
 }
 
-func runClient(session *core.Session, agent *core.NaruAgent, history []*core.Message) error {
+func Run(session *core.Session, agent *core.NaruAgent, history []*core.Message, notice string) error {
 	var c *client
 	var p *tea.Program
 	var release func()
 
 	var err error
 
+	agent.ModelContextWindow(context.Background())
 	c = newClient(session, agent, history)
+	c.notice = notice
 	p = tea.NewProgram(c, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	c.program = p
 
@@ -415,7 +416,6 @@ func (c *client) submit(content string) tea.Cmd {
 	c.cancel = cancel
 	c.sending = true
 	c.compacting = false
-	c.contextChars += len(content)
 	c.stored = true
 	c.err = nil
 	c.input.Reset()
@@ -546,24 +546,13 @@ func (c *client) thinkingCommand(arg string) tea.Cmd {
 
 func (c *client) compactRun(ctx context.Context) tea.Cmd {
 	return func() tea.Msg {
-		var before int
 		var compacted bool
-		var after int
 
-		var contextErr error
 		var err error
 
-		before, contextErr = core.SessionContextChars(c.session.Id)
 		compacted, err = core.CompactNow(ctx, c.agent, c.session)
-		if err == nil && contextErr == nil {
-			after, contextErr = core.SessionContextChars(c.session.Id)
-		}
-		if contextErr != nil {
-			before = 0
-			after = 0
-		}
 
-		return compactDoneMsg{compacted: compacted, before: before, after: after, err: err}
+		return compactDoneMsg{compacted: compacted, err: err}
 	}
 }
 
@@ -593,10 +582,7 @@ func (c *client) finishCompact(msg compactDoneMsg) tea.Cmd {
 	c.input.Focus()
 	c.refreshContextUsage()
 
-	notice = "compacted the conversation context"
-	if msg.before > 0 && msg.after > 0 {
-		notice += ": " + compactCount(msg.before) + " → " + compactCount(msg.after)
-	}
+	notice = "compacted the conversation context; usage refreshes after the next response"
 
 	if msg.err != nil {
 		notice = "could not compact: " + msg.err.Error()
@@ -628,8 +614,8 @@ func (c *client) usageCommand() tea.Cmd {
 		return nil
 	}
 
-	notice = fmt.Sprintf("%d tokens this session (%d prompt, %d completion)",
-		totals.TotalTokens, totals.PromptTokens, totals.CompletionTokens)
+	notice = fmt.Sprintf("%d tokens this session (%d prompt, %d completion, %d cached)",
+		totals.TotalTokens, totals.PromptTokens, totals.CompletionTokens, totals.CachedTokens)
 
 	if totals.TotalTokens == 0 {
 		notice = "no token usage recorded for this session yet"
@@ -1137,6 +1123,25 @@ func toolDiff(oldText, newText string) string {
 	return strings.Join(blocks, "\n")
 }
 
+func toolUnifiedDiff(text string) string {
+	var blocks []string
+	var line string
+	var lines []string
+
+	lines = strings.Split(strings.TrimRight(text, "\n"), "\n")
+	for _, line = range lines {
+		if strings.HasPrefix(line, "+") && !strings.HasPrefix(line, "+++") {
+			blocks = append(blocks, toolAddedStyle.Render(line))
+		} else if strings.HasPrefix(line, "-") && !strings.HasPrefix(line, "---") {
+			blocks = append(blocks, toolCutStyle.Render(line))
+		} else {
+			blocks = append(blocks, line)
+		}
+	}
+
+	return strings.Join(blocks, "\n")
+}
+
 func toolDisplay(event core.ToolEvent) (string, string) {
 	var payload toolDisplayArgs
 	var title string
@@ -1171,15 +1176,23 @@ func toolDisplay(event core.ToolEvent) (string, string) {
 		}
 	} else if event.Name == "file_edit" {
 		title = "Update " + payload.Path
-		detail = toolDiff(payload.OldString, payload.NewString)
-		if event.Phase == core.ToolEventFinished && event.Status != core.MessageCompleted {
-			detail += "\n\n" + event.Error
+		if event.Phase == core.ToolEventFinished && event.Status == core.MessageCompleted {
+			detail = toolUnifiedDiff(event.Result)
+		} else {
+			detail = toolDiff(payload.OldString, payload.NewString)
+			if event.Phase == core.ToolEventFinished {
+				detail += "\n\n" + event.Error
+			}
 		}
 	} else if event.Name == "file_write" {
 		title = "Write " + payload.Path
-		detail = payload.Content
-		if event.Phase == core.ToolEventFinished && event.Status != core.MessageCompleted {
-			detail += "\n\n" + event.Error
+		if event.Phase == core.ToolEventFinished && event.Status == core.MessageCompleted {
+			detail = toolUnifiedDiff(event.Result)
+		} else {
+			detail = payload.Content
+			if event.Phase == core.ToolEventFinished {
+				detail += "\n\n" + event.Error
+			}
 		}
 	} else if event.Phase == core.ToolEventStarted {
 		detail = compactToolLog(event.Arguments)
@@ -1429,7 +1442,7 @@ func (c *client) approvalChoicesView() string {
 	return body.String()
 }
 
-func compactCount(value int) string {
+func compactCount(value int64) string {
 	if value < 1000 {
 		return fmt.Sprintf("%d", value)
 	}
@@ -1438,29 +1451,33 @@ func compactCount(value int) string {
 }
 
 func (c *client) contextUsage() string {
-	var used int
-	var limit int
-
-	used = c.contextChars
-	used += c.pending.Len()
-	limit = config.Client.Context.MaxChars
-	if limit <= 0 {
-		return "ctx " + compactCount(used)
+	if !c.contextKnown {
+		if c.contextWindow > 0 {
+			return "ctx —/" + compactCount(c.contextWindow)
+		}
+		return "ctx —"
+	}
+	if c.contextWindow <= 0 {
+		return "ctx " + compactCount(c.contextTokens)
 	}
 
-	return "ctx " + compactCount(used) + "/" + compactCount(limit)
+	return "ctx " + compactCount(c.contextTokens) + "/" + compactCount(c.contextWindow)
 }
 
 func (c *client) refreshContextUsage() {
-	var used int
+	var tokens int64
+	var window int64
+	var known bool
 
 	var err error
 
-	used, err = core.SessionContextChars(c.session.Id)
+	tokens, window, known, err = core.SessionContextTokens(c.session.Id)
 	if err != nil {
 		return
 	}
-	c.contextChars = used
+	c.contextTokens = tokens
+	c.contextWindow = window
+	c.contextKnown = known
 }
 
 func (c *client) statusLine(left string) string {

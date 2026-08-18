@@ -15,10 +15,13 @@ import (
 	"github.com/devproje/mininaru/util"
 )
 
-func compactSetup(t *testing.T, srvURL string, maxChars int, compact bool) (*Session, *NaruAgent) {
+func compactSetup(t *testing.T, srvURL string, compact bool) (*Session, *NaruAgent) {
 	var previous config.ClientConfig
 	var session *Session
 	var agent *NaruAgent
+	var provider *Provider
+
+	var err error
 
 	t.Helper()
 
@@ -26,8 +29,12 @@ func compactSetup(t *testing.T, srvURL string, maxChars int, compact bool) (*Ses
 	t.Cleanup(func() { config.Client = previous })
 
 	session, agent = thinkingSetup(t, srvURL)
+	provider, err = ProviderFind(agent.ProviderId)
+	if err != nil {
+		t.Fatal(err)
+	}
+	modelContextWindows.Store(agent.ProviderId+"\x00"+provider.BaseURL+"\x00"+agent.Model, int64(100))
 
-	config.Client.Context.MaxChars = maxChars
 	config.Client.Context.Compact = compact
 
 	return session, agent
@@ -51,24 +58,71 @@ func seedTurns(t *testing.T, sessionId string, turns int) {
 	}
 }
 
+func seedContextUsage(t *testing.T, sessionId string, tokens, window int64) {
+	var history []*Message
+
+	var err error
+
+	t.Helper()
+	history, err = MessageList(sessionId)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(history) == 0 {
+		t.Fatal("context usage needs at least one message")
+	}
+	usageRecordWithContext(sessionId, history[len(history)-1].Id, UsageTurn, usageOf(tokens, 1), tokens, window)
+}
+
 func compactServer(t *testing.T, requests *[]string) *httptest.Server {
 	t.Helper()
 
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body []byte
 
+		if r.URL.Path == "/props" {
+			w.Header().Set("Content-Type", "application/json")
+			io.WriteString(w, `{"default_generation_settings":{"n_ctx":100}}`)
+			return
+		}
 		body, _ = io.ReadAll(r.Body)
 		*requests = append(*requests, string(body))
 		w.Header().Set("Content-Type", "text/event-stream")
 
 		if strings.Contains(string(body), "turns-to-fold-in") {
 			io.WriteString(w, toolChunk("s", `{"role":"assistant","content":"the user likes tea"}`, `"stop"`))
+			io.WriteString(w, usageChunk("s", 95, 5))
 		} else {
 			io.WriteString(w, toolChunk("c", `{"role":"assistant","content":"answer"}`, `"stop"`))
+			io.WriteString(w, usageChunk("c", 95, 5))
 		}
 
 		io.WriteString(w, "data: [DONE]\n\n")
 	}))
+}
+
+func TestModelContextWindowReadsLlamaProps(t *testing.T) {
+	var srv *httptest.Server
+	var agent *NaruAgent
+	var session *Session
+	var window int64
+
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/props" || r.URL.Query().Get("model") != "test-model" {
+			t.Fatalf("context metadata request = %s", r.URL.String())
+		}
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{"default_generation_settings":{"n_ctx":16384}}`)
+	}))
+	defer srv.Close()
+
+	session, agent = thinkingSetup(t, srv.URL)
+	_ = session
+	agent.Model = "test-model"
+	window = agent.ModelContextWindow(context.Background())
+	if window != 16384 {
+		t.Fatalf("model context window = %d, want 16384", window)
+	}
 }
 
 func summaryRow(t *testing.T, sessionId string) *Summary {
@@ -97,8 +151,9 @@ func TestCompactionStaysOutOfTheWayInsideTheBudget(t *testing.T) {
 	srv = compactServer(t, &requests)
 	defer srv.Close()
 
-	session, agent = compactSetup(t, srv.URL, 100000, true)
+	session, agent = compactSetup(t, srv.URL, true)
 	seedTurns(t, session.Id, 2)
+	seedContextUsage(t, session.Id, 50, 100)
 
 	_, err = ChatWithTools(context.Background(), session, agent, "hello", nil, nil, nil)
 	if err != nil {
@@ -125,8 +180,9 @@ func TestCompactionSummarisesTheTurnsThatFallOut(t *testing.T) {
 	srv = compactServer(t, &requests)
 	defer srv.Close()
 
-	session, agent = compactSetup(t, srv.URL, 100, true)
+	session, agent = compactSetup(t, srv.URL, true)
 	seedTurns(t, session.Id, 2)
+	seedContextUsage(t, session.Id, 95, 100)
 
 	_, err = ChatWithTools(context.Background(), session, agent, "hello", nil, nil, nil)
 	if err != nil {
@@ -162,14 +218,18 @@ func TestCompactionFoldsThePreviousSummaryIn(t *testing.T) {
 	var session *Session
 	var agent *NaruAgent
 	var first *Summary
+	var tokens int64
+	var window int64
+	var known bool
 
 	var err error
 
 	srv = compactServer(t, &requests)
 	defer srv.Close()
 
-	session, agent = compactSetup(t, srv.URL, 100, true)
+	session, agent = compactSetup(t, srv.URL, true)
 	seedTurns(t, session.Id, 2)
+	seedContextUsage(t, session.Id, 95, 100)
 
 	_, err = ChatWithTools(context.Background(), session, agent, "one", nil, nil, nil)
 	if err != nil {
@@ -182,6 +242,13 @@ func TestCompactionFoldsThePreviousSummaryIn(t *testing.T) {
 	}
 
 	requests = nil
+	tokens, window, known, err = SessionContextTokens(session.Id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !known || tokens != 95 || window != 100 {
+		t.Fatalf("context state before second compact = %d/%d known=%t", tokens, window, known)
+	}
 
 	_, err = ChatWithTools(context.Background(), session, agent, "two", nil, nil, nil)
 	if err != nil {
@@ -209,8 +276,9 @@ func TestCompactionKeepsOnlyTheTurnsAfterTheSummarisedOne(t *testing.T) {
 	srv = compactServer(t, &requests)
 	defer srv.Close()
 
-	session, agent = compactSetup(t, srv.URL, 100, true)
+	session, agent = compactSetup(t, srv.URL, true)
 	seedTurns(t, session.Id, 2)
+	seedContextUsage(t, session.Id, 95, 100)
 
 	_, err = ChatWithTools(context.Background(), session, agent, "one", nil, nil, nil)
 	if err != nil {
@@ -241,6 +309,11 @@ func TestCompactionFallsBackToDroppingWhenTheSummaryFails(t *testing.T) {
 	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body []byte
 
+		if r.URL.Path == "/props" {
+			w.Header().Set("Content-Type", "application/json")
+			io.WriteString(w, `{"default_generation_settings":{"n_ctx":100}}`)
+			return
+		}
 		body, _ = io.ReadAll(r.Body)
 		requests = append(requests, string(body))
 
@@ -251,12 +324,14 @@ func TestCompactionFallsBackToDroppingWhenTheSummaryFails(t *testing.T) {
 
 		w.Header().Set("Content-Type", "text/event-stream")
 		io.WriteString(w, toolChunk("c", `{"role":"assistant","content":"answer"}`, `"stop"`))
+		io.WriteString(w, usageChunk("usage", 95, 5))
 		io.WriteString(w, "data: [DONE]\n\n")
 	}))
 	defer srv.Close()
 
-	session, agent = compactSetup(t, srv.URL, 100, true)
+	session, agent = compactSetup(t, srv.URL, true)
 	seedTurns(t, session.Id, 2)
+	seedContextUsage(t, session.Id, 95, 100)
 
 	message, err = ChatWithTools(context.Background(), session, agent, "hello", nil, nil, nil)
 	if err != nil {
@@ -281,8 +356,9 @@ func TestCompactionOffDropsWithoutCallingTheModel(t *testing.T) {
 	srv = compactServer(t, &requests)
 	defer srv.Close()
 
-	session, agent = compactSetup(t, srv.URL, 100, false)
+	session, agent = compactSetup(t, srv.URL, false)
 	seedTurns(t, session.Id, 2)
+	seedContextUsage(t, session.Id, 95, 100)
 
 	_, err = ChatWithTools(context.Background(), session, agent, "hello", nil, nil, nil)
 	if err != nil {
@@ -317,7 +393,7 @@ func TestSummaryIsRemovedWithItsSession(t *testing.T) {
 
 	var err error
 
-	session, agent = compactSetup(t, "http://127.0.0.1:1", 100, true)
+	session, agent = compactSetup(t, "http://127.0.0.1:1", true)
 	_ = agent
 
 	err = SummarySave(session.Id, "kept for now", "m1")
@@ -347,21 +423,14 @@ func TestCompactNowFoldsTheWholeConversation(t *testing.T) {
 	var compacted bool
 	var saved *Summary
 	var history []*Message
-	var before int
-	var after int
 
 	var err error
 
 	srv = compactServer(t, &requests)
 	defer srv.Close()
 
-	session, agent = compactSetup(t, srv.URL, 100000, true)
+	session, agent = compactSetup(t, srv.URL, true)
 	seedTurns(t, session.Id, 2)
-	before, err = SessionContextChars(session.Id)
-	if err != nil {
-		t.Fatal(err)
-	}
-
 	compacted, err = CompactNow(context.Background(), agent, session)
 	if err != nil {
 		t.Fatal(err)
@@ -389,13 +458,6 @@ func TestCompactNowFoldsTheWholeConversation(t *testing.T) {
 	if len(summaryTail(history, saved.ThroughMessageId)) != 0 {
 		t.Fatal("turns were left outside the summary")
 	}
-	after, err = SessionContextChars(session.Id)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if after != len(saved.Content) || after >= before {
-		t.Fatalf("context chars = %d → %d, summary has %d", before, after, len(saved.Content))
-	}
 }
 
 func TestCompactNowDoesNothingOnAnEmptyConversation(t *testing.T) {
@@ -410,7 +472,7 @@ func TestCompactNowDoesNothingOnAnEmptyConversation(t *testing.T) {
 	srv = compactServer(t, &requests)
 	defer srv.Close()
 
-	session, agent = compactSetup(t, srv.URL, 100000, true)
+	session, agent = compactSetup(t, srv.URL, true)
 
 	compacted, err = CompactNow(context.Background(), agent, session)
 	if err != nil {
@@ -436,7 +498,7 @@ func TestCompactNowIgnoresTheAutomaticToggle(t *testing.T) {
 	srv = compactServer(t, &requests)
 	defer srv.Close()
 
-	session, agent = compactSetup(t, srv.URL, 100000, false)
+	session, agent = compactSetup(t, srv.URL, false)
 	seedTurns(t, session.Id, 1)
 
 	compacted, err = CompactNow(context.Background(), agent, session)
@@ -462,7 +524,7 @@ func TestCompactNowFoldsAnExistingSummaryIn(t *testing.T) {
 	srv = compactServer(t, &requests)
 	defer srv.Close()
 
-	session, agent = compactSetup(t, srv.URL, 100000, true)
+	session, agent = compactSetup(t, srv.URL, true)
 	seedTurns(t, session.Id, 1)
 
 	_, err = CompactNow(context.Background(), agent, session)
@@ -498,7 +560,7 @@ func TestCompactNowReturnsTheFailureInsteadOfSwallowingIt(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	session, agent = compactSetup(t, srv.URL, 100000, true)
+	session, agent = compactSetup(t, srv.URL, true)
 	seedTurns(t, session.Id, 1)
 
 	_, err = CompactNow(context.Background(), agent, session)

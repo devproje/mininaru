@@ -4,9 +4,16 @@
 package core
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
+	"net/url"
 	"os"
+	"strings"
+	"sync"
+	"time"
 
 	"github.com/devproje/mininaru/util"
 	"github.com/google/uuid"
@@ -23,6 +30,114 @@ type NaruAgent struct {
 	ProviderId string `json:"provider_id"`
 
 	AI *openai.Client `json:"-"`
+}
+
+var modelContextWindows sync.Map
+
+func (a *NaruAgent) modelContextCacheKey() string {
+	var provider *Provider
+
+	var err error
+
+	if a == nil {
+		return ""
+	}
+	provider, err = ProviderFind(a.ProviderId)
+	if err != nil || provider.BaseURL == "" {
+		return ""
+	}
+
+	return a.ProviderId + "\x00" + provider.BaseURL + "\x00" + a.Model
+}
+
+func (a *NaruAgent) CachedModelContextWindow() int64 {
+	var cached any
+	var cacheKey string
+	var ok bool
+
+	cacheKey = a.modelContextCacheKey()
+	if cacheKey == "" {
+		return 0
+	}
+	cached, ok = modelContextWindows.Load(cacheKey)
+	if !ok {
+		return 0
+	}
+
+	return cached.(int64)
+}
+
+func (a *NaruAgent) ModelContextWindow(ctx context.Context) int64 {
+	var provider *Provider
+	var requestCtx context.Context
+	var cancel context.CancelFunc
+	var endpoint string
+	var parsed *url.URL
+	var query url.Values
+	var request *http.Request
+	var response *http.Response
+	var payload struct {
+		DefaultGenerationSettings struct {
+			NCtx int64 `json:"n_ctx"`
+		} `json:"default_generation_settings"`
+	}
+	var window int64
+	var cached any
+	var cacheKey string
+	var ok bool
+
+	var err error
+
+	if a == nil {
+		return 0
+	}
+	provider, err = ProviderFind(a.ProviderId)
+	if err != nil || provider.BaseURL == "" {
+		return 0
+	}
+	cacheKey = a.modelContextCacheKey()
+	cached, ok = modelContextWindows.Load(cacheKey)
+	if ok {
+		return cached.(int64)
+	}
+	endpoint = strings.TrimRight(provider.BaseURL, "/")
+	endpoint = strings.TrimSuffix(endpoint, "/v1") + "/props"
+	parsed, err = url.Parse(endpoint)
+	if err != nil {
+		return 0
+	}
+	if a.Model != "" {
+		query = parsed.Query()
+		query.Set("model", a.Model)
+		parsed.RawQuery = query.Encode()
+	}
+	requestCtx, cancel = context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	request, err = http.NewRequestWithContext(requestCtx, http.MethodGet, parsed.String(), nil)
+	if err != nil {
+		return 0
+	}
+	if provider.ApiKey != "" {
+		request.Header.Set("Authorization", "Bearer "+provider.ApiKey)
+	}
+	response, err = http.DefaultClient.Do(request)
+	if err != nil {
+		return 0
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return 0
+	}
+	err = json.NewDecoder(io.LimitReader(response.Body, 1<<20)).Decode(&payload)
+	if err != nil {
+		return 0
+	}
+	window = payload.DefaultGenerationSettings.NCtx
+	if window > 0 {
+		modelContextWindows.Store(cacheKey, window)
+	}
+
+	return window
 }
 
 type AgentConfig struct {
