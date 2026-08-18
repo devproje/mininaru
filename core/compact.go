@@ -184,6 +184,42 @@ func CompactNow(ctx context.Context, agent *NaruAgent, session *Session) (bool, 
 	return true, nil
 }
 
+func SessionContextChars(sessionId string) (int, error) {
+	var summary *Summary
+	var history []*Message
+	var tail []*Message
+	var kept []*Message
+	var calls map[string][]*ToolCall
+	var message *Message
+	var used int
+
+	var err error
+
+	history, err = MessageList(sessionId)
+	if err != nil {
+		return 0, err
+	}
+	summary, err = SummaryLoad(sessionId)
+	if err != nil {
+		return 0, err
+	}
+	calls, err = toolCallsBySession(sessionId)
+	if err != nil {
+		return 0, err
+	}
+	tail = history
+	if summary != nil {
+		used = len(summary.Content)
+		tail = summaryTail(history, summary.ThroughMessageId)
+	}
+	kept = trimHistory(tail, calls, config.Client.Context.MaxChars, used)
+	for _, message = range kept {
+		used += len(message.Content) + toolCost(calls[message.Id])
+	}
+
+	return used, nil
+}
+
 func compactHistory(ctx context.Context, agent *NaruAgent, session *Session, history []*Message,
 	calls map[string][]*ToolCall, reserved int) (string, []*Message) {
 	var previous *Summary

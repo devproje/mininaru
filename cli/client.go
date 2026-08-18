@@ -40,6 +40,8 @@ type chatDoneMsg struct {
 
 type compactDoneMsg struct {
 	compacted bool
+	before    int
+	after     int
 	err       error
 }
 
@@ -98,12 +100,13 @@ type client struct {
 	cancel     context.CancelFunc
 	err        error
 
-	width     int
-	height    int
-	started   bool
-	quitting  bool
-	stored    bool
-	newOutput bool
+	width        int
+	height       int
+	started      bool
+	quitting     bool
+	stored       bool
+	newOutput    bool
+	contextChars int
 }
 
 const (
@@ -231,6 +234,7 @@ func newClient(session *core.Session, agent *core.NaruAgent, history []*core.Mes
 			c.transcript = append(c.transcript, transcriptEntry{kind: transcriptTool, tool: event})
 		}
 	}
+	c.refreshContextUsage()
 	c.refreshViewport(true)
 
 	return &c
@@ -411,6 +415,7 @@ func (c *client) submit(content string) tea.Cmd {
 	c.cancel = cancel
 	c.sending = true
 	c.compacting = false
+	c.contextChars += len(content)
 	c.stored = true
 	c.err = nil
 	c.input.Reset()
@@ -442,6 +447,7 @@ func (c *client) finish(msg chatDoneMsg) tea.Cmd {
 	c.pending.Reset()
 	c.thinking.Reset()
 	c.input.Focus()
+	c.refreshContextUsage()
 
 	if msg.err != nil {
 		if !errors.Is(msg.err, context.Canceled) {
@@ -540,13 +546,24 @@ func (c *client) thinkingCommand(arg string) tea.Cmd {
 
 func (c *client) compactRun(ctx context.Context) tea.Cmd {
 	return func() tea.Msg {
+		var before int
 		var compacted bool
+		var after int
 
+		var contextErr error
 		var err error
 
+		before, contextErr = core.SessionContextChars(c.session.Id)
 		compacted, err = core.CompactNow(ctx, c.agent, c.session)
+		if err == nil && contextErr == nil {
+			after, contextErr = core.SessionContextChars(c.session.Id)
+		}
+		if contextErr != nil {
+			before = 0
+			after = 0
+		}
 
-		return compactDoneMsg{compacted: compacted, err: err}
+		return compactDoneMsg{compacted: compacted, before: before, after: after, err: err}
 	}
 }
 
@@ -574,8 +591,12 @@ func (c *client) finishCompact(msg compactDoneMsg) tea.Cmd {
 	c.compacting = false
 	c.cancel = nil
 	c.input.Focus()
+	c.refreshContextUsage()
 
-	notice = "compacted the conversation into a summary"
+	notice = "compacted the conversation context"
+	if msg.before > 0 && msg.after > 0 {
+		notice += ": " + compactCount(msg.before) + " → " + compactCount(msg.after)
+	}
 
 	if msg.err != nil {
 		notice = "could not compact: " + msg.err.Error()
@@ -1417,17 +1438,10 @@ func compactCount(value int) string {
 }
 
 func (c *client) contextUsage() string {
-	var entry transcriptEntry
 	var used int
 	var limit int
 
-	for _, entry = range c.transcript {
-		if entry.kind == transcriptMessage {
-			used += len(entry.content)
-		} else if entry.kind == transcriptTool {
-			used += len(entry.tool.Name) + len(entry.tool.Arguments) + len(entry.tool.Result)
-		}
-	}
+	used = c.contextChars
 	used += c.pending.Len()
 	limit = config.Client.Context.MaxChars
 	if limit <= 0 {
@@ -1435,6 +1449,18 @@ func (c *client) contextUsage() string {
 	}
 
 	return "ctx " + compactCount(used) + "/" + compactCount(limit)
+}
+
+func (c *client) refreshContextUsage() {
+	var used int
+
+	var err error
+
+	used, err = core.SessionContextChars(c.session.Id)
+	if err != nil {
+		return
+	}
+	c.contextChars = used
 }
 
 func (c *client) statusLine(left string) string {
