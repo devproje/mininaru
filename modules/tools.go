@@ -24,7 +24,25 @@ const (
 	PermissionPrivileged
 )
 
+type sessionKey struct{}
+
 var workingRoot string
+
+func SessionContext(ctx context.Context, sessionId string) context.Context {
+	if sessionId == "" {
+		return ctx
+	}
+
+	return context.WithValue(ctx, sessionKey{}, sessionId)
+}
+
+func SessionFrom(ctx context.Context) string {
+	var sessionId string
+
+	sessionId, _ = ctx.Value(sessionKey{}).(string)
+
+	return sessionId
+}
 
 func (p Permission) String() string {
 	switch p {

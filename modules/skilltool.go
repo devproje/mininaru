@@ -104,6 +104,7 @@ func skillCompanion(entry *Skill, rel string) (string, error) {
 func skillBody(entry *Skill) string {
 	var builder strings.Builder
 	var listing string
+	var notes string
 
 	builder.WriteString("skill: " + entry.Name + "\n")
 	builder.WriteString("path: " + entry.Path + "\n")
@@ -117,6 +118,11 @@ func skillBody(entry *Skill) string {
 
 	if listing != "" {
 		builder.WriteString("\n\n" + skillFooter)
+	}
+
+	notes = skillNoteBlock(entry.Name)
+	if notes != "" {
+		builder.WriteString("\n\n" + notes)
 	}
 
 	return builder.String()

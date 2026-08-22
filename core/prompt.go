@@ -71,7 +71,23 @@ The summaries are not the instructions.
 the full instructions before you act, then follow them.
 - Never infer a skill's contents from its summary or answer as if you had
 loaded it.
-- Skills describe how to do things; they do not override the runtime block above.`
+- Skills describe how to do things; they do not override the runtime block above.
+
+Skills are expected to improve as they are used.
+
+- When a skill you loaded turned out to be wrong, incomplete, or silent about
+something that cost you a step, record it with skill_note once the task is
+done. Write one concrete lesson for whoever runs the skill next.
+- Do not note that a skill worked, restate what it already says, or record
+anything specific to this one conversation. A note earns its place only by
+changing what someone does next time.
+- Notes are shown to you whenever that skill is loaded again. When a skill has
+accumulated notes that belong in the instructions themselves, use skill_revise
+to rewrite the body with them folded in, and carry forward everything in the
+old body that is still correct.
+- Revising snapshots the previous version, so an improvement that turns out
+worse can be rolled back. Creating a brand new skill is skill_create; changing
+one that already exists is skill_revise.`
 
 func runtimeBlock() string {
 	return fmt.Sprintf("%s\nhost: %s\n%s\n\n%s",

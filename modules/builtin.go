@@ -156,6 +156,20 @@ func builtinTools() []builtinTool {
 			},
 		},
 		{
+			Build:      SkillNoteTool,
+			Permission: PermissionSafe,
+			Annotations: mcp.ToolAnnotations{
+				Title: "note a skill lesson", ReadOnlyHint: false, DestructiveHint: hint(false), OpenWorldHint: hint(false),
+			},
+		},
+		{
+			Build:      SkillRevise,
+			Permission: PermissionPrivileged,
+			Annotations: mcp.ToolAnnotations{
+				Title: "revise skill", ReadOnlyHint: false, DestructiveHint: hint(true), OpenWorldHint: hint(false),
+			},
+		},
+		{
 			Build:      Memory,
 			Permission: PermissionPrivileged,
 			Annotations: mcp.ToolAnnotations{

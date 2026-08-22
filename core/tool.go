@@ -197,7 +197,7 @@ func executeTool(ctx context.Context, sessionId string, record *ToolCall, defs [
 		}
 	}
 	if err == nil && def != nil {
-		record.Result, err = def.Execute(ctx, record.Arguments)
+		record.Result, err = def.Execute(modules.SessionContext(ctx, sessionId), record.Arguments)
 	}
 	if err != nil {
 		record.Status = MessageFailed
