@@ -24,9 +24,12 @@ func setupTestProviderAgent(t *testing.T) (string, *httptest.Server) {
 
 	upstream = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]any
+		var stream bool
+		var flusher http.Flusher
+		var content string
 
 		json.NewDecoder(r.Body).Decode(&body)
-		stream, _ := body["stream"].(bool)
+		stream, _ = body["stream"].(bool)
 
 		if !stream {
 			w.Header().Set("Content-Type", "application/json")
@@ -36,9 +39,9 @@ func setupTestProviderAgent(t *testing.T) (string, *httptest.Server) {
 
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.WriteHeader(http.StatusOK)
-		flusher := w.(http.Flusher)
-		for _, c := range []string{"Hel", "lo"} {
-			fmt.Fprintf(w, "data: {\"id\":\"c1\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"m\",\"choices\":[{\"index\":0,\"delta\":{\"content\":%q},\"finish_reason\":null}]}\n\n", c)
+		flusher = w.(http.Flusher)
+		for _, content = range []string{"Hel", "lo"} {
+			fmt.Fprintf(w, "data: {\"id\":\"c1\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"m\",\"choices\":[{\"index\":0,\"delta\":{\"content\":%q},\"finish_reason\":null}]}\n\n", content)
 			flusher.Flush()
 		}
 		fmt.Fprint(w, "data: [DONE]\n\n")
@@ -70,6 +73,8 @@ func TestChatCompletionsNonStream(t *testing.T) {
 	var req *http.Request
 	var body []byte
 	var resp map[string]any
+	var choices []any
+	var message map[string]any
 
 	setupTestDB(t)
 	router = newRouter()
@@ -91,8 +96,8 @@ func TestChatCompletionsNonStream(t *testing.T) {
 		t.Fatalf("model = %v, want %q", resp["model"], agentName)
 	}
 
-	choices := resp["choices"].([]any)
-	message := choices[0].(map[string]any)["message"].(map[string]any)
+	choices = resp["choices"].([]any)
+	message = choices[0].(map[string]any)["message"].(map[string]any)
 	if message["content"] != "hi there" {
 		t.Fatalf("content = %v, want %q", message["content"], "hi there")
 	}
@@ -104,6 +109,7 @@ func TestChatCompletionsStream(t *testing.T) {
 	var w *httptest.ResponseRecorder
 	var req *http.Request
 	var body []byte
+	var out string
 
 	setupTestDB(t)
 	router = newRouter()
@@ -125,7 +131,7 @@ func TestChatCompletionsStream(t *testing.T) {
 		t.Fatalf("content-type = %q, want text/event-stream", w.Header().Get("Content-Type"))
 	}
 
-	out := w.Body.String()
+	out = w.Body.String()
 	if !strings.Contains(out, `"content":"Hel"`) {
 		t.Fatalf("stream body missing first chunk: %s", out)
 	}
@@ -140,6 +146,8 @@ func TestChatCompletionsUnknownModel(t *testing.T) {
 	var req *http.Request
 	var body []byte
 	var resp map[string]any
+	var errObj map[string]any
+	var ok bool
 
 	setupTestDB(t)
 	router = newRouter()
@@ -157,7 +165,7 @@ func TestChatCompletionsUnknownModel(t *testing.T) {
 	}
 
 	json.Unmarshal(w.Body.Bytes(), &resp)
-	errObj, ok := resp["error"].(map[string]any)
+	errObj, ok = resp["error"].(map[string]any)
 	if !ok {
 		t.Fatalf("response has no nested error object: %s", w.Body.String())
 	}
@@ -172,6 +180,7 @@ func TestModelsListsAgents(t *testing.T) {
 	var w *httptest.ResponseRecorder
 	var req *http.Request
 	var resp map[string]any
+	var data []any
 
 	setupTestDB(t)
 	router = newRouter()
@@ -185,7 +194,7 @@ func TestModelsListsAgents(t *testing.T) {
 	}
 
 	json.Unmarshal(w.Body.Bytes(), &resp)
-	data := resp["data"].([]any)
+	data = resp["data"].([]any)
 	if len(data) != 1 {
 		t.Fatalf("data = %d models, want 1", len(data))
 	}

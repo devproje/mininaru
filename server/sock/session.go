@@ -26,10 +26,6 @@ func setSessionApproved(sessionId string) {
 	sessionAutoApprove.Store(sessionId, true)
 }
 
-// approvalRouter matches an HIL approval decision sent back over a /ws
-// connection to the goroutine blocked waiting for it. Tool calls execute
-// sequentially within one session's turn, so keying by session id alone is
-// enough — there is never more than one pending approval per session.
 type approvalRouter struct {
 	mu      sync.Mutex
 	pending map[string]chan string
@@ -41,6 +37,7 @@ func newApprovalRouter() *approvalRouter {
 
 func (r *approvalRouter) wait(ctx context.Context, sessionId string) string {
 	var ch chan string
+	var decision string
 
 	r.mu.Lock()
 	ch = make(chan string, 1)
@@ -54,7 +51,7 @@ func (r *approvalRouter) wait(ctx context.Context, sessionId string) string {
 	}()
 
 	select {
-	case decision := <-ch:
+	case decision = <-ch:
 		return decision
 	case <-ctx.Done():
 		return "deny"

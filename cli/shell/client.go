@@ -363,11 +363,6 @@ func newInterruptWatch() *interruptWatch {
 	return &w
 }
 
-// pause stops the interrupt watcher so its stdin-reading goroutine isn't
-// racing a synchronous read elsewhere (e.g. an approval prompt). It is not
-// resumed afterward — ESC-to-interrupt stays unavailable for the remainder
-// of that turn, but nothing already typed is lost: unread bytes simply stay
-// buffered in the terminal until the next readLine() call picks them up.
 func (w *interruptWatch) pause() {
 	if w.stopped {
 		return

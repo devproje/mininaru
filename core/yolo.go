@@ -166,10 +166,6 @@ func IsLoopbackAddr(remoteAddr string) bool {
 	return ip.IsLoopback()
 }
 
-// ResolveAnchor picks the yolo trust anchor for an incoming /ws or /api
-// connection: the client's reported cwd when the peer is loopback (trusted
-// to state its own working directory), otherwise the server's own $HOME —
-// a remote peer's claimed cwd is never trusted.
 func ResolveAnchor(remoteAddr, clientCwd string) string {
 	var home string
 

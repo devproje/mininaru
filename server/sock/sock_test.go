@@ -65,13 +65,14 @@ func setupChatFixture(t *testing.T) string {
 
 	upstream = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var flusher http.Flusher
+		var content string
 
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.WriteHeader(http.StatusOK)
 		flusher = w.(http.Flusher)
 
-		for _, c := range []string{"Hel", "lo"} {
-			fmt.Fprintf(w, "data: {\"id\":\"c1\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"m\",\"choices\":[{\"index\":0,\"delta\":{\"content\":%q},\"finish_reason\":null}]}\n\n", c)
+		for _, content = range []string{"Hel", "lo"} {
+			fmt.Fprintf(w, "data: {\"id\":\"c1\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"m\",\"choices\":[{\"index\":0,\"delta\":{\"content\":%q},\"finish_reason\":null}]}\n\n", content)
 			flusher.Flush()
 		}
 		fmt.Fprint(w, "data: [DONE]\n\n")
@@ -152,11 +153,12 @@ func readFrame(t *testing.T, conn *websocket.Conn) testFrame {
 
 func readUntilTerminal(t *testing.T, conn *websocket.Conn) (bool, testFrame) {
 	var gotChunk bool
+	var frame testFrame
 
 	t.Helper()
 
 	for {
-		frame := readFrame(t, conn)
+		frame = readFrame(t, conn)
 		if frame.Type == "chunk" {
 			gotChunk = true
 			continue
