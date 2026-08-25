@@ -26,9 +26,6 @@ all: build
 build:
 	go build -ldflags "$(LD_FLAGS)" -o $(TARGET) ./cli
 
-generate:
-	sh ./scripts/generate-proto.sh
-
 dist:
 	@mkdir -p $(dir $(DIST_BIN))
 	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) \
@@ -59,12 +56,6 @@ test-cover: fmt vet
 	@go tool cover -func=$(COVER_OUT) | tail -n 1
 
 test-all: test-race test-cover
-
-install: build
-	bash ./scripts/binary-install.sh
-
-uninstall:
-	bash ./scripts/binary-install.sh --uninstall
 
 clean:
 	@rm -f $(TARGET) $(COVER_OUT)
