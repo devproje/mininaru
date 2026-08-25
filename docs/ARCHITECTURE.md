@@ -12,9 +12,9 @@ paired gRPC client, and a full-screen TUI. None of that exists in this
 branch; it was deliberately dropped in favor of starting the server and CLI
 over from a small, well-understood core. If you are looking for any of that,
 it is not merely undocumented — it is not built yet. Tool calling (bash, file
-read/write/edit, MCP client) has come back — see "Tool calling" below — gated
-by a directory-scoped trust model ("yolo mode") and a human-in-the-loop
-approval round-trip over `/ws`.
+read/write/edit, browser automation, MCP client) has come back — see "Tool
+calling" below — gated by a directory-scoped trust model ("yolo mode") and a
+human-in-the-loop approval round-trip over `/ws`.
 
 ## Packages
 
@@ -22,19 +22,20 @@ approval round-trip over `/ws`.
 cli/            cobra root, `serve`, `shell`, and the provider/agent/session admin subcommands
 cli/shell/      the `mininaru shell` line editor — bash mode, agent mode, slash commands
 core/           Provider, Agent, Session, Message, ToolCall CRUD, the tool-calling chat loop, and yolo trust state
-modules/        the Tool/Permission type — a leaf package, imports only util + the MCP SDK
-modules/bash/   the bash_exec builtin tool
-modules/file/   the file_read/file_write/file_edit builtin tools
-modules/mcp/    the MCP client (stdio + streamable-HTTP transports, mcp.json config)
-server/         gin HTTP API — OpenAI-compatible /api/v1, REST admin routes under /api, and /ws
-util/           data directory layout, SQLite handle + migrations, logging, version/banner
+modules/          the Tool/Permission type — a leaf package, imports only util + the MCP SDK
+modules/bash/     the bash_exec builtin tool
+modules/file/     the file_read/file_write/file_edit builtin tools
+modules/browser/  the browser_* computer-use tools (chromedp), the one tool package with cross-call state
+modules/mcp/      the MCP client (stdio + streamable-HTTP transports, mcp.json config)
+server/           gin HTTP API — OpenAI-compatible /api/v1, REST admin routes under /api, and /ws
+util/             data directory layout, SQLite handle + migrations, logging, version/banner
 ```
 
 Dependencies point one way: `server` and `cli` depend on `core`; `core`
 depends on `util` and `modules` (plus `modules/bash`, `modules/file`,
-`modules/mcp`); `modules/bash`, `modules/file`, and `modules/mcp` each depend
-on `modules` and `util` but not on each other. Nothing in `core`, `modules`,
-or `util` imports its callers.
+`modules/browser`, `modules/mcp`); those four each depend on `modules` and
+`util` but not on each other. Nothing in `core`, `modules`, or `util` imports
+its callers.
 `cli/shell` reaches a `mininaru serve` instance only through its public
 `/api` and `/ws` surface — it is a client like any other, not a special case
 with direct database access. The admin subcommands (`provider`, `agent`,
@@ -112,10 +113,19 @@ map an agent's stored `ThinkingLevel` to the SDK's `ReasoningEffort`
 stays completion-only, mirroring how it takes the caller's entire message
 history with no server-side session.
 
+`chatStreamRound` (the session-backed path's per-round streaming call) guards
+against a provider that stops sending data mid-stream without closing the
+connection — a `time.AfterFunc` idle timer (`streamIdleTimeout`, 2 minutes)
+resets on every chunk and cancels a context derived from the caller's if it
+ever fires, turning what would otherwise be an indefinite "thinking…" hang
+into a bounded failure. It only trips on true silence: an actively streaming
+response (even one made of nothing but reasoning filler, or a long tool
+turn) keeps resetting the timer and is never cut off.
+
 ## Tool calling — session-backed only
 
 `SendChatMessage` (`core/chat.go`, `core/toolloop.go`), the entry point the
-`/ws` handler calls, is a round loop (`maxToolRounds = 8`): it rebuilds the
+`/ws` handler calls, is a round loop (`maxToolRounds = 50`): it rebuilds the
 session's message history via `historyUnion` — replaying each earlier turn's
 recorded `tool_calls` back as an assistant tool-call message plus the
 matching `openai.ToolMessage` results, so a resumed session doesn't have to
@@ -124,9 +134,10 @@ tool calls, executes each one via `executeTool` and loops. Turns with no
 `call_id` recorded yet or a `tool_calls` row still `pending` (a turn that was
 cut off mid-flight, e.g. by a server restart) are not replayed.
 
-`buildTools(root)` (`core/tools.go`) assembles the tool list every round:
-`bash_exec` and the three file tools from `modules/bash`/`modules/file`
-rooted at `root`, plus whatever `modules/mcp.Tools()` currently exposes from
+`buildTools(root, sessionId)` (`core/tools.go`) assembles the tool list every
+round: `bash_exec` and the three file tools from `modules/bash`/`modules/file`
+rooted at `root`, the six `modules/browser` tools scoped to `sessionId` (see
+below), plus whatever `modules/mcp.Tools()` currently exposes from
 `mcp.json`-configured MCP servers. Every `modules.Tool` carries a
 `Permission` (`Safe`/`Dangerous`) — builtins are always `Dangerous`, MCP
 tools infer it from `ToolAnnotations.ReadOnlyHint` unless a server or
@@ -135,6 +146,42 @@ per-tool override in `mcp.json` says otherwise. `executeTool` only consults
 unconditionally; a `Dangerous` one calls `approve(ctx, name, arguments)` and
 runs only if the decision isn't `"deny"`. `core` itself has no opinion on
 *when* to ask — that policy lives one layer up, in `server/sock`.
+
+### Computer use — `modules/browser`
+
+`browser_navigate`/`browser_click`/`browser_type`/`browser_read`/
+`browser_screenshot`/`browser_close` drive a headless Chrome/Chromium tab via
+`github.com/chromedp/chromedp` (pure Go, talks CDP directly over a
+websocket — no separate driver process, unlike Playwright). This is the one
+tool package with cross-call state: `modules/browser/manager.go` keeps a
+`map[sessionId]*session` (a live chromedp context + cancel func), so
+`navigate` then `click` then `screenshot` in the same mininaru session act on
+the same tab. A lazily-started reaper goroutine (`sync.Once`-gated, so it
+never runs if browser tools are never called) closes sessions idle for more
+than 5 minutes; `browser_close` lets the model end one early. The Chrome
+binary is found via `MININARU_CHROME` (mirroring `MININARU_SHELL` in
+`modules/bash`) or `$PATH` (checking `headless-shell`/`chromium-headless-shell`
+ahead of the full-browser names — a headless-only build works fine, chromedp
+always launches with `--headless` regardless), falling back to chromedp's own
+default search; `browser.Available()` is the same check used to skip
+`modules/browser`'s integration tests when no Chrome/Chromium is installed.
+Browser sessions are in-memory only — they don't survive a server restart,
+and a resumed mininaru session just opens a fresh tab on its next
+`browser_navigate`.
+
+Screenshots hit a real constraint: the OpenAI Chat Completions API's `tool`
+message can only carry text (`ChatCompletionToolMessageParam.Content` is
+`string | []ChatCompletionContentPartTextParam` — no image parts), while a
+`user` message can (`openai.UserMessage([]ChatCompletionContentPartUnionParam{
+openai.ImageContentPart(...)})`). So `browser_screenshot` returns the PNG as
+a `data:image/png;base64,...` string, and `core/chat.go`'s round loop
+(`isScreenshotResult`, `core/toolloop.go`) special-cases any tool result with
+that prefix: the `tool_calls` row and the `ToolMessage` both get a short
+`"screenshot captured"` placeholder instead of the raw data, and a synthetic
+`UserMessage` carrying the image is appended right after — so the model sees
+it as an attached image on its next round. The image itself is never
+persisted to SQLite (avoids blob bloat); a resumed session replays the
+placeholder text only, not the picture.
 
 ### Yolo mode — the trust policy behind `approve`
 
@@ -346,9 +393,14 @@ would otherwise share one group.
 
 ### Agent mode
 
-`sendAgent()` (`client.go`) posts `{session_id, content}` over the websocket
-and streams the reply back, rendering `reply.Reasoning` — dimmed, under a
-"thinking" heading — ahead of the answer text. While a turn is in flight, a
+`sendAgent()` (`client.go`) posts `{session_id, content, cwd}` over the
+websocket and streams the reply back, rendering `reply.Reasoning` — dimmed,
+under a "thinking" heading — ahead of the answer text. `isReasoningFiller`
+drops any reasoning delta that's nothing but dots and whitespace before
+rendering it — some providers stream literal `.` characters as a heartbeat
+while a reasoning summary is still being generated, instead of holding the
+delta back until there's real content; the header only appears once real
+text arrives. While a turn is in flight, a
 background goroutine (`watchInterrupt`) polls stdin so pressing Esc cancels
 the wait: it closes the websocket, then reconnects **reusing the existing
 session id** (`connect()` only calls `openSession()` — which creates a new

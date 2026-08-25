@@ -13,10 +13,12 @@ the first edit. This document does not repeat them.
 ## This is a rewrite in progress
 
 `refactor/1.0.0-alpha` dropped a lot of what an earlier version of this
-project had: MCP tools, skills, memory, subagent delegation, a Discord front
-end, a paired gRPC client, a full-screen TUI. If you find a stale reference
-to any of that — in a comment, a doc, an old branch — it describes something
-that used to exist, not something you are missing. Check
+project had: skills, memory, subagent delegation, a Discord front end, a
+paired gRPC client, a full-screen TUI. (Tool calling and MCP came back —
+see "Tool calling" in ARCHITECTURE.md — but under a different, lighter
+design than the old one; don't assume the old shape.) If you find a stale
+reference to any of the rest — in a comment, a doc, an old branch — it
+describes something that used to exist, not something you are missing. Check
 [ARCHITECTURE.md](ARCHITECTURE.md) against the actual package layout before
 trusting any other description of "what mininaru does," this file included:
 documentation lags the code here more often than the reverse.
@@ -71,10 +73,13 @@ That is what CI runs on every push and pull request, alongside a plain
 `cli/shell/` deserve a `GOOS=darwin go build ./...` before you claim a change
 is done, since that platform is not what most development happens on.
 
-Six packages have tests as of this writing (`cli/shell`, `core`, `server`,
-`server/controller`, `server/sock`, `util`) — check with
-`go test ./... -v` which ones actually ran; "tests pass" after running one
-package is a false statement about the rest.
+Most packages have tests as of this writing (`cli`, `cli/shell`, `core`,
+`modules/bash`, `modules/browser`, `modules/file`, `modules/mcp`, `server`,
+`server/controller`, `server/sock`, `util`) — check with `go test ./... -v`
+which ones actually ran; "tests pass" after running one package is a false
+statement about the rest. `modules/browser`'s integration test skips itself
+when no Chrome/Chromium binary is reachable (`browser.Available()`) — a
+green run on a machine without one didn't cover that code.
 
 `core` tests reset the database per test with `setupTestDB(t)`
 (`core/testing_helpers_test.go`), which points `util.DB` at a fresh
@@ -84,10 +89,18 @@ any new `core` test, or it will see whatever the previous test left behind.
 ## Do not do these without being asked
 
 - **Do not start `serve` against the real data directory.** Set `NARU_PATH`
-  to a temporary directory for anything you run yourself — `mininaru serve`
-  currently has no authentication on any endpoint, so pointing one at a real
-  provider's API key and leaving it reachable is a real exposure, not just a
-  test-hygiene issue.
+  to a temporary directory for anything you run yourself. Every endpoint
+  requires `Authorization: Bearer <key>` now (`server/auth.go`), but the key
+  lives in `NARU_PATH/mininaru.key` right next to the data it protects —
+  running against the real directory still means real provider credentials
+  and a real `bash_exec`/file-tool blast radius sitting behind whatever you
+  just spun up, so keep it scoped to a throwaway directory regardless.
+- **Do not treat 1a-era "no gate" as the current state.** Dangerous tools
+  (`bash_exec`, `file_write`, `file_edit`, `browser_*`) are gated by yolo
+  mode + human-in-the-loop approval (`core/yolo.go`, `server/sock`) — see
+  "Tool calling" in ARCHITECTURE.md. If you're driving the shell yourself,
+  expect an approval prompt for any of them outside a directory you've
+  already trusted with `/yolo`.
 - **Do not read or echo secrets.** Provider API keys live in the `providers`
   table in SQLite (`.mininaru/data.db`), not a separate file, but they are
   still real credentials. `server/controller/provider.go`'s

@@ -6,9 +6,10 @@ An OpenAI-compatible chat server backed by SQLite, plus an admin CLI and an
 interactive terminal shell — one Go binary, no external dependencies.
 
 This is a rewrite in progress (`refactor/1.0.0-alpha`). An earlier version of
-this project had MCP tools, skills, memory, subagent delegation, a Discord
-front end, and a paired gRPC client. None of that exists in this branch; it
-was dropped on purpose to rebuild the server and CLI from a small core. See
+this project had skills, memory, subagent delegation, a Discord front end,
+and a paired gRPC client. None of that exists in this branch; it was dropped
+on purpose to rebuild the server and CLI from a small core. Tool calling
+(bash, file read/write/edit, browser automation, MCP) has come back — see
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for what is actually here.
 
 ## Build from source
@@ -46,7 +47,9 @@ one is tightened to `0700` on every start. Chat history is SQLite
 (`.mininaru/data.db`, WAL mode); the shell's bash command history is a plain
 text file (`.mininaru/shell_history` by default, or `$HISTFILE`); the server's
 API key is `.mininaru/mininaru.key` (mode `0600`, generated the first time
-anything needs it).
+anything needs it); yolo trust state is `.mininaru/directory.json`, managed
+through `/yolo` rather than hand-edited; MCP servers are configured in
+`.mininaru/mcp.json`, which you do edit by hand.
 
 ## Set up a provider and an agent
 
@@ -103,6 +106,26 @@ address (the default). Talking to a server on another host needs the key
 passed explicitly — `mininaru shell --url ws://host:8223/ws --api-key '<KEY>'`
 or `MININARU_API_KEY` — since the local key file is never sent anywhere but
 loopback.
+
+## Tools
+
+An agent can run `bash_exec`, read/write/edit files, and drive a headless
+browser (`browser_navigate`/`browser_click`/`browser_type`/`browser_read`/
+`browser_screenshot`) — plus whatever MCP servers you configure in
+`NARU_PATH/mcp.json`. `browser_*` needs a Chrome or Chromium binary
+reachable via `$PATH` or `MININARU_CHROME`; nothing else has an external
+dependency.
+
+Every one of those is gated by **yolo mode**, set per directory with
+`/yolo <off|persist|on>` in the shell:
+
+- `off` (default) — always ask before running one.
+- `persist` — auto-run inside the directory you set it in.
+- `on` — auto-run everywhere, no prompts; `/yolo on` asks you to confirm
+  once before switching.
+
+When a call needs asking, the shell shows the tool name and arguments and
+you answer once / for the rest of the session / no.
 
 ## The interactive shell
 
@@ -183,8 +206,11 @@ you want considered — there is no server-side history for this endpoint.
 returned in full over this API; list and read responses mask it.
 
 `/ws` is what `mininaru shell` uses for agent-mode chat: send
-`{"session_id": "...", "content": "..."}` and receive a stream of
-`{"type": "chunk"|"done"|"error", ...}` frames.
+`{"session_id": "...", "content": "...", "cwd": "..."}` and receive a stream
+of `{"type": "chunk"|"tool"|"approval_request"|"done"|"error", ...}` frames.
+An `approval_request` frame blocks the turn until you answer with
+`{"type": "approval", "session_id": "...", "decision": "once"|"session"|"deny"}`
+— see "Tools" above.
 
 ## Development
 
