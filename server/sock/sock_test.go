@@ -15,6 +15,7 @@ import (
 	"github.com/devproje/mininaru/util"
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
+	"github.com/openai/openai-go"
 )
 
 type testFrame struct {
@@ -256,5 +257,38 @@ func TestSockHandlerMalformedFrame(t *testing.T) {
 	frame = readFrame(t, conn)
 	if frame.Type != "error" {
 		t.Fatalf("type = %q, want error", frame.Type)
+	}
+}
+
+func TestChunkReasoningReadsProviderFields(t *testing.T) {
+	var chunk openai.ChatCompletionChunk
+
+	var err error
+
+	err = chunk.UnmarshalJSON([]byte(`{"choices":[{"delta":{"reasoning_content":"stepping through"}}]}`))
+	if err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	if chunkReasoning(chunk) != "stepping through" {
+		t.Fatalf("reasoning_content was not read: %q", chunkReasoning(chunk))
+	}
+
+	err = chunk.UnmarshalJSON([]byte(`{"choices":[{"delta":{"reasoning":"another form"}}]}`))
+	if err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	if chunkReasoning(chunk) != "another form" {
+		t.Fatalf("reasoning was not read: %q", chunkReasoning(chunk))
+	}
+
+	err = chunk.UnmarshalJSON([]byte(`{"choices":[{"delta":{"content":"plain"}}]}`))
+	if err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	if chunkReasoning(chunk) != "" {
+		t.Fatalf("plain content should carry no reasoning")
 	}
 }

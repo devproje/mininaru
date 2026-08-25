@@ -27,7 +27,17 @@ type outboundFrame struct {
 	Type      string                      `json:"type"`
 	SessionId string                      `json:"session_id"`
 	Chunk     *openai.ChatCompletionChunk `json:"chunk,omitempty"`
+	Reasoning string                      `json:"reasoning,omitempty"`
 	Message   string                      `json:"message,omitempty"`
+}
+
+type reasoningChunk struct {
+	Choices []struct {
+		Delta struct {
+			Reasoning        string `json:"reasoning"`
+			ReasoningContent string `json:"reasoning_content"`
+		} `json:"delta"`
+	} `json:"choices"`
 }
 
 var upgrader websocket.Upgrader = websocket.Upgrader{
@@ -43,6 +53,23 @@ func writeFrame(conn *websocket.Conn, frame outboundFrame) {
 	if err != nil {
 		util.Log.Error("sock write error", "error", err)
 	}
+}
+
+func chunkReasoning(chunk openai.ChatCompletionChunk) string {
+	var parsed reasoningChunk
+
+	var err error
+
+	err = json.Unmarshal([]byte(chunk.RawJSON()), &parsed)
+	if err != nil || len(parsed.Choices) == 0 {
+		return ""
+	}
+
+	if parsed.Choices[0].Delta.ReasoningContent != "" {
+		return parsed.Choices[0].Delta.ReasoningContent
+	}
+
+	return parsed.Choices[0].Delta.Reasoning
 }
 
 func writeErrorFrame(conn *websocket.Conn, sessionId string, message string) {
@@ -87,7 +114,7 @@ func handleFrame(ctx context.Context, conn *websocket.Conn, frame inboundFrame) 
 	}
 
 	err = core.SendChatMessage(ctx, agent, session, func(chunk openai.ChatCompletionChunk) {
-		writeFrame(conn, outboundFrame{Type: "chunk", SessionId: session.Id, Chunk: &chunk})
+		writeFrame(conn, outboundFrame{Type: "chunk", SessionId: session.Id, Chunk: &chunk, Reasoning: chunkReasoning(chunk)})
 	})
 	if err != nil {
 		writeErrorFrame(conn, session.Id, err.Error())
