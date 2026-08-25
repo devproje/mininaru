@@ -110,7 +110,7 @@ func commandCandidates(word string) []string {
 
 	seen = map[string]bool{}
 
-	for _, name = range []string{"cd", "exit", "quit"} {
+	for _, name = range []string{"cd", "exit", "quit", "history"} {
 		if strings.HasPrefix(name, word) {
 			seen[name] = true
 			items = append(items, name)
@@ -147,6 +147,19 @@ func commandCandidates(word string) []string {
 	return items
 }
 
+func agentCommandCandidates(word string) []string {
+	var name string
+	var items []string
+
+	for _, name = range commandNames() {
+		if strings.HasPrefix("/"+name, word) {
+			items = append(items, "/"+name)
+		}
+	}
+
+	return items
+}
+
 func candidates(sh *state, line string) []string {
 	var word string
 
@@ -154,6 +167,10 @@ func candidates(sh *state, line string) []string {
 
 	if sh.mode == MODE_BASH && wordStart(line) == 0 && !strings.Contains(word, "/") {
 		return commandCandidates(word)
+	}
+
+	if sh.mode == MODE_AGENT && wordStart(line) == 0 && strings.HasPrefix(word, "/") {
+		return agentCommandCandidates(word)
 	}
 
 	return fileCandidates(sh, word)

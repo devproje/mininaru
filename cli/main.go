@@ -37,7 +37,8 @@ func execute(cmd *cobra.Command, args []string) error {
 }
 
 var root *cobra.Command = &cobra.Command{
-	RunE: execute,
+	RunE:         execute,
+	SilenceUsage: true,
 }
 
 func main() {
@@ -70,6 +71,9 @@ func main() {
 
 	root.AddCommand(serve)
 	root.AddCommand(shellCmd)
+	root.AddCommand(providerCmd)
+	root.AddCommand(agentCmd)
+	root.AddCommand(sessionCmd)
 
 	util.DB, err = util.NewDatabase(util.Path("data.db"))
 	if err != nil {
@@ -79,6 +83,6 @@ func main() {
 
 	err = root.Execute()
 	if err != nil {
-		panic(err)
+		os.Exit(1)
 	}
 }

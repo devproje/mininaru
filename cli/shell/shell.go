@@ -4,6 +4,7 @@
 package shell
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -25,16 +26,20 @@ type Options struct {
 }
 
 type state struct {
-	mode    mode
-	url     string
-	seed    string
-	agent   string
-	name    string
-	user    string
-	root    bool
-	cwd     string
-	conn    *websocket.Conn
-	session string
+	mode         mode
+	url          string
+	seed         string
+	agent        string
+	name         string
+	user         string
+	root         bool
+	cwd          string
+	conn         *websocket.Conn
+	session      string
+	history      []string
+	agentHistory []string
+	continuation bool
+	pendingInput []byte
 }
 
 const (
@@ -58,6 +63,10 @@ func dispatch(sh *state, line string, restore func() error, raw func() error) er
 	args = strings.Fields(line)
 
 	if sh.mode == MODE_AGENT {
+		if isCommand(line) {
+			return dispatchCommand(sh, line)
+		}
+
 		err = sendAgent(sh, line)
 		if err != nil {
 			disconnect(sh, err)
@@ -72,6 +81,11 @@ func dispatch(sh *state, line string, restore func() error, raw func() error) er
 
 	if args[0] == "cd" {
 		changeDir(sh, args)
+		return nil
+	}
+
+	if args[0] == "history" {
+		printHistory(sh, args)
 		return nil
 	}
 
@@ -96,6 +110,7 @@ func Run(opts Options) error {
 	var sh state
 	var previous *term.State
 	var line string
+	var composing string
 
 	var err error
 
@@ -116,6 +131,9 @@ func Run(opts Options) error {
 	sh.root = os.Geteuid() == 0
 	sh.user = currentUser()
 
+	loadHistory(&sh)
+	defer saveHistory(&sh)
+
 	err = connect(&sh)
 	if err != nil {
 		util.Log.Debug("shell websocket unavailable", "error", err)
@@ -135,14 +153,46 @@ func Run(opts Options) error {
 
 	for {
 		line, err = readLine(&sh)
+
+		if errors.Is(err, errSoftNewline) {
+			composing = composing + line + "\n"
+			sh.continuation = true
+			continue
+		}
+
+		if errors.Is(err, errContinuationCanceled) {
+			composing = ""
+			sh.continuation = false
+			continue
+		}
+
+		sh.continuation = false
+
 		if err != nil {
 			write("\n")
 			break
 		}
 
+		line = composing + line
+		composing = ""
+
 		if strings.TrimSpace(line) == "" {
 			continue
 		}
+
+		if sh.mode == MODE_BASH {
+			line, err = continueLine(&sh, line)
+			if errors.Is(err, io.EOF) {
+				write("\n")
+				break
+			}
+
+			if err != nil {
+				continue
+			}
+		}
+
+		recordHistory(&sh, line)
 
 		err = dispatch(&sh, line, func() error {
 			return term.Restore(fd, previous)

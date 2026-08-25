@@ -126,6 +126,36 @@ func SessionList(agentId string) ([]*Session, error) {
 	return list, nil
 }
 
+func SessionListAll() ([]*Session, error) {
+	var rows *sql.Rows
+	var list []*Session
+	var obj Session
+
+	var err error
+
+	rows, err = util.DB.Query("SELECT id, agent_id, name, created_at FROM sessions ORDER BY created_at DESC;")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		err = rows.Scan(&obj.Id, &obj.AgentId, &obj.Name, &obj.CreatedAt)
+		if err != nil {
+			return nil, err
+		}
+
+		list = append(list, &Session{Id: obj.Id, AgentId: obj.AgentId, Name: obj.Name, CreatedAt: obj.CreatedAt})
+	}
+
+	err = rows.Err()
+	if err != nil {
+		return nil, err
+	}
+
+	return list, nil
+}
+
 func SessionUpdate(id string, session *Session) error {
 	var opts []string
 	var values []any

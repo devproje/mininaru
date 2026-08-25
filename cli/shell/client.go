@@ -10,12 +10,16 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
+	"time"
 
 	"github.com/devproje/mininaru/core"
 	"github.com/gorilla/websocket"
 	"github.com/openai/openai-go"
 )
+
+const interruptPollInterval time.Duration = 100 * time.Millisecond
 
 type frame struct {
 	SessionId string `json:"session_id"`
@@ -198,9 +202,12 @@ func connect(sh *state) error {
 
 	var err error
 
-	session, err = openSession(sh)
-	if err != nil {
-		return err
+	session = sh.session
+	if session == "" {
+		session, err = openSession(sh)
+		if err != nil {
+			return err
+		}
 	}
 
 	dialer = websocket.Dialer{HandshakeTimeout: DIAL_TIMEOUT}
@@ -236,21 +243,59 @@ func chunkText(chunk *openai.ChatCompletionChunk) string {
 	return chunk.Choices[0].Delta.Content
 }
 
-func sendAgent(sh *state, content string) error {
-	var stop func()
+func watchInterrupt(done <-chan struct{}) (<-chan struct{}, <-chan struct{}, *[]byte) {
+	var interrupted chan struct{}
+	var exited chan struct{}
+	var captured []byte
+
+	interrupted = make(chan struct{})
+	exited = make(chan struct{})
+
+	go func() {
+		var buf []byte
+		var count int
+
+		var err error
+
+		defer close(exited)
+
+		buf = make([]byte, 1)
+
+		for {
+			select {
+			case <-done:
+				return
+			default:
+			}
+
+			if !pollStdin(interruptPollInterval) {
+				continue
+			}
+
+			count, err = os.Stdin.Read(buf)
+			if err != nil || count == 0 {
+				continue
+			}
+
+			if buf[0] == 0x1b {
+				close(interrupted)
+				return
+			}
+
+			captured = append(captured, buf[0])
+		}
+	}()
+
+	return interrupted, exited, &captured
+}
+
+func receiveAgent(sh *state, stop func()) error {
 	var reply reply
 	var text string
 	var thinking bool
 	var streaming bool
 
 	var err error
-
-	err = sh.conn.WriteJSON(frame{SessionId: sh.session, Content: content})
-	if err != nil {
-		return err
-	}
-
-	stop = spinner("thinking…")
 
 	for {
 		err = sh.conn.ReadJSON(&reply)
@@ -308,6 +353,62 @@ func sendAgent(sh *state, content string) error {
 			write("\n\n")
 			return nil
 		}
+	}
+}
+
+func sendAgent(sh *state, content string) error {
+	var stop func()
+	var done chan struct{}
+	var interrupted <-chan struct{}
+	var exited <-chan struct{}
+	var captured *[]byte
+	var result chan error
+
+	var err error
+
+	err = sh.conn.WriteJSON(frame{SessionId: sh.session, Content: content})
+	if err != nil {
+		return err
+	}
+
+	stop = spinner("thinking…")
+
+	done = make(chan struct{})
+	interrupted, exited, captured = watchInterrupt(done)
+	result = make(chan error, 1)
+
+	go func() {
+		result <- receiveAgent(sh, stop)
+	}()
+
+	select {
+	case <-interrupted:
+		stop()
+		sh.conn.Close()
+		sh.conn = nil
+
+		close(done)
+		<-exited
+		sh.pendingInput = append(sh.pendingInput, *captured...)
+
+		notice(YELLOW, "○", "%sinterrupted%s", YELLOW, RESET)
+
+		err = connect(sh)
+		if err != nil {
+			sh.mode = MODE_BASH
+			notice(RED, "●", "%sdisconnected%s %s", RED, RESET, DIM+err.Error()+", back to bash mode"+RESET)
+			return nil
+		}
+
+		notice(GREEN, "●", "%sreconnected%s %s", GREEN, RESET, DIM+sh.url+" · session "+sh.session+RESET)
+
+		return nil
+	case err = <-result:
+		close(done)
+		<-exited
+		sh.pendingInput = append(sh.pendingInput, *captured...)
+
+		return err
 	}
 }
 

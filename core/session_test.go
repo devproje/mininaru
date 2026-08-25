@@ -115,3 +115,37 @@ func TestSessionListFiltersByAgent(t *testing.T) {
 		t.Fatalf("list = %d sessions, want 2", len(list))
 	}
 }
+
+func TestSessionListAllIgnoresAgent(t *testing.T) {
+	var list []*Session
+
+	var err error
+
+	setupTestDB(t)
+
+	err = AgentCreate(&Agent{Id: "a1", Name: "naru", Model: "gpt-4o-mini"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = AgentCreate(&Agent{Id: "a2", Name: "coder", Model: "gpt-4o-mini"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = SessionCreate(&Session{Id: "s1", AgentId: "a1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = SessionCreate(&Session{Id: "s2", AgentId: "a2"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	list, err = SessionListAll()
+	if err != nil {
+		t.Fatalf("list failed: %v", err)
+	}
+	if len(list) != 2 {
+		t.Fatalf("list = %d sessions, want 2", len(list))
+	}
+}

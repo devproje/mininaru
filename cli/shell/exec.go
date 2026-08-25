@@ -39,24 +39,29 @@ func changeDir(sh *state, args []string) {
 	}
 }
 
-func runBash(sh *state, line string) {
+func bashPath() string {
 	var name string
-	var cmd *exec.Cmd
-
-	var err error
 
 	name = os.Getenv("SHELL")
 	if name == "" {
 		name = "/bin/bash"
 	}
 
-	cmd = exec.Command(name, "-c", line)
+	return name
+}
+
+func runBash(sh *state, line string) {
+	var cmd *exec.Cmd
+
+	var err error
+
+	cmd = exec.Command(bashPath(), "-c", line)
 	cmd.Dir = sh.cwd
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
-	err = cmd.Run()
+	err = runForeground(cmd)
 	if err != nil {
 		notice(RED, "✖", "%s%v%s", DIM, err, RESET)
 	}
@@ -188,7 +193,7 @@ func runNested(cmd *exec.Cmd, target string) {
 
 	notice(YELLOW, "⇅", "switching to %s%s%s %s", BOLD, target, RESET, DIM+"exit the nested shell to come back"+RESET)
 
-	err = cmd.Run()
+	err = runForeground(cmd)
 	if err != nil {
 		notice(RED, "✖", "%s%v%s", DIM, err, RESET)
 	}

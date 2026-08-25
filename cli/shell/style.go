@@ -167,6 +167,10 @@ func prompt(sh *state) string {
 	var badge string
 	var caret string
 
+	if sh.continuation {
+		return DIM + "> " + RESET
+	}
+
 	badge = BASH_BADGE
 	caret = BLUE + "$" + RESET
 
@@ -185,10 +189,11 @@ func prompt(sh *state) string {
 func banner(sh *state) {
 	write("\n%s\n\n", util.NaruLogoWithPad("  "))
 	write("  %smininaru shell%s %s%s%s\n", BOLD, RESET, DIM, util.AppVersion, RESET)
-	write("  %sShift+Tab%s switch mode   %sCtrl+D%s exit   %sCtrl+U%s clear line\n\n", GRAY, RESET, GRAY, RESET, GRAY, RESET)
+	write("  %sShift+Tab%s switch mode   %s↑/↓%s history   %sCtrl+J%s newline   %sEsc%s interrupt agent\n", GRAY, RESET, GRAY, RESET, GRAY, RESET, GRAY, RESET)
+	write("  %sCtrl+D%s exit   %sCtrl+U%s clear line   %s/help%s agent commands\n\n", GRAY, RESET, GRAY, RESET, GRAY, RESET)
 
 	if sh.conn != nil {
-		notice(GREEN, "●", "%sconnected%s %s", GREEN, RESET, DIM+sh.url+RESET)
+		notice(GREEN, "●", "%sconnected%s %s", GREEN, RESET, DIM+sh.url+" · session "+sh.session+RESET)
 		return
 	}
 
