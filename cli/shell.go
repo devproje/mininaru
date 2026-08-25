@@ -5,8 +5,12 @@ package main
 
 import (
 	"fmt"
+	"net/url"
+	"os"
+	"strings"
 
 	"github.com/devproje/mininaru/cli/shell"
+	"github.com/devproje/mininaru/util"
 	"github.com/spf13/cobra"
 )
 
@@ -23,14 +27,63 @@ var (
 	shellUrlRef     string
 	shellSessionRef string
 	shellAgentRef   string
+	shellApiKeyRef  string
 )
 
 func init() {
 	shellCmd.Flags().StringVar(&shellUrlRef, "url", shell.DEFAULT_URL, "websocket endpoint of the mininaru server")
 	shellCmd.Flags().StringVar(&shellSessionRef, "session", "", "existing session id to chat on")
 	shellCmd.Flags().StringVar(&shellAgentRef, "agent", "", "agent name to open a new session with")
+	shellCmd.Flags().StringVar(&shellApiKeyRef, "api-key", "", "api key for the mininaru server")
+}
+
+func isLoopbackURL(endpoint string) bool {
+	var parsed *url.URL
+	var host string
+
+	var err error
+
+	parsed, err = url.Parse(endpoint)
+	if err != nil {
+		return false
+	}
+
+	host = parsed.Hostname()
+
+	return host == "127.0.0.1" || host == "localhost" || host == "::1"
+}
+
+func resolveApiKey(explicit string, endpoint string) string {
+	var fromEnv string
+	var fromFile []byte
+
+	var err error
+
+	if explicit != "" {
+		return explicit
+	}
+
+	fromEnv = os.Getenv("MININARU_API_KEY")
+	if fromEnv != "" {
+		return fromEnv
+	}
+
+	if !isLoopbackURL(endpoint) {
+		return ""
+	}
+
+	fromFile, err = os.ReadFile(util.Path("mininaru.key"))
+	if err != nil {
+		return ""
+	}
+
+	return strings.TrimSpace(string(fromFile))
 }
 
 func shellExecute(cmd *cobra.Command, args []string) error {
-	return shell.Run(shell.Options{Url: shellUrlRef, Session: shellSessionRef, Agent: shellAgentRef})
+	var apiKey string
+
+	apiKey = resolveApiKey(shellApiKeyRef, shellUrlRef)
+
+	return shell.Run(shell.Options{Url: shellUrlRef, Session: shellSessionRef, Agent: shellAgentRef, ApiKey: apiKey})
 }

@@ -79,12 +79,12 @@ func resetSessionCommand(sh *state, args []string) (commandResult, error) {
 		return commandResult{}, err
 	}
 
-	err = apiGet(base+"/sessions/"+sh.session, &current)
+	err = apiGet(base+"/sessions/"+sh.session, sh.apiKey, &current)
 	if err != nil {
 		return commandResult{}, err
 	}
 
-	err = apiPost(base+"/sessions", map[string]string{"agent_id": current.AgentId, "name": "shell"}, &created)
+	err = apiPost(base+"/sessions", sh.apiKey, map[string]string{"agent_id": current.AgentId, "name": "shell"}, &created)
 	if err != nil {
 		return commandResult{}, err
 	}
@@ -105,7 +105,7 @@ func showSessionCommand(sh *state, args []string) (commandResult, error) {
 		return commandResult{}, err
 	}
 
-	err = apiGet(base+"/sessions/"+sh.session, &session)
+	err = apiGet(base+"/sessions/"+sh.session, sh.apiKey, &session)
 	if err != nil {
 		return commandResult{}, err
 	}

@@ -57,13 +57,27 @@ func apiBase(endpoint string) (string, error) {
 	return parsed.String(), nil
 }
 
-func apiGet(endpoint string, out any) error {
+func authorize(req *http.Request, apiKey string) {
+	if apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+apiKey)
+	}
+}
+
+func apiGet(endpoint string, apiKey string, out any) error {
+	var req *http.Request
 	var res *http.Response
 	var body []byte
 
 	var err error
 
-	res, err = http.Get(endpoint)
+	req, err = http.NewRequest(http.MethodGet, endpoint, nil)
+	if err != nil {
+		return err
+	}
+
+	authorize(req, apiKey)
+
+	res, err = http.DefaultClient.Do(req)
 	if err != nil {
 		return err
 	}
@@ -81,8 +95,9 @@ func apiGet(endpoint string, out any) error {
 	return json.Unmarshal(body, out)
 }
 
-func apiPost(endpoint string, payload any, out any) error {
+func apiPost(endpoint string, apiKey string, payload any, out any) error {
 	var body []byte
+	var req *http.Request
 	var res *http.Response
 
 	var err error
@@ -92,7 +107,15 @@ func apiPost(endpoint string, payload any, out any) error {
 		return err
 	}
 
-	res, err = http.Post(endpoint, "application/json", bytes.NewReader(body))
+	req, err = http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	authorize(req, apiKey)
+
+	res, err = http.DefaultClient.Do(req)
 	if err != nil {
 		return err
 	}
@@ -116,7 +139,7 @@ func pickAgent(sh *state, base string) (*core.Agent, error) {
 
 	var err error
 
-	err = apiGet(base+"/agents", &list)
+	err = apiGet(base+"/agents", sh.apiKey, &list)
 	if err != nil {
 		return nil, err
 	}
@@ -144,12 +167,12 @@ func seedAgent(sh *state, base string) (*core.Agent, error) {
 
 	var err error
 
-	err = apiGet(base+"/sessions/"+sh.seed, &session)
+	err = apiGet(base+"/sessions/"+sh.seed, sh.apiKey, &session)
 	if err != nil {
 		return nil, err
 	}
 
-	err = apiGet(base+"/agents/"+session.AgentId, &agent)
+	err = apiGet(base+"/agents/"+session.AgentId, sh.apiKey, &agent)
 	if err != nil {
 		return nil, err
 	}
@@ -185,7 +208,7 @@ func openSession(sh *state) (string, error) {
 		return "", err
 	}
 
-	err = apiPost(base+"/sessions", map[string]string{"agent_id": agent.Id, "name": "shell"}, &session)
+	err = apiPost(base+"/sessions", sh.apiKey, map[string]string{"agent_id": agent.Id, "name": "shell"}, &session)
 	if err != nil {
 		return "", err
 	}
@@ -197,6 +220,7 @@ func openSession(sh *state) (string, error) {
 
 func connect(sh *state) error {
 	var dialer websocket.Dialer
+	var header http.Header
 	var conn *websocket.Conn
 	var session string
 
@@ -212,7 +236,11 @@ func connect(sh *state) error {
 
 	dialer = websocket.Dialer{HandshakeTimeout: DIAL_TIMEOUT}
 
-	conn, _, err = dialer.Dial(sh.url, nil)
+	if sh.apiKey != "" {
+		header = http.Header{"Authorization": []string{"Bearer " + sh.apiKey}}
+	}
+
+	conn, _, err = dialer.Dial(sh.url, header)
 	if err != nil {
 		return err
 	}

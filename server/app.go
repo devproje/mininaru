@@ -18,7 +18,7 @@ type AppServer struct {
 
 var App *AppServer
 
-func NewAppServer(host string, port uint16) *AppServer {
+func NewAppServer(host string, port uint16, apiKey string) *AppServer {
 	var core *gin.Engine
 	var webserver http.Server
 
@@ -33,13 +33,13 @@ func NewAppServer(host string, port uint16) *AppServer {
 
 	core = gin.Default()
 
-	api = core.Group("/api")
-	v1 = core.Group("/api/v1")
+	api = core.Group("/api", authMiddleware(apiKey))
+	v1 = core.Group("/api/v1", authMiddleware(apiKey))
 
 	apiRoutes(api)
 	openAIRoutes(v1)
 
-	core.GET("/ws", sock.SockHandler)
+	core.GET("/ws", authMiddleware(apiKey), sock.SockHandler)
 
 	webserver = http.Server{
 		Addr:    fmt.Sprintf("%s:%d", host, port),

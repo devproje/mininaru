@@ -23,6 +23,7 @@ type Options struct {
 	Url     string
 	Session string
 	Agent   string
+	ApiKey  string
 }
 
 type state struct {
@@ -30,6 +31,7 @@ type state struct {
 	url          string
 	seed         string
 	agent        string
+	apiKey       string
 	name         string
 	user         string
 	root         bool
@@ -127,6 +129,7 @@ func Run(opts Options) error {
 	sh.url = opts.Url
 	sh.seed = opts.Session
 	sh.agent = opts.Agent
+	sh.apiKey = opts.ApiKey
 	sh.mode = MODE_BASH
 	sh.root = os.Geteuid() == 0
 	sh.user = currentUser()

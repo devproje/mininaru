@@ -38,9 +38,16 @@ func init() {
 }
 
 func serveExecute(cmd *cobra.Command, args []string) error {
+	var key string
+
 	var err error
 
-	server.App = server.NewAppServer(serverHostRef, serverPortRef)
+	key, err = util.APIKey()
+	if err != nil {
+		return err
+	}
+
+	server.App = server.NewAppServer(serverHostRef, serverPortRef, key)
 
 	fmt.Printf("webserver bind at http://%s:%d\n", serverHostRef, serverPortRef)
 	err = server.App.WebServer.ListenAndServe()
