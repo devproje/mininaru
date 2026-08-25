@@ -59,14 +59,16 @@ func TestSendAgentRendersReasoningBeforeAnswer(t *testing.T) {
 		var frames []string
 		var payload string
 
-		conn, err = upgrader.Upgrade(res, req, nil)
-		if err != nil {
+		var handlerErr error
+
+		conn, handlerErr = upgrader.Upgrade(res, req, nil)
+		if handlerErr != nil {
 			return
 		}
 		defer conn.Close()
 
-		_, raw, err = conn.ReadMessage()
-		if err != nil {
+		_, raw, handlerErr = conn.ReadMessage()
+		if handlerErr != nil {
 			return
 		}
 
@@ -81,8 +83,8 @@ func TestSendAgentRendersReasoningBeforeAnswer(t *testing.T) {
 		}
 
 		for _, payload = range frames {
-			err = conn.WriteMessage(websocket.TextMessage, []byte(payload))
-			if err != nil {
+			handlerErr = conn.WriteMessage(websocket.TextMessage, []byte(payload))
+			if handlerErr != nil {
 				return
 			}
 		}

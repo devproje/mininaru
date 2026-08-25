@@ -36,6 +36,7 @@ type state struct {
 	user         string
 	root         bool
 	cwd          string
+	yoloMode     string
 	conn         *websocket.Conn
 	session      string
 	history      []string
@@ -141,6 +142,8 @@ func Run(opts Options) error {
 	if err != nil {
 		util.Log.Debug("shell websocket unavailable", "error", err)
 	}
+
+	refreshYoloMode(&sh)
 
 	previous, err = term.MakeRaw(fd)
 	if err != nil {

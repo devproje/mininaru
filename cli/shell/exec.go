@@ -36,6 +36,11 @@ func changeDir(sh *state, args []string) {
 	sh.cwd, err = os.Getwd()
 	if err != nil {
 		notice(RED, "✖", "cd: %v", err)
+		return
+	}
+
+	if sh.conn != nil {
+		refreshYoloMode(sh)
 	}
 }
 

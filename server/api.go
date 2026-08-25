@@ -42,4 +42,7 @@ func apiRoutes(api *gin.RouterGroup) {
 	messages.GET("/:id", controller.MessageRead)
 	messages.PATCH("/:id", controller.MessageUpdate)
 	messages.DELETE("/:id", controller.MessageDelete)
+
+	api.POST("/yolo", controller.YoloSet)
+	api.GET("/yolo", controller.YoloGet)
 }

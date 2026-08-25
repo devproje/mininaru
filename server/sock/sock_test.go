@@ -28,7 +28,10 @@ type testFrame struct {
 			} `json:"delta"`
 		} `json:"choices"`
 	} `json:"chunk,omitempty"`
-	Message string `json:"message,omitempty"`
+	Message   string `json:"message,omitempty"`
+	Name      string `json:"name,omitempty"`
+	Status    string `json:"status,omitempty"`
+	Arguments string `json:"arguments,omitempty"`
 }
 
 func setupTestDB(t *testing.T) {
@@ -156,6 +159,9 @@ func readUntilTerminal(t *testing.T, conn *websocket.Conn) (bool, testFrame) {
 		frame := readFrame(t, conn)
 		if frame.Type == "chunk" {
 			gotChunk = true
+			continue
+		}
+		if frame.Type == "tool" {
 			continue
 		}
 

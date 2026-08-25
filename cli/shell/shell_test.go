@@ -104,6 +104,22 @@ func TestDisplayWidthCountsWideRunes(t *testing.T) {
 	}
 }
 
+func TestPathColorReflectsYoloMode(t *testing.T) {
+	var cases map[string]string
+	var mode string
+	var want string
+	var sh state
+
+	cases = map[string]string{"": DIM, "off": DIM, "persist": YELLOW, "on": RED}
+
+	for mode, want = range cases {
+		sh = state{yoloMode: mode}
+		if pathColor(&sh) != want {
+			t.Fatalf("pathColor(%q) = %q, want %q", mode, pathColor(&sh), want)
+		}
+	}
+}
+
 func TestAgentLabelFallsBackWhenNameIsUnknown(t *testing.T) {
 	var sh state
 

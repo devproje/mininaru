@@ -24,6 +24,13 @@ const interruptPollInterval time.Duration = 100 * time.Millisecond
 type frame struct {
 	SessionId string `json:"session_id"`
 	Content   string `json:"content"`
+	Cwd       string `json:"cwd,omitempty"`
+}
+
+type approvalResponse struct {
+	Type      string `json:"type"`
+	SessionId string `json:"session_id"`
+	Decision  string `json:"decision"`
 }
 
 type reply struct {
@@ -32,6 +39,9 @@ type reply struct {
 	Chunk     *openai.ChatCompletionChunk `json:"chunk,omitempty"`
 	Reasoning string                      `json:"reasoning,omitempty"`
 	Message   string                      `json:"message,omitempty"`
+	Name      string                      `json:"name,omitempty"`
+	Status    string                      `json:"status,omitempty"`
+	Arguments string                      `json:"arguments,omitempty"`
 }
 
 func apiBase(endpoint string) (string, error) {
@@ -131,6 +141,25 @@ func apiPost(endpoint string, apiKey string, payload any, out any) error {
 	}
 
 	return json.Unmarshal(body, out)
+}
+
+func refreshYoloMode(sh *state) {
+	var base string
+	var resp map[string]any
+
+	var err error
+
+	base, err = apiBase(sh.url)
+	if err != nil {
+		return
+	}
+
+	err = apiGet(base+"/yolo?cwd="+url.QueryEscape(sh.cwd), sh.apiKey, &resp)
+	if err != nil {
+		return
+	}
+
+	sh.yoloMode, _ = resp["mode"].(string)
 }
 
 func pickAgent(sh *state, base string) (*core.Agent, error) {
@@ -317,11 +346,91 @@ func watchInterrupt(done <-chan struct{}) (<-chan struct{}, <-chan struct{}, *[]
 	return interrupted, exited, &captured
 }
 
-func receiveAgent(sh *state, stop func()) error {
+type interruptWatch struct {
+	done        chan struct{}
+	interrupted <-chan struct{}
+	exited      <-chan struct{}
+	captured    *[]byte
+	stopped     bool
+}
+
+func newInterruptWatch() *interruptWatch {
+	var w interruptWatch
+
+	w.done = make(chan struct{})
+	w.interrupted, w.exited, w.captured = watchInterrupt(w.done)
+
+	return &w
+}
+
+// pause stops the interrupt watcher so its stdin-reading goroutine isn't
+// racing a synchronous read elsewhere (e.g. an approval prompt). It is not
+// resumed afterward — ESC-to-interrupt stays unavailable for the remainder
+// of that turn, but nothing already typed is lost: unread bytes simply stay
+// buffered in the terminal until the next readLine() call picks them up.
+func (w *interruptWatch) pause() {
+	if w.stopped {
+		return
+	}
+
+	close(w.done)
+	<-w.exited
+	w.stopped = true
+}
+
+func confirmPrompt(question string) bool {
+	var buf [1]byte
+
+	var err error
+
+	write("%s%s [y/N]: %s", YELLOW, question, RESET)
+
+	_, err = os.Stdin.Read(buf[:])
+
+	write("\n")
+
+	if err != nil {
+		return false
+	}
+
+	return buf[0] == 'y' || buf[0] == 'Y'
+}
+
+func approvalPrompt(sh *state, name, arguments string) string {
+	var buf [1]byte
+
+	var err error
+
+	write("%s⚠ %s wants to run %s%s%s\n", YELLOW, agentLabel(sh), PURPLE, name, RESET)
+	if arguments != "" {
+		write("%s%s%s\n", DIM, arguments, RESET)
+	}
+	write("%sAllow this call? [y]es once / [a]lways this session / [N]o: %s", YELLOW, RESET)
+
+	_, err = os.Stdin.Read(buf[:])
+
+	write("\n")
+
+	if err != nil {
+		return "deny"
+	}
+
+	switch buf[0] {
+	case 'y', 'Y':
+		return "once"
+	case 'a', 'A':
+		return "session"
+	default:
+		return "deny"
+	}
+}
+
+func receiveAgent(sh *state, stop func(), watch *interruptWatch) error {
 	var reply reply
 	var text string
 	var thinking bool
 	var streaming bool
+	var decision string
 
 	var err error
 
@@ -362,6 +471,43 @@ func receiveAgent(sh *state, stop func()) error {
 			}
 
 			write("%s", text)
+		case "tool":
+			stop()
+
+			if thinking && !streaming {
+				write("%s", RESET)
+				thinking = false
+			}
+			if streaming {
+				write("%s\n", RESET)
+				streaming = false
+			}
+
+			switch reply.Status {
+			case "started":
+				write("%s⚙ %s%s\n", GRAY, reply.Name, RESET)
+			case "failed":
+				write("%s✖ %s failed%s\n", RED, reply.Name, RESET)
+			}
+		case "approval_request":
+			stop()
+
+			if thinking && !streaming {
+				write("%s", RESET)
+				thinking = false
+			}
+			if streaming {
+				write("%s\n", RESET)
+				streaming = false
+			}
+
+			watch.pause()
+			decision = approvalPrompt(sh, reply.Name, reply.Arguments)
+
+			err = sh.conn.WriteJSON(approvalResponse{Type: "approval", SessionId: reply.SessionId, Decision: decision})
+			if err != nil {
+				return err
+			}
 		case "error":
 			stop()
 
@@ -386,38 +532,33 @@ func receiveAgent(sh *state, stop func()) error {
 
 func sendAgent(sh *state, content string) error {
 	var stop func()
-	var done chan struct{}
-	var interrupted <-chan struct{}
-	var exited <-chan struct{}
-	var captured *[]byte
+	var watch *interruptWatch
 	var result chan error
 
 	var err error
 
-	err = sh.conn.WriteJSON(frame{SessionId: sh.session, Content: content})
+	err = sh.conn.WriteJSON(frame{SessionId: sh.session, Content: content, Cwd: sh.cwd})
 	if err != nil {
 		return err
 	}
 
 	stop = spinner("thinking…")
 
-	done = make(chan struct{})
-	interrupted, exited, captured = watchInterrupt(done)
+	watch = newInterruptWatch()
 	result = make(chan error, 1)
 
 	go func() {
-		result <- receiveAgent(sh, stop)
+		result <- receiveAgent(sh, stop, watch)
 	}()
 
 	select {
-	case <-interrupted:
+	case <-watch.interrupted:
 		stop()
 		sh.conn.Close()
 		sh.conn = nil
 
-		close(done)
-		<-exited
-		sh.pendingInput = append(sh.pendingInput, *captured...)
+		watch.pause()
+		sh.pendingInput = append(sh.pendingInput, *watch.captured...)
 
 		notice(YELLOW, "○", "%sinterrupted%s", YELLOW, RESET)
 
@@ -432,9 +573,8 @@ func sendAgent(sh *state, content string) error {
 
 		return nil
 	case err = <-result:
-		close(done)
-		<-exited
-		sh.pendingInput = append(sh.pendingInput, *captured...)
+		watch.pause()
+		sh.pendingInput = append(sh.pendingInput, *watch.captured...)
 
 		return err
 	}
@@ -456,6 +596,7 @@ func toggleMode(sh *state) {
 		}
 
 		notice(GREEN, "●", "%sconnected%s %s", GREEN, RESET, DIM+sh.url+" · session "+sh.session+RESET)
+		refreshYoloMode(sh)
 	}
 
 	sh.mode = MODE_AGENT

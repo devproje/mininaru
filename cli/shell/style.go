@@ -163,6 +163,17 @@ func userBadge(sh *state) string {
 	return fmt.Sprintf("%s %s %s", USER_BG, sh.user, RESET)
 }
 
+func pathColor(sh *state) string {
+	switch sh.yoloMode {
+	case "persist":
+		return YELLOW
+	case "on":
+		return RED
+	default:
+		return DIM
+	}
+}
+
 func prompt(sh *state) string {
 	var badge string
 	var caret string
@@ -183,7 +194,7 @@ func prompt(sh *state) string {
 		caret = RED + "#" + RESET
 	}
 
-	return fmt.Sprintf("%s%s%s %s%s%s %s ", userBadge(sh), badge, RESET, DIM, shortPath(sh.cwd), RESET, caret)
+	return fmt.Sprintf("%s%s%s %s%s%s %s ", userBadge(sh), badge, RESET, pathColor(sh), shortPath(sh.cwd), RESET, caret)
 }
 
 func banner(sh *state) {

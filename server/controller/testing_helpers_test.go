@@ -75,6 +75,9 @@ func newRouter() *gin.Engine {
 	messages.PATCH("/:id", MessageUpdate)
 	messages.DELETE("/:id", MessageDelete)
 
+	api.POST("/yolo", YoloSet)
+	api.GET("/yolo", YoloGet)
+
 	v1.POST("/chat/completions", ChatCompletions)
 	v1.GET("/models", Models)
 

@@ -67,6 +67,24 @@ func TestClearScreenCommandSetsFlag(t *testing.T) {
 	}
 }
 
+func TestYoloCommandRequiresAnArgument(t *testing.T) {
+	var err error
+
+	_, err = yoloCommand(&state{}, nil)
+	if err == nil {
+		t.Fatal("/yolo with no arguments should fail")
+	}
+}
+
+func TestYoloCommandRejectsUnknownMode(t *testing.T) {
+	var err error
+
+	_, err = yoloCommand(&state{}, []string{"maybe"})
+	if err == nil {
+		t.Fatal("/yolo maybe should be rejected")
+	}
+}
+
 func TestCommandNamesIncludesBuiltins(t *testing.T) {
 	var names []string
 	var name string

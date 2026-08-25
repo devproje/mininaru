@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"sync"
 
 	"github.com/devproje/mininaru/core"
 	"github.com/devproje/mininaru/util"
@@ -19,8 +20,11 @@ import (
 )
 
 type inboundFrame struct {
+	Type      string `json:"type,omitempty"`
 	SessionId string `json:"session_id"`
-	Content   string `json:"content"`
+	Content   string `json:"content,omitempty"`
+	Cwd       string `json:"cwd,omitempty"`
+	Decision  string `json:"decision,omitempty"`
 }
 
 type outboundFrame struct {
@@ -29,6 +33,9 @@ type outboundFrame struct {
 	Chunk     *openai.ChatCompletionChunk `json:"chunk,omitempty"`
 	Reasoning string                      `json:"reasoning,omitempty"`
 	Message   string                      `json:"message,omitempty"`
+	Name      string                      `json:"name,omitempty"`
+	Status    string                      `json:"status,omitempty"`
+	Arguments string                      `json:"arguments,omitempty"`
 }
 
 type reasoningChunk struct {
@@ -40,16 +47,24 @@ type reasoningChunk struct {
 	} `json:"choices"`
 }
 
+type safeConn struct {
+	conn *websocket.Conn
+	mu   sync.Mutex
+}
+
 var upgrader websocket.Upgrader = websocket.Upgrader{
 	CheckOrigin: func(req *http.Request) bool {
 		return true
 	},
 }
 
-func writeFrame(conn *websocket.Conn, frame outboundFrame) {
+func (c *safeConn) writeFrame(frame outboundFrame) {
 	var err error
 
-	err = conn.WriteJSON(frame)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	err = c.conn.WriteJSON(frame)
 	if err != nil {
 		util.Log.Error("sock write error", "error", err)
 	}
@@ -72,14 +87,39 @@ func chunkReasoning(chunk openai.ChatCompletionChunk) string {
 	return parsed.Choices[0].Delta.Reasoning
 }
 
-func writeErrorFrame(conn *websocket.Conn, sessionId string, message string) {
-	writeFrame(conn, outboundFrame{Type: "error", SessionId: sessionId, Message: message})
+func writeErrorFrame(conn *safeConn, sessionId string, message string) {
+	conn.writeFrame(outboundFrame{Type: "error", SessionId: sessionId, Message: message})
 }
 
-func handleFrame(ctx context.Context, conn *websocket.Conn, frame inboundFrame) {
+func approveFunc(conn *safeConn, router *approvalRouter, sessionId, anchor string) core.ApproveFunc {
+	return func(ctx context.Context, name, arguments string) (string, error) {
+		var mode string
+		var decision string
+
+		mode = core.YoloLookup(anchor)
+		if mode == core.YoloOn || mode == core.YoloPersist {
+			return "once", nil
+		}
+		if sessionApproved(sessionId) {
+			return "once", nil
+		}
+
+		conn.writeFrame(outboundFrame{Type: "approval_request", SessionId: sessionId, Name: name, Arguments: arguments})
+
+		decision = router.wait(ctx, sessionId)
+		if decision == "session" {
+			setSessionApproved(sessionId)
+		}
+
+		return decision, nil
+	}
+}
+
+func handleFrame(ctx context.Context, remoteAddr string, conn *safeConn, frame inboundFrame, router *approvalRouter) {
 	var session *core.Session
 	var agent *core.Agent
 	var msg core.Message
+	var anchor string
 
 	var err error
 
@@ -113,33 +153,51 @@ func handleFrame(ctx context.Context, conn *websocket.Conn, frame inboundFrame) 
 		return
 	}
 
-	err = core.SendChatMessage(ctx, agent, session, func(chunk openai.ChatCompletionChunk) {
-		writeFrame(conn, outboundFrame{Type: "chunk", SessionId: session.Id, Chunk: &chunk, Reasoning: chunkReasoning(chunk)})
-	})
+	anchor = core.ResolveAnchor(remoteAddr, frame.Cwd)
+
+	err = core.SendChatMessage(ctx, agent, session, anchor, func(chunk openai.ChatCompletionChunk) {
+		conn.writeFrame(outboundFrame{Type: "chunk", SessionId: session.Id, Chunk: &chunk, Reasoning: chunkReasoning(chunk)})
+	}, func(name, status string) {
+		conn.writeFrame(outboundFrame{Type: "tool", SessionId: session.Id, Name: name, Status: status})
+	}, approveFunc(conn, router, session.Id, anchor))
 	if err != nil {
 		writeErrorFrame(conn, session.Id, err.Error())
 		return
 	}
 
-	writeFrame(conn, outboundFrame{Type: "done", SessionId: session.Id})
+	conn.writeFrame(outboundFrame{Type: "done", SessionId: session.Id})
 }
 
 func SockHandler(ctx *gin.Context) {
-	var conn *websocket.Conn
+	var wsConn *websocket.Conn
+	var conn *safeConn
 	var message []byte
 	var frame inboundFrame
+	var router *approvalRouter
+	var remoteAddr string
+	var handlerCtx context.Context
+	var cancel context.CancelFunc
+	var wg sync.WaitGroup
 
 	var err error
 
-	conn, err = upgrader.Upgrade(ctx.Writer, ctx.Request, nil)
+	wsConn, err = upgrader.Upgrade(ctx.Writer, ctx.Request, nil)
 	if err != nil {
 		util.Log.Error("sock upgrade error", "error", err)
 		return
 	}
-	defer conn.Close()
+
+	conn = &safeConn{conn: wsConn}
+	router = newApprovalRouter()
+	remoteAddr = ctx.Request.RemoteAddr
+	handlerCtx, cancel = context.WithCancel(ctx.Request.Context())
+
+	defer wsConn.Close()
+	defer wg.Wait()
+	defer cancel()
 
 	for {
-		_, message, err = conn.ReadMessage()
+		_, message, err = wsConn.ReadMessage()
 		if err != nil {
 			util.Log.Info("sock closed", "error", err)
 			break
@@ -151,6 +209,15 @@ func SockHandler(ctx *gin.Context) {
 			continue
 		}
 
-		handleFrame(ctx.Request.Context(), conn, frame)
+		if frame.Type == "approval" {
+			router.deliver(frame.SessionId, frame.Decision)
+			continue
+		}
+
+		wg.Add(1)
+		go func(f inboundFrame) {
+			defer wg.Done()
+			handleFrame(handlerCtx, remoteAddr, conn, f, router)
+		}(frame)
 	}
 }

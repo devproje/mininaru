@@ -125,6 +125,43 @@ func helpCommand(sh *state, args []string) (commandResult, error) {
 	return commandResult{Message: commandHelp()}, nil
 }
 
+func yoloCommand(sh *state, args []string) (commandResult, error) {
+	var mode string
+	var base string
+	var resp map[string]any
+
+	var err error
+
+	if len(args) == 0 {
+		return commandResult{}, fmt.Errorf("usage: /yolo <off|persist|on>")
+	}
+
+	mode = strings.ToLower(args[0])
+	if mode != "off" && mode != "persist" && mode != "on" {
+		return commandResult{}, fmt.Errorf("mode must be one of off, persist, on")
+	}
+
+	if mode == "on" {
+		if !confirmPrompt("yolo on lets dangerous tools run with no approval prompt for " + sh.cwd + " — are you sure?") {
+			return commandResult{Message: "cancelled"}, nil
+		}
+	}
+
+	base, err = apiBase(sh.url)
+	if err != nil {
+		return commandResult{}, err
+	}
+
+	err = apiPost(base+"/yolo", sh.apiKey, map[string]string{"mode": mode, "cwd": sh.cwd}, &resp)
+	if err != nil {
+		return commandResult{}, err
+	}
+
+	sh.yoloMode = mode
+
+	return commandResult{Message: fmt.Sprintf("yolo mode set to %s for %v", mode, resp["root"])}, nil
+}
+
 func init() {
 	registerCommand("help", "list available commands", helpCommand)
 	registerCommand("reset", "start a fresh session with the same agent", resetSessionCommand)
@@ -132,6 +169,7 @@ func init() {
 	registerCommand("clear", "clear the terminal screen", clearScreenCommand)
 	registerCommand("exit", "leave agent mode, back to bash", leaveAgentCommand)
 	registerCommand("bash", "leave agent mode, back to bash", leaveAgentCommand)
+	registerCommand("yolo", "set dangerous-tool trust for this directory (off|persist|on)", yoloCommand)
 }
 
 func dispatchCommand(sh *state, line string) error {
