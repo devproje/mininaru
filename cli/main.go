@@ -69,6 +69,7 @@ func main() {
 	root.Flags().BoolVar(&versionRef, "version", false, "checking mininaru version")
 
 	root.AddCommand(serve)
+	root.AddCommand(shellCmd)
 
 	util.DB, err = util.NewDatabase(util.Path("data.db"))
 	if err != nil {
