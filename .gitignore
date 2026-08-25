@@ -1,3 +1,6 @@
 out/
-.mininaru/
 dist/
+
+.mininaru/
+
+.bak/

@@ -1,1 +1,0 @@
-ALTER TABLE messages ADD COLUMN reasoning TEXT NOT NULL DEFAULT '';

@@ -17,9 +17,9 @@ func openTestDB(t *testing.T) *sql.DB {
 
 	t.Helper()
 
-	database, err = InitDatabase(filepath.Join(t.TempDir(), "pragma.db"))
+	database, err = NewDatabase(filepath.Join(t.TempDir(), "pragma.db"))
 	if err != nil {
-		t.Fatalf("InitDatabase failed: %v", err)
+		t.Fatalf("Create Database failed: %v", err)
 	}
 	t.Cleanup(func() { database.Close() })
 
@@ -79,28 +79,27 @@ func TestDatabasePragmaOnEveryConnection(t *testing.T) {
 func TestDatabaseCascadeDeleteAcrossConnections(t *testing.T) {
 	var database *sql.DB
 	var index int
+	var sessions int
 	var messages int
-	var calls int
 
 	var err error
 
 	database = openTestDB(t)
+
+	_, err = database.Exec("INSERT INTO agents (id, name, model) VALUES ('a1', 'naru', 'gpt-4o-mini');")
+	if err != nil {
+		t.Fatalf("agent insert failed: %v", err)
+	}
 
 	_, err = database.Exec("INSERT INTO sessions (id, agent_id, name) VALUES ('s1', 'a1', 'test');")
 	if err != nil {
 		t.Fatalf("session insert failed: %v", err)
 	}
 
-	_, err = database.Exec(`INSERT INTO messages (id, session_id, role, content, reasoning, status, error)
-		VALUES ('m1', 's1', 'user', 'hi', '', 'completed', '');`)
+	_, err = database.Exec(`INSERT INTO messages (id, session_id, role, content, status, error)
+		VALUES ('m1', 's1', 'user', 'hi', 'completed', '');`)
 	if err != nil {
 		t.Fatalf("message insert failed: %v", err)
-	}
-
-	_, err = database.Exec(`INSERT INTO tool_calls (id, call_id, message_id, name, arguments, result, status, error)
-		VALUES ('t1', 'c1', 'm1', 'current_time', '{}', 'now', 'completed', '');`)
-	if err != nil {
-		t.Fatalf("tool call insert failed: %v", err)
 	}
 
 	for index = range 8 {
@@ -110,9 +109,17 @@ func TestDatabaseCascadeDeleteAcrossConnections(t *testing.T) {
 		}
 	}
 
-	_, err = database.Exec("DELETE FROM sessions WHERE id = 's1';")
+	_, err = database.Exec("DELETE FROM agents WHERE id = 'a1';")
 	if err != nil {
-		t.Fatalf("session delete failed: %v", err)
+		t.Fatalf("agent delete failed: %v", err)
+	}
+
+	err = database.QueryRow("SELECT COUNT(*) FROM sessions;").Scan(&sessions)
+	if err != nil {
+		t.Fatalf("session count failed: %v", err)
+	}
+	if sessions != 0 {
+		t.Fatalf("sessions did not cascade, %d rows remain", sessions)
 	}
 
 	err = database.QueryRow("SELECT COUNT(*) FROM messages;").Scan(&messages)
@@ -121,14 +128,6 @@ func TestDatabaseCascadeDeleteAcrossConnections(t *testing.T) {
 	}
 	if messages != 0 {
 		t.Fatalf("messages did not cascade, %d rows remain", messages)
-	}
-
-	err = database.QueryRow("SELECT COUNT(*) FROM tool_calls;").Scan(&calls)
-	if err != nil {
-		t.Fatalf("tool call count failed: %v", err)
-	}
-	if calls != 0 {
-		t.Fatalf("tool calls did not cascade, %d rows remain", calls)
 	}
 }
 
@@ -139,9 +138,22 @@ func TestDatabaseRejectsOrphanMessage(t *testing.T) {
 
 	database = openTestDB(t)
 
-	_, err = database.Exec(`INSERT INTO messages (id, session_id, role, content, reasoning, status, error)
-		VALUES ('m1', 'missing', 'user', 'hi', '', 'completed', '');`)
+	_, err = database.Exec(`INSERT INTO messages (id, session_id, role, content, status, error)
+		VALUES ('m1', 'missing', 'user', 'hi', 'completed', '');`)
 	if err == nil {
 		t.Fatal("expected foreign key violation for a message without a session")
+	}
+}
+
+func TestDatabaseRejectsOrphanSession(t *testing.T) {
+	var database *sql.DB
+
+	var err error
+
+	database = openTestDB(t)
+
+	_, err = database.Exec("INSERT INTO sessions (id, agent_id, name) VALUES ('s1', 'missing', 'test');")
+	if err == nil {
+		t.Fatal("expected foreign key violation for a session without an agent")
 	}
 }

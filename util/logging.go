@@ -189,7 +189,7 @@ func unreserve(groups []string, attr slog.Attr) slog.Attr {
 	return attr
 }
 
-func LogInit(opts LogOptions) error {
+func NewLog(opts LogOptions) error {
 	var level slog.Level
 	var format string
 	var handlerOpts slog.HandlerOptions

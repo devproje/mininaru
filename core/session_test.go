@@ -4,103 +4,114 @@
 package core
 
 import (
-	"path/filepath"
 	"testing"
-
-	"github.com/devproje/mininaru/util"
 )
 
-func TestSessionLatestSkipsEmptySessions(t *testing.T) {
-	var agent *NaruAgent
-	var older, newer, empty *Session
+func TestSessionCreateRequiresFields(t *testing.T) {
+	var err error
+
+	setupTestDB(t)
+
+	err = SessionCreate(&Session{Id: "s1"})
+	if err == nil {
+		t.Fatal("expected an error for a missing agent_id")
+	}
+}
+
+func TestSessionCreateRejectsUnknownAgent(t *testing.T) {
+	var err error
+
+	setupTestDB(t)
+
+	err = SessionCreate(&Session{Id: "s1", AgentId: "missing"})
+	if err == nil {
+		t.Fatal("expected a foreign key violation for an unknown agent")
+	}
+}
+
+func TestSessionCRUD(t *testing.T) {
 	var got *Session
 
 	var err error
 
-	util.DB, err = util.InitDatabase(filepath.Join(t.TempDir(), "t.db"))
+	setupTestDB(t)
+
+	err = AgentCreate(&Agent{Id: "a1", Name: "naru", Model: "gpt-4o-mini"})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	agent = &NaruAgent{Id: "agent-1", Name: "naru"}
-
-	older, err = SessionCreate(agent, "older")
+	err = SessionCreate(&Session{Id: "s1", AgentId: "a1", Name: "first chat"})
 	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = MessageSave(older.Id, "user", "first", "")
-	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("create failed: %v", err)
 	}
 
-	newer, err = SessionCreate(agent, "newer")
+	got, err = SessionRead("s1")
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("read failed: %v", err)
 	}
-	_, err = MessageSave(newer.Id, "user", "second", "")
-	if err != nil {
-		t.Fatal(err)
+	if got.AgentId != "a1" || got.Name != "first chat" {
+		t.Fatalf("read = %+v, unexpected values", got)
 	}
 
-	empty, err = SessionCreate(agent, "empty")
+	err = SessionUpdate("s1", &Session{Name: "renamed"})
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("update failed: %v", err)
 	}
 
-	got, err = SessionLatest(agent.Id)
+	got, err = SessionRead("s1")
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("read after update failed: %v", err)
 	}
-	if got == nil {
-		t.Fatal("expected a session, got nil")
+	if got.Name != "renamed" {
+		t.Fatalf("name = %q after update, want %q", got.Name, "renamed")
 	}
-	if got.Id != newer.Id {
-		t.Fatalf("resolved %q, want %q; empty session %q must be skipped", got.Name, newer.Name, empty.Name)
+
+	err = SessionDelete("s1")
+	if err != nil {
+		t.Fatalf("delete failed: %v", err)
+	}
+
+	_, err = SessionRead("s1")
+	if err == nil {
+		t.Fatal("expected an error reading a deleted session")
 	}
 }
 
-func TestSessionLatestWithoutHistory(t *testing.T) {
-	var got *Session
+func TestSessionListFiltersByAgent(t *testing.T) {
+	var list []*Session
 
 	var err error
 
-	util.DB, err = util.InitDatabase(filepath.Join(t.TempDir(), "t.db"))
+	setupTestDB(t)
+
+	err = AgentCreate(&Agent{Id: "a1", Name: "naru", Model: "gpt-4o-mini"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = AgentCreate(&Agent{Id: "a2", Name: "coder", Model: "gpt-4o-mini"})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	got, err = SessionLatest("no-such-agent")
+	err = SessionCreate(&Session{Id: "s1", AgentId: "a1"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != nil {
-		t.Fatalf("expected nil so the caller starts a new session, got %v", got)
+	err = SessionCreate(&Session{Id: "s2", AgentId: "a1"})
+	if err != nil {
+		t.Fatal(err)
 	}
-}
-
-func TestSessionUpdateRenamesSession(t *testing.T) {
-	var session, got *Session
-
-	var err error
-
-	util.DB, err = util.InitDatabase(filepath.Join(t.TempDir(), "t.db"))
+	err = SessionCreate(&Session{Id: "s3", AgentId: "a2"})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	session, err = SessionCreate(&NaruAgent{Id: "agent-1"}, "old")
+	list, err = SessionList("a1")
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("list failed: %v", err)
 	}
-	err = SessionUpdate(session.Id, "new")
-	if err != nil {
-		t.Fatal(err)
-	}
-	got, err = SessionFind(session.Id)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.Name != "new" {
-		t.Fatalf("session name = %q, want new", got.Name)
+	if len(list) != 2 {
+		t.Fatalf("list = %d sessions, want 2", len(list))
 	}
 }

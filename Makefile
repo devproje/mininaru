@@ -9,7 +9,7 @@ LD_FLAGS := -s -w						\
 			-X main.hash=$(GIT_HASH)$(DIRTY)
 
 TARGET  = out/mininaru
-FMT_DIR = bot/ cli/ config/ core/ modules/ rpc/ server/ util/
+FMT_DIR = cli/ core/ server/ modules/ util/
 
 COVER_OUT = out/coverage.out
 
