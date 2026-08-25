@@ -5,15 +5,18 @@ package shell
 
 import (
 	"fmt"
+	"io"
 	"sort"
 	"strings"
 
 	"github.com/devproje/mininaru/core"
+	"github.com/devproje/mininaru/util"
 )
 
 type commandResult struct {
 	Message     string
 	Exit        bool
+	Quit        bool
 	ClearScreen bool
 }
 
@@ -121,6 +124,39 @@ func leaveAgentCommand(sh *state, args []string) (commandResult, error) {
 	return commandResult{Exit: true}, nil
 }
 
+func quitShellCommand(sh *state, args []string) (commandResult, error) {
+	return commandResult{Quit: true}, nil
+}
+
+func infoCommand(sh *state, args []string) (commandResult, error) {
+	var base string
+	var session core.Session
+
+	var err error
+
+	write("\n%s\n\n", util.NaruLogoWithPad("  "))
+	write("  %smininaru shell%s %s%s%s\n\n", BOLD, RESET, DIM, util.AppVersion, RESET)
+
+	if sh.conn == nil {
+		notice(YELLOW, "○", "%soffline%s %s", YELLOW, RESET, DIM+"bash mode only, Shift+Tab retries the connection"+RESET)
+		return commandResult{}, nil
+	}
+
+	notice(GREEN, "●", "%sconnected%s %s", GREEN, RESET, DIM+sh.url+" · session "+sh.session+RESET)
+
+	base, err = apiBase(sh.url)
+	if err != nil {
+		return commandResult{}, err
+	}
+
+	err = apiGet(base+"/sessions/"+sh.session, sh.apiKey, &session)
+	if err != nil {
+		return commandResult{}, err
+	}
+
+	return commandResult{Message: fmt.Sprintf("session %s\n  agent   %s\n  created %s", session.Id, agentLabel(sh), session.CreatedAt)}, nil
+}
+
 func helpCommand(sh *state, args []string) (commandResult, error) {
 	return commandResult{Message: commandHelp()}, nil
 }
@@ -167,9 +203,10 @@ func init() {
 	registerCommand("reset", "start a fresh session with the same agent", resetSessionCommand)
 	registerCommand("session", "show the current session id and agent", showSessionCommand)
 	registerCommand("clear", "clear the terminal screen", clearScreenCommand)
-	registerCommand("exit", "leave agent mode, back to bash", leaveAgentCommand)
+	registerCommand("exit", "quit mininaru shell", quitShellCommand)
 	registerCommand("bash", "leave agent mode, back to bash", leaveAgentCommand)
 	registerCommand("yolo", "set dangerous-tool trust for this directory (off|persist|on)", yoloCommand)
+	registerCommand("info", "show the splash banner and current session info", infoCommand)
 }
 
 func dispatchCommand(sh *state, line string) error {
@@ -210,6 +247,10 @@ func dispatchCommand(sh *state, line string) error {
 
 	if result.Exit {
 		sh.mode = MODE_BASH
+	}
+
+	if result.Quit {
+		return io.EOF
 	}
 
 	return nil

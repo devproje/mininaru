@@ -376,11 +376,15 @@ approval prompt has fired in it.
 ### Slash commands
 
 `/help`, `/reset` (start a fresh session against the same agent), `/session`
-(show the current session id, agent, and creation time), `/clear`,
-`/exit`/`/bash` (back to bash mode), `/yolo <off|persist|on>` (set the
-dangerous-tool trust mode for the shell's current directory — see "Tool
-calling" above) — a small name-keyed registry (`command.go`), dispatched
-only in agent mode when a line starts with `/`.
+(show the current session id, agent, and creation time), `/info` (the splash
+banner again, minus the shortcut hints, plus current connection/session
+info), `/clear`, `/bash` (back to bash mode), `/exit` (quit the shell —
+`quitShellCommand` returns `commandResult{Quit: true}`, and `dispatchCommand`
+turns that into `io.EOF`, the same sentinel bash-mode `exit`/`quit` return to
+break `Run()`'s loop), `/yolo <off|persist|on>` (set the dangerous-tool trust
+mode for the shell's current directory — see "Tool calling" above) — a small
+name-keyed registry (`command.go`), dispatched only in agent mode when a line
+starts with `/`.
 Handlers take `*state` directly and read/write it in place; there is no
 adapter interface here, because there used to be — this lived in a separate
 `cli/cmd` package for a short time and was folded back into `cli/shell` once

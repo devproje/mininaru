@@ -569,8 +569,6 @@ func sendAgent(sh *state, content string) error {
 			return nil
 		}
 
-		notice(GREEN, "●", "%sreconnected%s %s", GREEN, RESET, DIM+sh.url+" · session "+sh.session+RESET)
-
 		return nil
 	case err = <-result:
 		watch.pause()

@@ -4,6 +4,8 @@
 package shell
 
 import (
+	"errors"
+	"io"
 	"strings"
 	"testing"
 )
@@ -49,6 +51,56 @@ func TestLeaveAgentCommandSetsExit(t *testing.T) {
 
 	if !result.Exit {
 		t.Fatal("/exit should set commandResult.Exit")
+	}
+}
+
+func TestQuitShellCommandSetsQuit(t *testing.T) {
+	var result commandResult
+
+	var err error
+
+	result, err = quitShellCommand(&state{}, nil)
+	if err != nil {
+		t.Fatalf("quit failed: %v", err)
+	}
+
+	if !result.Quit {
+		t.Fatal("/exit should set commandResult.Quit")
+	}
+}
+
+func TestDispatchCommandExitReturnsEOF(t *testing.T) {
+	var sh state
+	var err error
+
+	sh = state{mode: MODE_AGENT}
+
+	err = dispatchCommand(&sh, "/exit")
+	if !errors.Is(err, io.EOF) {
+		t.Fatalf("dispatchCommand(/exit) = %v, want io.EOF", err)
+	}
+}
+
+func TestInfoCommandOfflineShowsOfflineStatus(t *testing.T) {
+	var sh state
+	var result commandResult
+	var output string
+
+	var err error
+
+	sh = state{}
+
+	output = captureStdout(t, func() {
+		result, err = infoCommand(&sh, nil)
+	})
+	if err != nil {
+		t.Fatalf("info failed: %v", err)
+	}
+	if result.Message != "" {
+		t.Fatalf("offline info should not also return a session message: %q", result.Message)
+	}
+	if !strings.Contains(output, "offline") {
+		t.Fatalf("info output missing offline status: %q", output)
 	}
 }
 

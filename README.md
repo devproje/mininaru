@@ -139,8 +139,11 @@ Inside agent mode:
 /help       list available commands
 /reset      start a fresh session with the same agent
 /session    show the current session id, agent, and creation time
+/info       show the splash banner and current connection/session info
 /clear      clear the terminal screen
-/exit       back to bash mode (also /bash)
+/bash       back to bash mode
+/exit       quit mininaru shell
+/yolo       set dangerous-tool trust for this directory (off|persist|on)
 ```
 
 `history` is a GNU-bash-compatible builtin in bash mode: `history N`,
