@@ -6,14 +6,16 @@ package core
 import (
 	"github.com/devproje/mininaru/modules"
 	"github.com/devproje/mininaru/modules/bash"
+	"github.com/devproje/mininaru/modules/browser"
 	"github.com/devproje/mininaru/modules/file"
 	"github.com/devproje/mininaru/modules/mcp"
 )
 
-func buildTools(root string) []modules.Tool {
+func buildTools(root, sessionId string) []modules.Tool {
 	var tools []modules.Tool
 
 	tools = append(tools, bash.Exec(root), file.Read(root), file.Write(root), file.Edit(root))
+	tools = append(tools, browser.Tools(sessionId)...)
 	tools = append(tools, mcp.Tools()...)
 
 	return tools

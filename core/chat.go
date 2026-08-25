@@ -6,6 +6,7 @@ package core
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/devproje/mininaru/modules"
 	"github.com/google/uuid"
@@ -14,6 +15,8 @@ import (
 	"github.com/openai/openai-go/packages/ssestream"
 	"github.com/openai/openai-go/shared"
 )
+
+var streamIdleTimeout = 2 * time.Minute
 
 type ChatMessage struct {
 	Role    string
@@ -148,15 +151,26 @@ func chatStreamRound(ctx context.Context, prov *Provider, params openai.ChatComp
 	var stream *ssestream.Stream[openai.ChatCompletionChunk]
 	var chunk openai.ChatCompletionChunk
 	var accumulator openai.ChatCompletionAccumulator
+	var roundCtx context.Context
+	var cancel context.CancelFunc
+	var idle *time.Timer
 
 	var err error
 
 	client = chatClient(prov)
 
-	stream = client.Chat.Completions.NewStreaming(ctx, params)
+	roundCtx, cancel = context.WithCancel(ctx)
+	defer cancel()
+
+	idle = time.AfterFunc(streamIdleTimeout, cancel)
+	defer idle.Stop()
+
+	stream = client.Chat.Completions.NewStreaming(roundCtx, params)
 	defer stream.Close()
 
 	for stream.Next() {
+		idle.Reset(streamIdleTimeout)
+
 		chunk = stream.Current()
 		chunk.Model = params.Model
 		accumulator.AddChunk(chunk)
@@ -166,6 +180,10 @@ func chatStreamRound(ctx context.Context, prov *Provider, params openai.ChatComp
 
 	err = stream.Err()
 	if err != nil {
+		if roundCtx.Err() != nil && ctx.Err() == nil {
+			return nil, fmt.Errorf("provider stopped sending data (idle for %s)", streamIdleTimeout)
+		}
+
 		return nil, err
 	}
 
@@ -176,7 +194,7 @@ func chatStreamRound(ctx context.Context, prov *Provider, params openai.ChatComp
 	return &accumulator, nil
 }
 
-func SendChatMessage(ctx context.Context, agent *Agent, session *Session, anchor string, onChunk func(openai.ChatCompletionChunk), onTool func(name, status string), approve ApproveFunc) error {
+func SendChatMessage(ctx context.Context, agent *Agent, session *Session, anchor string, onChunk func(openai.ChatCompletionChunk), onTool func(name, status, message string), approve ApproveFunc) error {
 	var history []*Message
 	var union []openai.ChatCompletionMessageParamUnion
 	var pending *Message
@@ -217,7 +235,7 @@ func SendChatMessage(ctx context.Context, agent *Agent, session *Session, anchor
 		return err
 	}
 
-	tools = buildTools(anchor)
+	tools = buildTools(anchor, session.Id)
 
 	for round = 0; round < maxToolRounds; round++ {
 		params = chatParamsUnion(agent, union, tools)
@@ -253,7 +271,7 @@ func SendChatMessage(ctx context.Context, agent *Agent, session *Session, anchor
 			}
 
 			if onTool != nil {
-				onTool(record.Name, "started")
+				onTool(record.Name, "started", "")
 			}
 
 			result, err = executeTool(ctx, tools, call.Function.Name, call.Function.Arguments, approve)
@@ -264,10 +282,27 @@ func SendChatMessage(ctx context.Context, agent *Agent, session *Session, anchor
 				}
 
 				if onTool != nil {
-					onTool(record.Name, "failed")
+					onTool(record.Name, "failed", err.Error())
 				}
 
 				union = append(union, openai.ToolMessage("error: "+err.Error(), call.ID))
+				continue
+			}
+
+			if isScreenshotResult(result) {
+				err = ToolCallUpdate(record.Id, &ToolCall{Status: "completed", Result: screenshotPlaceholder})
+				if err != nil {
+					return err
+				}
+
+				if onTool != nil {
+					onTool(record.Name, "finished", "")
+				}
+
+				union = append(union, openai.ToolMessage(screenshotPlaceholder, call.ID))
+				union = append(union, openai.UserMessage([]openai.ChatCompletionContentPartUnionParam{
+					openai.ImageContentPart(openai.ChatCompletionContentPartImageImageURLParam{URL: result}),
+				}))
 				continue
 			}
 
@@ -277,7 +312,7 @@ func SendChatMessage(ctx context.Context, agent *Agent, session *Session, anchor
 			}
 
 			if onTool != nil {
-				onTool(record.Name, "finished")
+				onTool(record.Name, "finished", "")
 			}
 
 			union = append(union, openai.ToolMessage(result, call.ID))

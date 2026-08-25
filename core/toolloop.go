@@ -6,6 +6,7 @@ package core
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/devproje/mininaru/modules"
 	"github.com/google/uuid"
@@ -14,12 +15,15 @@ import (
 	"github.com/openai/openai-go/shared"
 )
 
-const maxToolRounds = 8
+const maxToolRounds = 50
 
-// ApproveFunc decides whether a dangerous tool call may run. It returns
-// "once", "session", or "deny" — the same three-way HIL decision the shell
-// prompts for. A nil ApproveFunc means no gate at all (used by callers that
-// haven't wired yolo/HIL yet).
+const screenshotDataPrefix = "data:image/"
+const screenshotPlaceholder = "screenshot captured"
+
+func isScreenshotResult(result string) bool {
+	return strings.HasPrefix(result, screenshotDataPrefix)
+}
+
 type ApproveFunc func(ctx context.Context, name, arguments string) (string, error)
 
 func toolParams(tools []modules.Tool) []openai.ChatCompletionToolParam {

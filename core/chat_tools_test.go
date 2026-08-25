@@ -101,7 +101,7 @@ func TestSendChatMessageToolRoundtrip(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = SendChatMessage(t.Context(), agent, session, t.TempDir(), func(chunk openai.ChatCompletionChunk) {}, func(name, status string) {},
+	err = SendChatMessage(t.Context(), agent, session, t.TempDir(), func(chunk openai.ChatCompletionChunk) {}, func(name, status, message string) {},
 		func(ctx context.Context, name, arguments string) (string, error) { return "once", nil })
 	if err != nil {
 		t.Fatalf("SendChatMessage failed: %v", err)
@@ -206,7 +206,7 @@ func TestSendChatMessageDeniesDangerousToolOnDeny(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = SendChatMessage(t.Context(), agent, session, t.TempDir(), func(chunk openai.ChatCompletionChunk) {}, func(name, status string) {},
+	err = SendChatMessage(t.Context(), agent, session, t.TempDir(), func(chunk openai.ChatCompletionChunk) {}, func(name, status, message string) {},
 		func(ctx context.Context, name, arguments string) (string, error) {
 			approveCalls++
 			return "deny", nil
