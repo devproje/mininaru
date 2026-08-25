@@ -23,7 +23,9 @@ type ChatMessage struct {
 func chatClient(prov *Provider) openai.Client {
 	var opts []option.RequestOption
 
-	opts = append(opts, option.WithAPIKey(prov.ApiKey))
+	if prov.ApiKey != "" {
+		opts = append(opts, option.WithAPIKey(prov.ApiKey))
+	}
 
 	if prov.BaseUrl != "" {
 		opts = append(opts, option.WithBaseURL(prov.BaseUrl))
