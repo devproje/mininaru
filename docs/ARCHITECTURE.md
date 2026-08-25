@@ -1,827 +1,290 @@
 # Architecture
 
-mininaru is a single Go binary that talks to OpenAI-compatible providers and
-the native Anthropic Messages API. It ships a local terminal client, a paired
-session-aware gRPC client, and a stateless OpenAI-compatible HTTP API over one
-core.
+mininaru is a single Go binary: a stateless-per-request OpenAI-compatible HTTP
+API backed by SQLite, a matching websocket for streaming chat, and two CLI
+front ends — an admin CLI for providers/agents/sessions, and `mininaru shell`,
+an interactive terminal that runs a bash prompt and an agent chat over one
+line editor.
+
+This is a rewrite in progress (`refactor/1.0.0-alpha`). An earlier version of
+this project had MCP tools, skills, memory, subagent delegation, a Discord
+front end, a paired gRPC client, and a full-screen TUI. None of that exists in
+this branch; it was deliberately dropped in favor of starting the server and
+CLI over from a small, well-understood core. If you are looking for any of
+that, it is not merely undocumented — it is not built yet.
 
 ## Packages
 
 ```
-cli/       cobra commands, the bubbletea TUI, and the serve daemon
-core/      providers, agents, sessions, messages, the tool-calling loop
-modules/   tool implementations, the in-process MCP server exposing them, the
-           MCP client manager, mcp.json, web.json, and skill discovery
-server/    stateless OpenAI-compatible HTTP API
-rpc/       protobuf contract, paired mTLS transport, session API, and PKI
-bot/       chat front ends that live inside the daemon (Discord)
-config/    client.json preferences (thinking, context budget, tool switch)
-cli/tui/   interactive terminal model, rendering, input, and approvals
-util/      data directory layout, SQLite handle, migrations, version info
+cli/         cobra root, `serve`, `shell`, and the provider/agent/session admin subcommands
+cli/shell/   the `mininaru shell` line editor — bash mode, agent mode, slash commands
+core/        Provider, Agent, Session, Message CRUD, and chat completion against the active provider
+server/      gin HTTP API — OpenAI-compatible /api/v1, REST admin routes under /api, and /ws
+util/        data directory layout, SQLite handle + migrations, logging, version/banner
 ```
 
-Dependencies point one way: `cli` depends on `server`, `rpc`, and `bot`, all of
-which depend on `core`, and `core` depends on `modules`, `config`, and `util`.
-Nothing in `core` imports its callers, and the front ends do not import each
-other — `cli/serve.go` is the only place that knows about them. `modules` stays a leaf:
-it imports `util` and the MCP SDK and nothing else in the tree. MCP process
-lifetime is owned by `cli`; `core` never starts or stops anything.
-
-One tool needs to point the other way, and does it without an import.
-`agent_call` lives in `core` because it drives the completion loop, and reaches
-the model by calling `modules.RegisterBuiltin` rather than by `modules` knowing
-anything about it — see Delegation.
-
-## Two chat paths, one engine
-
-Every front end drives the same tool-calling loop, `completionRun` in
-[core/complete.go](../core/complete.go). It streams a response, and while the
-model keeps emitting tool calls it executes them and feeds the results back, up
-to `maxToolRounds` (8) times.
-
-| | `core.Chat` (local and gRPC TUI, `-p`) | `core.Complete` (HTTP server) |
-|---|---|---|
-| History | loaded from server-side SQLite by session | supplied in the request |
-| Persistence | messages and tool calls written | nothing written |
-| Tools | `modules.DefaultTools()` | `modules.SafeTools()` |
-| Dangerous tools | local or gRPC approval callback | never offered |
-| Context management | provider token usage and model window drive `compactHistory` | client's responsibility |
-| Token accounting | recorded against the session | returned in the response |
-
-Both tool sets are a snapshot of what was discovered over live MCP sessions —
-the builtin thirteen plus every enabled `mcp.json` server. There is no non-MCP path
-to a tool. The `core.Chat` row is also gated on `config.Client.Tools.Enabled`:
-when tools are off, `defs` is empty and the loop degenerates to one round.
-
-The TUI and `-p` share the session-backed path and differ only in their
-callbacks. The TUI supplies an approval callback that pauses for a keystroke;
-`-p` supplies `nil`, which makes `executeTool` deny dangerous tools and hand the
-denial back to the model as a tool error.
-
-`-p` deliberately does not stream to stdout. Because the reply builder resets
-per round, only the final round's text is the answer; streaming every round
-would put pre-tool chatter in front of it and corrupt piped output. It prints
-`message.Content` once, and sends tool and reasoning progress to stderr.
-
-`completionRun.MessageId` is the switch: when empty, `toolCallStart` and
-`executeTool` skip their SQL writes, which is what makes the server path
-stateless.
-
-Two details of the loop are deliberate and easy to misread:
-
-- The reply builder resets at the start of every round, so a stored message
-  holds only the final round's answer, not the chatter a model emits before
-  calling a tool.
-- The reasoning builder does *not* reset. Reasoning is never replayed to the
-  model, so keeping the whole chain across rounds costs nothing and gives the
-  user the complete thought process.
-
-## The system prompt
-
-`systemPrompt` in [core/prompt.go](../core/prompt.go) is the only place a system
-message is built, and both chat paths call it. It emits a
-`<mininaru-runtime>` block carrying `util.RuntimeIdentity()` — the same string
-`--version` prints, so the two can never drift — followed by rules that claim
-precedence over the persona. An `<mininaru-agent>` block follows with only the
-active agent's id and name, then the prompt adds the agent's `Role` and `Soul`.
-
-Four properties are deliberate:
-
-- It is **unconditional**. An agent with no persona still gets the block; before
-  this, such an agent was sent no system message at all.
-- It is **one** system message, not two. Several local OpenAI-compatible servers
-  merge system messages or honor only the first, so splitting the pin from the
-  persona would make the pin transport-dependent.
-- It is **first**, ahead of the client's own messages on the server path. The
-  HTTP API accepts a `system` message from the caller; it lands after the pin.
-- The skill catalog sits between the pin and the persona, and appears **only when
-  the request also carries the tool that can load a skill**. `systemPrompt` takes
-  the request's `defs` for exactly that reason — see Skills below.
-
-The provider's input-token count includes the runtime block and skill catalog,
-so both are reflected in the live context measurement.
-
-## MCP
-
-Every tool reaches the model through an MCP client session. The thirteen builtin
-tools are served by an in-process MCP server wired to the client over
-`mcp.NewInMemoryTransports()` — no subprocess, no socket, but the same code path
-external servers take. It bootstraps lazily on the first `DefaultTools()` call,
-which is why one-shot commands and tests that never call `MCPInit` still get
-tools.
-
-External servers are declared in `mcp.json` and reached over one of two
-transports: `stdio` (a child process, `mcp.CommandTransport`) or `http`
-(`mcp.StreamableClientTransport`). Configured headers are applied by an
-`http.RoundTripper` wrapper because the SDK's transport has no header field.
-
-Names are qualified as `server__tool`; builtin tools keep their bare names so
-`tool_calls` rows written before MCP still resolve on replay. OpenAI requires
-`^[a-zA-Z0-9_-]{1,64}$`, so out-of-charset bytes become `_` and an over-long
-name is truncated and suffixed with a hash of the original. Collisions are
-resolved first-writer-wins, builtin first, and the loser is dropped with a
-warning; reverse mapping is an exact lookup, never a re-parse of the name.
-
-A `CallToolResult` becomes the `(string, error)` that `Def.Execute` must return:
-text content is joined, image and audio content are replaced by a placeholder so
-base64 never lands in `tool_calls.result` and gets replayed every turn, and
-`IsError` becomes an error — which `executeTool` turns into `MessageFailed` and
-`"error: " + text`, exactly as a direct tool failure did.
-
-Startup deliberately degrades rather than dies: a server that fails to connect
-is reported on stderr and skipped, and the rest of the tools still work. That is
-the opposite of the bot policy, where a failed start aborts `serve` — a missing
-tool is a smaller loss than a chat front end that silently isn't there.
-
-## Skills
-
-A skill is a directory holding a `SKILL.md` with YAML frontmatter (`name`,
-`description`) plus optional companion files. Discovery lives in
-[modules/skill.go](../modules/skill.go), the tool in
-[modules/skilltool.go](../modules/skilltool.go).
-
-**Progressive disclosure.** The system prompt carries one line per skill —
-`name: description` — and nothing else. The body is fetched only when the model
-calls the `skill` tool. The alternative, one MCP tool per skill, was rejected on
-cost: the catalog is one line per skill, whereas a tool per skill puts a full
-JSON Schema per skill into *every* request whether or not it is relevant.
-
-**Two roots, project wins.** `util.Path("skills")` (project — recall `util.RootDir`
-is already `NARU_PATH` or `./.mininaru`) then `$HOME/.mininaru/skills` (user).
-Both are resolved through `toolRoot` before comparison, so running in `$HOME`
-with no `NARU_PATH` — or through a symlinked `$HOME` — collapses to one root
-instead of double-listing every skill. A name collision is won by the project
-root and the loser is dropped with a warning. A missing root, a directory with no
-`SKILL.md`, or a dotfile is skipped **silently**; only something that looks like a
-skill and fails to parse warns. That is the `mcpAccept` policy: never fail the
-load over one bad entry.
-
-**Drop-in compatibility is the point.** Frontmatter is parsed with a plain
-`yaml.Unmarshal` into a two-field struct — deliberately *not* `KnownFields(true)`
-— so an ecosystem bundle carrying `allowed-tools`, `license`, or a nested
-`metadata:` map loads unmodified. Note that **`allowed-tools` is parsed over and
-ignored**: mininaru has no per-turn tool-filter seam, and half-honoring it would
-be worse than not claiming it.
-
-The canonical name is the frontmatter `name` when it passes `util.SafeSegment`
-and the name pattern, otherwise the directory name. That check is what stops a
-hostile `name: ../../etc` from becoming a lookup key.
-
-**Bounded by construction.** `maxSkills` (64), `maxSkillDescription` (200 runes),
-`maxCatalogChars` (4096), `maxSkillBody` (64 KiB). The catalog matters twice over
-because `core/complete.go` does not trim history, so on the HTTP path its size is
-pure additive cost.
-
-**Sandboxing is per bundle, not per root.** `Skill.Path` holds the symlink-resolved
-bundle directory and the tool's optional `path` argument is checked against *that*
-with the existing `readPath`. This deliberately differs from the root-prefix model
-in [modules/file.go](../modules/file.go), and the reason is that installing a
-shared skill by symlinking it into `skills/` is a normal thing to do.
-
-**No new execution path.** The tool returns the body, the bundle's absolute path,
-and a listing of companion files. Running a script is still `bash_exec`, so the
-approval prompt and its sandbox apply unchanged.
-
-The tool is classified **safe**, so the Discord bot and the HTTP API get skills.
-
-**Creation is privileged, not dangerous.** `skill_create`
-([modules/skillcreate.go](../modules/skillcreate.go)) is grouped with `memory`,
-not with `file_write`. The reason is what the write does after it lands: the new
-bundle enters `SkillCatalog()` and therefore every later system prompt. That is
-durable state feeding the prompt, which is exactly the property that made
-`memory` privileged, and a skill carries more of it than a memory line does. The
-practical effect is that `SafeTools()` filters it out, so the HTTP API cannot
-reach it at all and no approval prompt has to stand in for that.
-
-It writes nothing the loader would reject. Name, description, and body are put
-through `skillNamePattern`, `skillDescription`, and `maxSkillBody` — the same
-functions `skillParse` uses on the way back in — and the frontmatter is produced
-by `yaml.Marshal`, not string concatenation, so a description containing a colon
-quotes itself. The round-trip test in
-[modules/skillcreate_test.go](../modules/skillcreate_test.go) is what keeps the
-writer and the reader from drifting apart. `skillName`'s fall back to the
-directory name is deliberately *not* reused here: at read time a usable fallback
-beats dropping a bundle, but at write time the caller should be told it asked for
-something impossible. Overwriting requires an explicit flag and cannot cross
-scopes, so a project write can never shadow-then-replace a user skill.
-
-**Usage is recorded in its own table.** `skill_uses`
-([util/migrations/0009_skill_uses.sql](../util/migrations/0009_skill_uses.sql))
-duplicates something `tool_calls` already half-holds, and that is on purpose.
-`tool_calls` has a foreign key to `messages`, so a tool call made through
-`core.Complete` — the HTTP API, the Discord user-app commands — has no row at
-all; `skill_uses` has no such key and records those. It also stores the
-**resolved** scope and bundle path, which the raw arguments cannot tell you when
-a project and a user skill share a name.
-
-The write happens in `executeTool`, the one point both front-end paths funnel
-through, gated on a completed status so a load of a skill that does not exist is
-not counted as use. `completionRun` carries a `SessionId` purely to give that row
-its session; `core.Complete` leaves it empty rather than inventing one. A failure
-to record is logged and swallowed: the skill has already been loaded and the
-answer is already in flight, so failing the turn over an audit row is the wrong
-trade.
-That looks like it contradicts `file_read` being dangerous, but the reachable set
-here is finite and enumerable — only the bundles the operator installed, whose
-names and summaries the same request already carries in its prompt. The tool does
-not widen what the model can see; it defers content the operator already chose to
-advertise. The `path` argument exists for the same reason: without it, companion
-files would be reachable only through `file_read`, which is dangerous *and* rooted
-at cwd, so the daemon, `-p`, and every user-scoped bundle would be locked out of
-the feature that exists to serve them.
-
-The scan runs eagerly in `main()` — unlike `MCPInit`, it spawns nothing and opens
-nothing, and `systemPrompt` is reached from four entry points, so a lazy variant
-would need a `sync.Once` reachable from `core` for no benefit. `SIGHUP` re-scans.
-The slice is behind a `sync.RWMutex` rather than being a bare global like
-`modules.MCP`, because a reload rewrites it while request goroutines are building
-prompts from it.
-
-## Delegation
-
-`agent_call` in [core/subagent.go](../core/subagent.go) runs one turn of another
-configured agent and returns its answer as a tool result. It is the one builtin
-that does not live in `modules`, and it cannot: it needs `AgentByName` and the
-completion loop, and `modules` is a leaf that must not import `core`.
-
-The way out is that `modules` owns the *table* and `core` owns the *tool*.
-`modules.RegisterBuiltin` appends to the builtin list, `core.InstallAgentTool`
-calls it, and `cli/main.go` calls that from `bootstrap` before anything asks for
-a tool. From there `agent_call` is served by the same in-process MCP server as
-the other twelve, so the "no non-MCP path to a tool" rule still holds and the
-leaf invariant is intact. Registration after the builtin server has started is
-refused with an error log rather than silently dropped, and the ordering is
-pinned by a `TestMain` in the `core` tests that installs before any test runs.
-
-A subagent is deliberately not a session. It gets a fresh system prompt built
-for the target agent, one user message, and nothing else — no history, no
-`tool_calls` rows, no session id. That keeps delegation cheap and keeps a
-subagent from inheriting a conversation it was never meant to see, at the cost
-of making the prompt the caller writes the whole of the subagent's context.
-
-What it *does* inherit is the calling turn's execution policy: the same defs,
-the same `AllowDangerous` and `AllowPrivileged`, and the same approval callback.
-A dangerous tool reached through a subagent therefore raises the same prompt it
-would have raised in the parent turn, rather than quietly running because it is
-one level down.
-
-Recursion is stopped twice over. `childDefs` strips `agent_call` from what the
-subagent is offered, so it is not advertised a tool it may not use, and
-`completionRun.Depth` carries a counter that refuses a second level even if a
-def slips through another way. The depth lives on the run rather than only in
-the context because `dispatch` rebuilds the context policy on every round, and a
-counter read back from the context it just wrote would always be zero. An agent
-is also refused delegation to itself, compared by id.
-
-## Token accounting
-
-Three of the last four features spend tokens the user did not directly ask for —
-a delegated turn, a summarising call, a tool result large enough to matter — and
-none of them were visible. `core/usage.go` records every model call made on a
-session's behalf into `token_usage`, tagged with what spent it: `turn`,
-`compaction`, or `subagent`.
-
-**Rounds are summed, not overwritten.** `completionRun.execute` used to assign
-`result.Usage` each round, so a turn that took three tool rounds reported only
-the third. Each round resends the whole conversation and each is billed, so the
-sum is the honest number. This also changes what the HTTP API returns: `usage` in
-a response now covers every round the server ran on the caller's behalf, which is
-not what OpenAI means by the field but is what the caller actually caused.
-OpenAI-compatible `prompt_tokens_details.cached_tokens` and
-`cache_write_tokens`, or Anthropic `cache_read_input_tokens` and
-`cache_creation_input_tokens`, are summed alongside it and exposed separately.
-
-**Prompt caching stays provider-owned.** mininaru does not duplicate a model KV
-cache. It sorts permitted tool definitions by name before building both the
-system prompt and request schema, keeping that large prefix deterministic. A
-provider policy controls top-level `cache_control`; native Anthropic and Claude
-through OpenRouter use automatic moving breakpoints. Cache reads and writes are
-normalized into the same usage record. OpenRouter whole-response caching is a
-separate provider opt-in implemented with `X-OpenRouter-Cache` headers.
-
-**Usage has to be asked for.** `stream_options.include_usage` was set only in
-`Complete`, so the session path and the delegation path never received usage at
-all. Both now set it; without that the table stays empty on exactly the paths
-this exists for.
-
-**It is a table, not columns on `messages`.** A compaction call happens before
-the turn's message row exists — `compactHistory` runs ahead of `messageStart` —
-and a turn can delegate more than once, so one set of columns cannot hold it.
-`message_id` is a plain column with an empty default for the rows that have no
-message, the same shape and for the same reason as `skill_uses`.
-
-**Recording never fails a turn.** `usageRecord` logs and swallows, like the
-`skill_uses` write: the answer is already in flight and losing an accounting row
-is the cheaper failure. It also writes nothing when the session id is empty (the
-stateless API) or the provider reported no tokens.
-
-No prices are stored or computed. mininaru talks to arbitrary OpenAI-compatible
-providers under arbitrary model names, so any table of rates would be a guess
-that goes stale; the tokens are reported and the conversion is left to whoever
-knows their own contract.
-
-The Discord `/usage` command reads the same totals and is admin-only and
-channel-scoped, resolving its session with `SessionByExternal` exactly as
-`/compact` does. Unlike `/compact` it answers straight away rather than
-acknowledging and editing: it is a database read, so there is no model call to
-outrun the three-second interaction deadline.
-
-## Memory
-
-Durable memory is a small, global SQLite store shared by trusted interactive
-front ends. The `memory` tool supports list, add, replace, and remove operations,
-deduplicates exact entries, and rejects writes beyond a 4096-character total.
-The current snapshot is added to the system prompt only when that request also
-has the memory tool, so possession of the tool and visibility of the data cannot
-drift apart.
-
-Memory has `PermissionPrivileged`: CLI requests use `DefaultTools()` and receive
-it, while the stateless HTTP API and ordinary paired Discord users use
-`SafeTools()` and receive neither the tool nor the prompt block. A Discord admin
-created through the one-time owner pairing path uses `DefaultTools()`, so the
-owner and CLI see and update the same store regardless of session or agent.
-
-## Web tools
-
-`web_search` and `web_fetch` share HTML helpers
-([modules/webhtml.go](../modules/webhtml.go)) and nothing else — different
-clients, different trust models.
-
-**Search providers** are a table of `{Name, Request, Parse}` in
-[modules/web.go](../modules/web.go), the same shape as `builtinTools()`. Keeping
-a provider's request builder next to its parser is the point: a bare `switch`
-would need two of them, and they drift. `searchRun` owns everything shared — the
-2 MiB cap, the 2xx check, the zero-results error, the limit trim — so a provider
-is only the two functions that actually differ. Selection lives in `web.json`
-(`0600`, it may hold an API key). A broken config warns on stderr and falls back
-to DuckDuckGo rather than leaving the model with no search, the same policy
-`mcpAccept` and `ClientInit` already use; the CLI validates strictly instead, so
-mistakes are caught where a human is watching.
-
-**The `web_fetch` guard hooks `net.Dialer.Control`, not the URL.** `Control`
-receives the literal `ip:port` after resolution and before `connect(2)`, once per
-Happy Eyeballs candidate. That placement is the whole design:
-
-- DNS rebinding fails, because the address checked is the address dialed.
-- Redirects are re-validated for free — every hop is a fresh dial.
-- Connection reuse is safe, because the pool is keyed on host:port.
-
-A URL-level allow/deny list can do none of those. The pre-dial checks in
-`fetchTarget` (scheme, userinfo, port, literal IPs) exist only to give the model a
-clean error instead of a dial failure; they are not the control.
-
-`fetchAddrAllowed` unmaps IPv4-in-IPv6 **before** testing anything —
-`::ffff:127.0.0.1` returns false from every `netip` predicate in its mapped form.
-It then adds prefixes the predicates miss, most importantly `100.64.0.0/10`:
-`netip.Addr.IsPrivate` does not cover CGNAT, which is where Tailscale and its
-`100.100.100.100` metadata endpoint live. 6to4, Teredo, and NAT64 prefixes are
-blocked whole rather than un-embedding and re-checking the inner IPv4 — three
-lines instead of thirty, and it fails closed. There is no special case for
-`169.254.169.254`; it is link-local and already blocked, and a host list would
-only create false confidence about what the control is.
-
-`Proxy` is set to `nil` on the fetch transport. With `HTTP_PROXY` set, the dial
-goes to the proxy and the guard never sees the real destination — a complete
-bypass that is invisible in review.
-
-**The search client is deliberately unguarded**, which is what lets a self-hosted
-SearXNG on `127.0.0.1` work. The asymmetry is about provenance, not convenience:
-the search endpoint comes from an operator-written `0600` file — the same trust
-boundary `mcp.json` sits on, where the operator can already declare a stdio server
-running arbitrary commands — while a fetch URL is chosen by the model, possibly
-from a page it just read. The model cannot influence the endpoint either
-(`web_search`'s schema is `query` + `limit`, `additionalProperties: false`), and a
-search response is parsed into `[]SearchResult` rather than returned verbatim, so
-pointing it at an internal service yields a parse error, not that service's body.
-
-Search results are URLs the model may hand to `web_fetch`, so a poisoned result
-*is* a path back in — and it is already closed, at dial time, wherever the URL
-came from. Result-URL filtering is deliberately absent: it would be redundant
-against the dial check and would suggest the URL list is the control.
-
-## Agents and providers
-
-A `Provider` is an endpoint plus credentials. An `Agent` binds a name, a model,
-a persona (`Role` + `Soul`), and a provider. Agents hold a live `*openai.Client`
-built from their provider; changing an agent's provider rebuilds it.
-
-`core.Global` is the agent created first and is stored separately from the
-`core.Agents` slice — it is *not* a member of that slice. Use `core.AgentAll()`
-to iterate everything and `core.AgentByName()` to resolve a name (falling back
-to an id). The TUI defaults to the global agent; `--agent <name>` selects
-another. The server resolves the request's `model` field the same way, which is
-why an OpenAI model picker doubles as an agent picker.
-
-Because of that split, `AgentDefault` swaps the two places: the target leaves
-`Agents` and the outgoing global joins it. `AgentDelete` filters `Agents` first
-and only then checks whether the target was the global, promoting `Agents[0]` if
-so — otherwise deleting the global would strand every remaining agent behind a
-"no agent configured" error. It also drops the agent's sessions, since
-`sessions.agent_id` has no foreign key to lean on: agents live in JSON, not SQL.
+Dependencies point one way: `server` and `cli` depend on `core`; `core`
+depends on `util`; nothing in `core` or `util` imports its callers.
+`cli/shell` reaches a `mininaru serve` instance only through its public
+`/api` and `/ws` surface — it is a client like any other, not a special case
+with direct database access. The admin subcommands (`provider`, `agent`,
+`session`) are the opposite: `cli/main.go` opens the local SQLite file itself
+and those commands call `core/*` directly, so they always operate on the
+`NARU_PATH` database the CLI process was started against, never on a remote
+server the way `serve --url` or `shell --url` can.
 
 ## Storage
 
-Everything lives under `.mininaru/`, or `NARU_PATH` if set. `InitFS` creates the
-directory `0700` and chmods an existing one to `0700`, since it holds API keys.
-
-- `provider.json`, `agent.json`, `bot.json`, `client.json`, `mcp.json` — mode `0600`, written through
-  `util.WriteFileAtomic` (temp file in the same directory, then `os.Rename`) so
-  a crash mid-write leaves the previous version intact rather than a truncated
-  file. Never call `os.WriteFile` on these directly.
-- `mininaru.db` — SQLite (modernc, no cgo) with WAL, migrated on open by
-  [util/migrations](../util/migrations)
-
-Schema: `sessions` → `messages` → `tool_calls`. A `tool_calls` row hangs off the
-**user** message of its turn, not the assistant reply.
-
-A turn is written in two steps so a failure cannot leave an orphan. The user
-message is inserted as `pending`; on success one transaction flips it to
-`completed` and inserts the assistant reply. On failure it becomes `failed` or
-`cancelled` with the error text. Only `completed` messages are replayed.
-
-## History reconstruction
-
-On resume, `historyMessages` rebuilds the OpenAI message sequence from storage:
-for each user message it emits the user turn, then — if that turn's tool calls
-are all finished — an assistant message carrying the `tool_calls` and one `tool`
-message per result. A turn with a `pending` call is replayed without its tool
-history, because a `tool_calls` message with no matching result is a protocol
-error. Tool history is only reconstructed when tools are enabled for the
-request.
-
-The final provider round's `prompt_tokens` is stored as the live context usage;
-multi-round usage totals remain cumulative for cost reporting. When the provider
-exposes a model context window, that capacity is stored beside the usage.
-
-## Compaction
-
-`compactHistory` in [core/compact.go](../core/compact.go) compares the last actual
-input-token count with the model's reported context window. At 90% it summarises
-the completed tail and carries the result in the system prompt as a
-`<mininaru-summary>` block. With no reported window it makes no guessed automatic
-decision; explicit `/compact` remains available.
-
-The summary is one row per session in `session_summaries`, rewritten in place
-rather than appended to, with `through_message_id` marking the newest message it
-covers. **It is deliberately not a row in `messages`.** A summary living in the
-history would be charged to the budget by the very function it exists to soften,
-and could be trimmed away — the failure mode would be losing the compression of
-the thing you were trying not to lose. Keeping it out also leaves `MessageList`
-meaning "what was actually said", which is what the TUI replays.
-
-The marker is a message id rather than a rowid because `MessageList` does not
-select rowids and `Message` should not grow a storage detail to carry one. If the
-marker is not found in the history, the tail is treated as uncovered and every
-turn is replayed: a duplicated turn is a cheaper failure than a silently dropped
-one, and it is logged.
-
-The summary is capped by `maxSummaryChars`, enforced both in the instruction and
-by truncating what comes back. Actual token usage becomes known on the response
-after compaction because only the provider can tokenize the rebuilt prompt.
-
-Summarising uses `Complete` with no tool definitions, so the summary turn cannot
-reach a tool: `Complete` leaves `AllowPrivileged` false and passes no defs. It
-runs on the conversation's own agent and model.
-
-**Failure never breaks the user's turn.** A summary call that errors, a context
-that cancels, an empty answer, or a failed write is logged at warn and the full
-tail is sent unchanged. Compaction is not a new way for a chat to fail.
-
-`context.compact` turns new summarisation off. An existing summary keeps being
-applied, because it is already paid for and dropping it would lose more than it
-saves.
-
-`CompactNow` is the same machinery behind an explicit request — `/compact` in the
-TUI, `/compact` in Discord — and differs from the automatic path in three ways
-that all follow from the user having asked for it. It does not consult the
-budget: everything not already covered by the summary is folded in, leaving
-nothing to replay. It ignores `context.compact`, because that toggle governs
-compaction the user did not ask for. And it returns its error instead of logging
-and falling back, because a request that failed should say so rather than
-silently do nothing.
-
-The Discord command is admin-only and resolves its session with
-`SessionByExternal(OriginDiscord, channelID)`, so it can only ever act on the
-conversation bound to the channel it was run in. A channel with no conversation
-is refused rather than having one created. Summarising is a model call and would
-blow the three-second interaction deadline, so the handler acknowledges first and
-edits the reply from a goroutine, the same shape `chatCommand` uses.
-
-## The daemon and agent instances
-
-`serve` is a long-running process, which changes two assumptions the one-shot
-commands could make: config is no longer read once and thrown away, and more
-than one caller can hit the same agent at once. `core.Registry` and
-`core.Instance` in [core/instance.go](../core/instance.go) exist for exactly
-that.
-
-A `Registry` holds one `Instance` per agent name, built from `core.AgentAll()`.
-An `Instance` owns its agent, its tool set, and the two ways to talk to it:
-
-- `Complete` — stateless, for the HTTP API
-- `Chat` — session-backed, for in-process front ends
-
-Front ends inside the daemon do **not** talk over HTTP or any IPC. They are in
-the same process, so they call `Instance.Chat` directly — the same thing the TUI
-does with `core.ChatWithApproval`, only with different callbacks. A Discord bot
-would map a channel to a session and pass callbacks that edit a Discord message
-instead of a terminal buffer.
-
-Every instance gets `modules.SafeTools()`. That is not an HTTP-specific rule but
-a daemon-wide one: nothing in a daemon can prompt a human for approval, so
-dangerous tools have no safe path. `Chat` passes a `nil` approval callback, so
-if a dangerous tool ever is configured it is denied and the denial goes back to
-the model as a tool error.
-
-### The approval menu
-
-The TUI asks with a three-way menu — allow once, allow that tool for the rest of
-the session, deny — rather than a yes/no, because yes/no left no middle ground:
-a turn editing ten files asked ten times, and the only escape from that was
-`--allow-dangerous-tools`, which opens everything. The middle choice is the
-narrow version of that flag.
-
-It is keyed on the **tool name**, not the arguments. Argument-scoped grants would
-be safer and nearly useless, since one changed byte asks again and the repetition
-this exists to remove comes straight back. The consequence is that allowing
-`bash_exec` for a session hands over arbitrary commands for that session, so the
-choice renders the tool name inside the label rather than saying "this tool".
-
-Discord administrator turns root file, search, and shell tools at the server
-process user's home directory. The root is captured in that turn's tool
-definitions rather than changing the process working directory, so concurrent
-gRPC clients and other front ends keep their own workspace.
-
-The list lives on the `client` behind a `sync.Mutex` and never touches disk. The
-mutex is not decorative: the approval callback runs on the goroutine `sendPrompt`
-started, while `Update` runs on the bubbletea loop, and before this the two only
-ever met through the decision channel. A grant lasts as long as the process, so a
-new `mininaru` asks again.
-
-The decision travels as an `approvalDecision` rather than a `bool`, since "allow
-once" and "allow for the session" are the same answer to `executeTool` and
-different answers to the client that has to remember one of them.
-
-For external MCP tools, safe versus dangerous is derived from the tool's
-`ToolAnnotations.readOnlyHint` and can be overridden per server (`permission`)
-or per tool (`tool_permission`) in `mcp.json`; a tool with no annotations is
-dangerous. Twelve of the builtins are classified by a fixed table in
-[modules/builtin.go](../modules/builtin.go), and `agent_call` carries its own
-classification in from `core` when it registers; neither is overridable —
-`file_read` is honestly read-only and annotated as such, but classifying it safe
-would put arbitrary filesystem reads on the HTTP API with no human in the loop.
-
-`grep` and `glob` are dangerous for the same reason, and `grep` is the sharper
-case: it is annotated `readOnlyHint`, but the pattern `.` turns it into a whole
-file dump, so classifying it safe would reopen through the search tool exactly
-what keeping `file_read` dangerous closes. `glob` leaks names rather than
-contents and is held to the same line so the filesystem has one classification
-and not two.
-
-`readOnlyHint` is the remote server's own claim about itself, so adding an entry
-to `mcp.json` is a trust decision. `"daemon": false` keeps a server's tools in
-the TUI while hiding them from the API server and the bots.
-
-### File revision guard
-
-`file_read` hashes the complete file even when it returns only a requested line
-range. Existing-file writes take the file revision lock, read the current bytes,
-and compare that hash before changing anything. This gives `file_edit` and
-`file_write` read-before-write and stale-write protection without making the
-model copy an opaque revision through its arguments. Successful mutations use
-`WriteFileAtomic`, update the remembered revision for another edit in the same
-turn, and return a bounded unified diff. New-file creation has no prior revision
-to protect and is allowed directly.
-
-### Session locking
-
-Turns on the *same* session are serialized; different sessions run in parallel.
-Without that, two front ends could interleave turns and corrupt the replayed
-history. The gate is a buffered channel rather than a `sync.Mutex` so a waiting
-caller still honors context cancellation.
-
-The lock table lives on the `Registry`, not the `Instance`, and is deliberately
-carried across reloads. `Reload` builds brand-new `Instance` values — that is
-how a changed provider takes effect — so if the locks lived on the instance, a
-reload mid-turn would hand the next caller a fresh lock and the serialization
-guarantee would silently disappear.
-
-The table grows one entry per session id seen and is never pruned. For a
-personal daemon that is bounded by the number of sessions; if that ever becomes
-a real number, it needs refcounting.
-
-### Reload
-
-`Reload` re-reads `provider.json` and `agent.json` and swaps the instance map
-under a write lock. Requests already in flight keep the `*Instance` pointer they
-resolved, so they finish against the configuration they started with.
-`cli/serve.go` wires `Reload` to `SIGHUP`; `kill -HUP <pid>` picks up
-`agent add`, `agent default`, and provider edits without dropping connections.
-Because the HTTP API and the bots share one `*core.Registry`, one signal updates
-all of them.
-
-`cli/serve.go` also runs `modules.MCPReload` on the same signal, before
-`Registry.Reload`. It keeps sessions whose `mcp.json` entry is byte-identical
-and re-dials the rest, so unchanged servers are not restarted. The in-flight
-guarantee is weaker here than for agents: a request holding an old `*Instance`
-may hold `Def.Execute` closures over a session the reload just closed, and such
-a call fails back to the model as a tool error.
-
-### Attaching a conversation to something external
-
-A Discord channel needs a stable session across restarts, so `sessions` carries
-`origin` and `external_id` (`0005_session_origin.sql`). A unique **partial**
-index on `(origin, external_id)` — restricted to rows where both are non-blank —
-enforces one live session per channel while leaving every local TUI session,
-which has blank values, free to coexist.
-
-`Instance.Bind` is get-or-create: it returns the channel's existing session if
-that session already belongs to this agent, and otherwise calls
-`SessionAttach`. `SessionAttach` blanks the previous row's `external_id` and
-inserts a new session in one transaction, so switching agents or running
-`/reset` starts a clean conversation while the old one keeps its history and
-merely stops being the channel's live session.
-
-## Self update
-
-`cli/update.go` swaps the running executable for a release build and, if the
-systemd unit exists, restarts it. The unit's `ExecStart` is the symlink-resolved
-absolute path written at install time, so replacing the file in place and
-restarting is all it takes — nothing rewrites the unit.
-
-**Verify, then swap; never the other way round.** The archive streams through an
-`io.TeeReader` into a `sha256.Hash` while it is being un-tarred, so the checksum
-from the release's `SHA256SUMS` is confirmed on the bytes that were actually
-read, not on a second download. The extracted file is staged **in the same
-directory as its target** and only then `os.Rename`d over it. Same directory
-because rename cannot cross filesystems; rename because it is atomic and works
-on a running binary, which a plain write cannot (`ETXTBSY`). Every failure path
-deletes the staged file and leaves the current executable untouched, so there is
-no half-written state to recover from and no `.old` backup to clean up.
-
-The extractor takes exactly one entry — a regular file whose `filepath.Base` is
-`mininaru` — and ignores everything else in the archive. Path traversal stops
-being a question you have to answer when you never join an archive-supplied path
-onto a directory.
-
-`modules/webguard.go`'s SSRF guard is deliberately **not** used here. That guard
-exists because the model chooses those URLs; this host is a constant in the
-source.
-
-**The check is one release behind on purpose.** `updateCheckStart` fires a
-goroutine after `bootstrap()` and nothing waits for it. It writes the latest tag
-to `update.json`, and the notice is rendered from that cache on a *later* run.
-Blocking startup on a network call to display a courtesy message is a bad trade,
-and the freshness that buys is worth nothing when the TTL is a day anyway. The
-check is skipped entirely for `update`, `serve`, and `daemon` — the first does
-its own lookup and the other two are long-running processes where a
-start-time check answers a question nobody asked.
-
-`--tag` never writes the cache. The cache means "the newest release that
-exists", so recording a deliberately pinned older tag there would silence the
-very notice it is meant to raise.
-
-## Bots
-
-`bot/` holds front ends that run inside the daemon. They are not HTTP clients
-and there is no IPC: they hold the same `*core.Registry` and call
-`Instance.Chat` directly, exactly as the TUI calls `core.ChatWithApproval`. Only
-the callbacks differ.
-
-The Discord reply path is where the platform's constraints live, so they are
-isolated in [bot/reply.go](../bot/reply.go):
-
-- Discord's typing state expires, so a ticker refreshes it every eight seconds
-  while the model is generating. The completed answer is sent only after the
-  typing goroutine has stopped.
-- Messages cap at 2000 characters. `splitMessage` counts runes, not bytes, and
-  prefers to break on a newline in the second half of a chunk before sending
-  the remaining chunks as follow-up messages.
-
-**The answer is a plain message; the card is a log.** v0.5.0 tried the opposite
-— it edited the progress card into the answer to save a message — and the
-result was worse in every way that mattered. A Components V2 container renders
-as a bordered, tinted box, so every reply stopped looking like chat; and since
-only the first chunk could be an edit, a long answer came out half in a box and
-half not. `executionStatus` in
-[bot/discord/handlers/ui.go](../bot/discord/handlers/ui.go) now owns only the
-card: a heading holding the current state, a line appended per finished tool,
-and a footer with the elapsed time. `render` rebuilds the whole card from that
-state and `publish` skips the edit when the result is byte-identical, which is
-what keeps a tool-heavy turn from spending its rate limit on redundant edits.
-
-The thread welcome and the thread-creation failure notice used to be their own
-messages, which put three cards in a channel for one question. They are now a
-single `note` line inside the card, chosen by `conversationTarget.note`.
-
-Each incoming message is answered on its own goroutine, and per-session locking
-in `Instance.Chat` is what keeps two messages in the same channel from
-interleaving.
-
-Which bots exist is configuration, not a flag: `core.Bot` in
-[core/bot.go](../core/bot.go) persists to `bot.json` alongside providers and
-agents, and `cli/serve.go` starts every enabled entry. `core` stores the bot as
-plain data with a `kind` string and never imports `bot/` — `cli/serve.go` is
-what turns a `core.Bot` into a running `bot.Discord`, which keeps the dependency
-direction intact. The `--discord-*` flags build one throwaway `core.Bot` that
-replaces the configured set for that run. If any bot fails to start, the ones
-already started are stopped before `serve` returns, so a partial failure does
-not leave half a daemon connected.
-
-## Server
-
-`/api/v1` prefix is mandatory — see [CONVENTION.md](CONVENTION.md) §3. Requests
-need `Authorization: Bearer <key>`; the key comes from `--api-key` or
-`MININARU_API_KEY` and the server refuses to start without one.
-
-Request `content` accepts both a plain string and an array of content parts,
-because real clients send both. `stream: true` returns SSE with reasoning
-carried as `reasoning_content` deltas. Once the stream has started the status
-code is already sent, so a mid-stream failure arrives as an `[error]` content
-delta followed by `data: [DONE]`.
-
-## Native gRPC
-
-The native API in `api/mininaru/v1/mininaru.proto` is deliberately separate
-from the OpenAI-compatible HTTP surface. HTTP callers supply their whole
-history and receive only safe tools. A paired gRPC client names a server-owned
-session and advertises the tool definitions discovered on that client. The
-server drives `Instance.ChatWithTools`, but each execution request crosses the
-stream and runs against the client's working directory and MCP sessions. The
-result returns to the server for model continuation and persisted tool logs.
-
-The `Chat` RPC is bidirectional. Its first client event must be `start` and
-carries the local tool schema; later events return a tool result or cancel the
-turn. Server events carry content, reasoning, persisted tool progress, a local
-tool execution request, and exactly one terminal completion or failure. The
-TUI applies its approval menu before executing a dangerous local tool. `-p`
-has no approval callback and refuses it. Losing the HTTP/2 stream cancels the
-core context, so a disconnected client cannot leave a model turn running.
-
-Agent and skill list/show calls, plus session and usage calls, read server
-state in client mode. Provider, MCP, bot, web, and TUI preference management
-remain local; MCP configuration affects the tools advertised by that client.
-
-Pairing and normal RPCs share a TLS 1.3 listener but not an authorization
-policy. `PairingService` accepts a connection without a client certificate,
-rate limits `Begin` by peer address, and addresses a pending request by an
-unguessable UUID. Every `MininaruService` unary and streaming call passes an
-interceptor that requires a CA-verified client certificate and then checks its
-public-key fingerprint, certificate serial, and revocation state in SQLite.
-
-The client verifies the server twice. Before pairing, the operator compares the
-server public-key fingerprint through another trusted channel. Afterwards the
-client pins that fingerprint and also verifies the server certificate against
-the CA returned by the approved pairing. Renewal can therefore keep the server
-key without another trust prompt, while a changed key fails closed.
-
-The CA and server key are generated as Ed25519 keys under `pki/`; each client
-generates its own Ed25519 key and sends only its DER public key. Approval signs
-a one-year client certificate, stores its serial and fingerprint, and makes a
-previous certificate for the same key unusable. Revocation is checked on every
-RPC rather than only during the TLS handshake, so it also applies to an
-existing connection.
-
-`rpc_clients` and `rpc_pairings` are introduced by migration 0014. Pairing
-codes expire after five minutes. The code only identifies a request for the
-operator; the UUID held by the waiting client is the capability used to collect
-the issued certificate.
-
-Generated Go sources live under `rpc/gen`. `make generate` runs the pinned
-protobuf toolchain supplied by the developer, adds the repository SPDX header,
-and strips generator comments so generated files still follow the project
-comment convention.
+Everything lives under `.mininaru/`, or `NARU_PATH` if set. `util.InitFS`
+creates that directory at mode `0700` and tightens an existing one to `0700`
+on every start, since it holds API keys.
+
+SQLite (`modernc.org/sqlite`, no cgo) is opened with WAL, `foreign_keys`, and
+a five-second busy timeout (`util.databaseDSN`). Migrations are `.sql` files
+embedded into the binary (`util/migrations/*.sql`), tracked one row per
+applied version in a `migrations` table, and applied inside one transaction
+per file on every `NewDatabase` call — there is currently just
+`0001_initial_schema.sql`.
+
+```
+providers(id, name, api_key, base_url, active)
+  -- a partial unique index on (active) WHERE active = 1 is what makes
+  -- ProviderActivate's "deactivate all, activate one" transaction safe
+agents(id, name, model, soul, thinking_level, max_context)
+  -- thinking_level is CHECKed against off/low/medium/high/max
+sessions(id, agent_id REFERENCES agents ON DELETE CASCADE, name, created_at)
+messages(id, session_id REFERENCES sessions ON DELETE CASCADE, role, content,
+         status, error, created_at)
+  -- status is CHECKed against pending/completed/failed/cancelled
+```
+
+Deleting an agent or a session cascades through the foreign keys; nothing in
+Go application code has to clean up sessions or messages by hand.
+
+## `core/` — plain CRUD, no ORM
+
+`agent.go`, `provider.go`, `session.go`, `message.go` each hand-build their
+SQL with `fmt.Sprintf`, appending an `opts`/`values` pair per non-empty field
+so an `Update` call only touches the columns the caller actually set — a
+zero-value field on the struct passed to `AgentUpdate`/`ProviderUpdate`/etc.
+means "leave this column alone," not "clear it." `ProviderActivate` is the
+one write that needs a transaction: it deactivates every provider and
+activates the requested one in the same `tx`, which is what the schema's
+partial unique index is there to enforce.
+
+`SessionList(agentId)` requires an agent id — that is what the HTTP API's
+`GET /api/sessions?agent_id=` needs, since the query param is mandatory
+there. `SessionListAll()` is unscoped and exists only for the CLI's
+`session list` (which has no such requirement); the HTTP layer has no route
+for it.
+
+## `core/chat.go` — completion, not a tool loop
+
+`chatClient` builds a fresh `openai.Client` from `ProviderActive()` on every
+call rather than caching one on the agent, so changing which provider is
+active takes effect on the very next message. `chatParams` maps an agent's
+stored `ThinkingLevel` to the SDK's `ReasoningEffort` (`low`/`medium` map
+directly, `high` and `max` both become `high`, and `off` — or anything
+unrecognized — sets nothing, which is the SDK's own default).
+
+`SendChatMessage` is the persistence-aware entry point the websocket handler
+calls: it loads the session's full history via `MessageList`, prepends the
+agent's `Soul` as a system message when one is set, locates the `pending`
+user message, and streams the completion — each chunk both forwarded to the
+caller's callback and appended to a local builder. On success the user
+message is marked `completed` and the assembled reply is inserted as a new
+assistant message; on a stream error the user message is marked `failed`
+with the error text instead.
+
+There is no tool-calling loop here. A request goes in, a completion comes
+back. Anything that sounds like "the model can act" — file access, shell
+access, web search, delegating to another agent — is not part of this
+codebase.
+
+## `server/` — three route groups, one gin engine
+
+`server.NewAppServer(host, port)` builds one `*gin.Engine` and wires:
+
+- **`/api`** (`server/api.go`) — REST admin CRUD for agents, providers,
+  sessions, and messages, one controller file per resource
+  (`server/controller/*.go`), each doing bind → validate → `core` call → JSON.
+  `ProviderList`/`ProviderRead`/etc. never return the raw API key; every
+  response goes through `toProviderResponse`, which masks it to
+  `sk-t...efgh` before it leaves the process.
+- **`/api/v1`** (`server/openai.go`) — the OpenAI-compatible surface:
+  `POST /chat/completions` (streaming SSE or a single JSON body) and
+  `GET /models`. The `model` field of a chat request names a **mininaru
+  agent** by its `Name`, resolved with `core.AgentByName` — not an upstream
+  model string — so `GET /models` lists configured agents.
+- **`/ws`** (`server/sock/sock.go`) — one generic websocket that multiplexes
+  every session over a single connection type. An inbound frame is just
+  `{session_id, content}`; the handler creates the user message, calls
+  `core.SendChatMessage`, and streams back `{type: "chunk"|"done"|"error",
+  ...}`. Reasoning deltas are pulled out of the chunk's raw JSON
+  (`chunkReasoning`), because `openai.ChatCompletionChunk` has no typed field
+  for `reasoning`/`reasoning_content` and different providers use either key.
+
+All three require `Authorization: Bearer <key>` (`server/auth.go`). The key
+is a random 32-byte value generated on first use and stored at
+`NARU_PATH/mininaru.key`, mode `0600` (`util.APIKey`, `util/apikey.go`) —
+there is no setup step and no separate command to reveal it again later;
+reading the file is the only way. `cli/serve.go` calls `util.APIKey()` at
+startup and passes it into `NewAppServer`; `cli/shell` resolves the key it
+sends per connection as `--api-key` flag > `MININARU_API_KEY` env var >
+(only when the target host is loopback) reading that same local file —
+a shell pointed at a remote `--url` never reads the local key file, so a
+locally-generated key cannot leak to whatever host `--url` happens to name.
+
+## `cli/` — the admin surface
+
+`cli/main.go` reads `NARU_PATH` (default `.mininaru`), calls `util.InitFS`,
+opens the database itself, registers every subcommand, and calls
+`root.Execute()`. `root.SilenceUsage = true` plus `os.Exit(1)` on a command
+error is deliberate: earlier this called `panic(err)`, so an ordinary failure
+like "session not found" printed a Go stack trace instead of one clean
+`Error: ...` line.
+
+`provider`, `agent`, and `session` each follow the same shape
+(`cli/provider.go`, `cli/agent.go`, `cli/session.go`): `add`, `list`, `show`,
+`set`, `remove`, plus `provider activate`. Every subcommand that takes a
+positional id resolves it through a small `resolveX(idOrName)` helper that
+tries reading by id first and falls back to a name match, so `agent show
+naru` and `agent show <uuid>` both work. `session list` defaults to every
+session (`core.SessionListAll`) and narrows to one agent with `--agent`.
+
+`cli/serve.go` starts the HTTP server and blocks on `ListenAndServe`.
+`cli/shell.go` is a thin wrapper that builds `shell.Options` from flags and
+calls `shell.Run`.
+
+## `cli/shell/` — the interactive shell
+
+`mininaru shell` is a line editor and terminal front end built from scratch
+for this rewrite — unrelated to the earlier project's bubbletea TUI. It talks
+to a `mininaru serve` instance only over `/api` and `/ws`; nothing in
+`cli/shell` imports `server` or touches SQLite directly.
+
+### One editor, two modes
+
+`readLine()` (`input.go`) is the single byte-at-a-time raw-terminal reader
+both modes share; `state.mode` only changes which prompt badge is drawn and
+what a submitted line dispatches to. Shift+Tab toggles it. Switching into
+agent mode with no live connection calls `connect()` lazily and falls back to
+"still offline" on failure, so the shell works in bash-only mode with no
+server reachable at all — the initial connect at startup is best-effort in
+the same way.
+
+### Line editing
+
+- Left/Right move the cursor; typing and backspace act at the cursor
+  position, not just at the end of the line.
+- Up/Down recall history, and recall is **kept separate per mode** —
+  `state.history` for bash, `state.agentHistory` for agent
+  (`historyFor(sh)` picks the right one) — so bash commands and chat lines
+  never show up in each other's recall.
+- `history` (`history.go`) is a GNU-bash-compatible builtin: a bare listing,
+  `history N`, `-c` (clear), `-d offset` (delete; a negative offset counts
+  from the end), `-w`/`-r` (write/read `HISTFILE`, default
+  `.mininaru/shell_history`), honoring `HISTSIZE`/`HISTFILESIZE`/`HISTFILE`.
+  Only bash history persists to disk; agent history lives only for the
+  current process.
+- Every full redraw (backspace, Ctrl+U, history recall, cursor movement)
+  goes through `redraw()` (`redraw.go`), which strips ANSI escapes to measure
+  the *visible* width of `prompt+line`, works out how many terminal rows that
+  occupied, moves up that many rows, and clears with `\x1b[0J` before
+  reprinting. A plain `\r\x1b[2K` (clear only the current row) leaves stale
+  wrapped content on screen once a line is longer than the terminal width —
+  that was a real, reported bug before this existed.
+- Tab completion (`complete.go`): bash-mode, word-start position offers the
+  builtins (`cd`, `exit`, `quit`, `history`) plus everything executable on
+  `$PATH`; anything containing `/`, or not at word-start, is path
+  completion. Agent-mode completion, when the word starts with `/`, offers
+  the registered slash-command names. Multi-candidate columns are sized with
+  `displayWidth`, which is East-Asian-width aware, not raw byte/rune count.
+
+### Multiline input
+
+Two independent triggers feed the same continuation loop in `Run()`
+(`shell.go`), both signaled from `readLine` as a sentinel error rather than a
+normal return:
+
+- **Automatic, bash mode only** — after Enter, `continueLine()`
+  (`multiline.go`) shells out to `bash -n -c <accumulated text>` and checks
+  stderr for `unexpected EOF`/`unexpected end of file`, or checks for an
+  unescaped trailing backslash; either one means "not done yet," and it keeps
+  reading more lines under a `> ` prompt until the accumulated text parses.
+- **Manual, either mode** — Ctrl+J (a literal `\n` byte, distinct from the
+  `\r` a physical Enter key sends) ends the current line without submitting.
+  `Run()` accumulates it into `composing` and keeps reading under the same
+  `> ` prompt until a real Enter. Shift+Enter, when a terminal encodes it as
+  the Kitty-protocol CSI-u sequence `13;2u`, is recognized as an alias for
+  the same path, but mininaru never activates that protocol itself —
+  turning it on broke Ctrl+C/Ctrl+D/Ctrl+U on terminals with partial
+  support for it, so Ctrl+J is the one path guaranteed to work everywhere.
+
+Ctrl+C during either kind of continuation (`state.continuation == true`)
+aborts the whole in-progress multi-line entry, not just the current segment.
+
+### Running bash
+
+`runBash`/`runNested` (`exec.go`) run `bash -c <line>` — or, for `su`/`sudo`,
+re-exec `mininaru shell` itself as the target user, carrying `--session` and
+`--agent` over so a privilege switch does not lose the conversation — through
+`runForeground()` (`tty.go`). The child is placed in its own process group
+and handed the terminal's foreground process group via `TIOCSPGRP`
+(`SIGTTOU`/`SIGTTIN` ignored around the handoff, standard job-control
+practice), then the shell reclaims the foreground group when the child
+exits. Without this, a `Ctrl+C` meant for a running child would land on the
+whole process group and kill the mininaru shell along with it, since both
+would otherwise share one group.
+
+### Agent mode
+
+`sendAgent()` (`client.go`) posts `{session_id, content}` over the websocket
+and streams the reply back, rendering `reply.Reasoning` — dimmed, under a
+"thinking" heading — ahead of the answer text. While a turn is in flight, a
+background goroutine (`watchInterrupt`) polls stdin so pressing Esc cancels
+the wait: it closes the websocket, then reconnects **reusing the existing
+session id** (`connect()` only calls `openSession()` — which creates a new
+session — when `state.session` is still empty), and hands control back to
+the prompt. Polling is used instead of `SetReadDeadline` because raw-mode
+stdin does not support read deadlines on this platform; the poll goes
+through `golang.org/x/sys/unix.Poll` on the raw fd instead.
+
+Any other byte typed while that watcher is running — i.e., while a response
+is streaming — is captured rather than discarded, and replayed into the next
+`readLine()` call through `state.pendingInput` once the turn ends. An earlier
+version of this simply read and dropped those bytes, which made ordinary
+keys — including Ctrl+C and Ctrl+U — appear to silently stop working
+whenever they landed during, or immediately after, a streaming response.
+
+### Slash commands
+
+`/help`, `/reset` (start a fresh session against the same agent), `/session`
+(show the current session id, agent, and creation time), `/clear`,
+`/exit`/`/bash` (back to bash mode) — a small name-keyed registry
+(`command.go`), dispatched only in agent mode when a line starts with `/`.
+Handlers take `*state` directly and read/write it in place; there is no
+adapter interface here, because there used to be — this lived in a separate
+`cli/cmd` package for a short time and was folded back into `cli/shell` once
+the indirection was not paying for itself.
 
 ## Development
 
 ```sh
-make build     # -> out/mininaru
-make generate  # regenerate protobuf and gRPC sources
-make test      # gofmt -l, go vet, go test ./...
-make install   # scripts/binary-install.sh
+make build      # -> out/mininaru
+make fmt        # gofmt -l, fails on unformatted files
+make vet        # go vet ./...
+make test       # fmt + vet + go test ./... -v
+make test-race  # the same suite under the race detector
+make test-cover # race + coverage, writes out/coverage.out
+make dist GOOS=linux GOARCH=arm64   # cross-compile a release layout into dist/
 ```
 
-`make test` fails on unformatted files, so run it before committing. Follow
-[CONVENTION.md](CONVENTION.md): no comments, no `:=`, one `var` block at the top
-of each function in first-use order with `err` last, early returns, and
-top-level declarations ordered types → consts → vars → functions. Functions use
-dependency order, with callees before callers. In a file that declares `main`,
-`main` is unconditionally the final function and final top-level declaration.
+`make test-race` is what CI (`.github/workflows/ci.yml`) runs on every push
+and pull request, alongside a plain `make build` and a cross-compile check
+for `linux/amd64`, `linux/arm64`, and `darwin/arm64`. `.github/workflows/release.yml`
+runs `make dist` for six `GOOS/GOARCH` pairs on a pushed `v*` tag, archives
+each, writes `SHA256SUMS`, and attests build provenance.
 
-### Testing patterns
-
-There is no mock provider type. Tests stand up an `httptest.Server` that speaks
-SSE and point a provider's `BaseURL` at it — see `toolChunk` in
-[core/tool_test.go](../core/tool_test.go) and `upstreamOnce` in
-[server/completion_test.go](../server/completion_test.go). Asserting on the
-request bodies that fake upstream captured is how the system prompt, tool
-exposure, and replayed history get verified.
-
-`core` tests reset the package globals (`Providers`, `Agents`, `Global`) and
-call `util.InitFS(t.TempDir())` plus `util.InitDatabase` on a temp file;
-`thinkingSetup` does all of it.
-
-`runPrompt` takes its stdout and stderr as `io.Writer` arguments rather than
-using `os.Stdout` directly, so a test can assert on both streams. That is also
-the cheapest way to exercise the full session-backed chat path end to end,
-including tool replay, without a terminal.
+Follow [CONVENTION.md](CONVENTION.md) for code style — it is enforced by
+`make fmt`/`make test` where it can be, and by review where it can't.
