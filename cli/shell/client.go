@@ -425,6 +425,25 @@ func approvalPrompt(sh *state, name, arguments string) string {
 	}
 }
 
+func isReasoningFiller(s string) bool {
+	var dotSeen bool
+	var r rune
+
+	for _, r = range s {
+		if r == '.' {
+			dotSeen = true
+			continue
+		}
+		if r == ' ' || r == '\t' || r == '\n' || r == '\r' {
+			continue
+		}
+
+		return false
+	}
+
+	return dotSeen
+}
+
 func receiveAgent(sh *state, stop func(), watch *interruptWatch) error {
 	var reply reply
 	var text string
@@ -445,7 +464,7 @@ func receiveAgent(sh *state, stop func(), watch *interruptWatch) error {
 		case "chunk":
 			text = chunkText(reply.Chunk)
 
-			if reply.Reasoning != "" && !streaming {
+			if reply.Reasoning != "" && !streaming && !isReasoningFiller(reply.Reasoning) {
 				if !thinking {
 					stop()
 					write("%s◇ thinking%s\n%s", GRAY, RESET, DIM)
@@ -475,7 +494,7 @@ func receiveAgent(sh *state, stop func(), watch *interruptWatch) error {
 			stop()
 
 			if thinking && !streaming {
-				write("%s", RESET)
+				write("%s\n", RESET)
 				thinking = false
 			}
 			if streaming {
@@ -488,12 +507,15 @@ func receiveAgent(sh *state, stop func(), watch *interruptWatch) error {
 				write("%s⚙ %s%s\n", GRAY, reply.Name, RESET)
 			case "failed":
 				write("%s✖ %s failed%s\n", RED, reply.Name, RESET)
+				if reply.Message != "" {
+					write("%s  %s%s\n", DIM, reply.Message, RESET)
+				}
 			}
 		case "approval_request":
 			stop()
 
 			if thinking && !streaming {
-				write("%s", RESET)
+				write("%s\n", RESET)
 				thinking = false
 			}
 			if streaming {

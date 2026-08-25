@@ -44,6 +44,100 @@ func captureStdout(t *testing.T, run func()) string {
 	return string(buf)
 }
 
+func TestIsReasoningFiller(t *testing.T) {
+	var cases map[string]bool
+	var s string
+	var want bool
+
+	cases = map[string]bool{
+		".":                       true,
+		"...":                     true,
+		"  ...  ":                 true,
+		"":                        false,
+		"weighing rayleigh":       false,
+		".The Google search":      false,
+		"...thinking about it...": false,
+	}
+
+	for s, want = range cases {
+		if isReasoningFiller(s) != want {
+			t.Fatalf("isReasoningFiller(%q) = %v, want %v", s, isReasoningFiller(s), want)
+		}
+	}
+}
+
+func TestSendAgentSuppressesDotFillerReasoning(t *testing.T) {
+	var upgrader websocket.Upgrader
+	var server *httptest.Server
+	var client *websocket.Conn
+	var sh state
+	var output string
+
+	var err error
+
+	server = httptest.NewServer(http.HandlerFunc(func(res http.ResponseWriter, req *http.Request) {
+		var conn *websocket.Conn
+		var raw []byte
+		var frames []string
+		var payload string
+
+		var handlerErr error
+
+		conn, handlerErr = upgrader.Upgrade(res, req, nil)
+		if handlerErr != nil {
+			return
+		}
+		defer conn.Close()
+
+		_, raw, handlerErr = conn.ReadMessage()
+		if handlerErr != nil {
+			return
+		}
+
+		if !strings.Contains(string(raw), "weather") {
+			return
+		}
+
+		frames = []string{
+			`{"type":"chunk","session_id":"s","reasoning":"."}`,
+			`{"type":"chunk","session_id":"s","reasoning":"."}`,
+			`{"type":"chunk","session_id":"s","reasoning":"checking the forecast"}`,
+			`{"type":"chunk","session_id":"s","chunk":{"choices":[{"delta":{"content":"it's sunny"}}]}}`,
+			`{"type":"done","session_id":"s"}`,
+		}
+
+		for _, payload = range frames {
+			handlerErr = conn.WriteMessage(websocket.TextMessage, []byte(payload))
+			if handlerErr != nil {
+				return
+			}
+		}
+	}))
+	defer server.Close()
+
+	client, _, err = websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(server.URL, "http"), nil)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer client.Close()
+
+	sh = state{conn: client, session: "s"}
+
+	output = captureStdout(t, func() {
+		err = sendAgent(&sh, "weather")
+	})
+	if err != nil {
+		t.Fatalf("sendAgent: %v", err)
+	}
+
+	if !strings.Contains(output, "checking the forecast") {
+		t.Fatalf("real reasoning content was not rendered: %q", output)
+	}
+	if strings.Contains(strings.ReplaceAll(output, "checking the forecast", ""), ".") {
+		t.Fatalf("dot-filler reasoning leaked into the output: %q", output)
+	}
+}
+
 func TestSendAgentRendersReasoningBeforeAnswer(t *testing.T) {
 	var upgrader websocket.Upgrader
 	var server *httptest.Server

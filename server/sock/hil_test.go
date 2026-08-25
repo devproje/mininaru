@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/devproje/mininaru/core"
@@ -75,10 +76,12 @@ func setupToolFixture(t *testing.T) (string, string) {
 }
 
 func readUntilApproval(t *testing.T, conn *websocket.Conn) testFrame {
+	var frame testFrame
+
 	t.Helper()
 
 	for {
-		frame := readFrame(t, conn)
+		frame = readFrame(t, conn)
 		if frame.Type == "chunk" || frame.Type == "tool" {
 			continue
 		}
@@ -149,6 +152,14 @@ func TestSockHandlerDeniedToolStillCompletesTheTurn(t *testing.T) {
 	err = conn.WriteJSON(map[string]string{"type": "approval", "session_id": sessionId, "decision": "deny"})
 	if err != nil {
 		t.Fatal(err)
+	}
+
+	frame = readFrame(t, conn)
+	if frame.Type != "tool" || frame.Status != "failed" {
+		t.Fatalf("frame = %+v, want a failed tool frame", frame)
+	}
+	if !strings.Contains(frame.Message, "denied") {
+		t.Fatalf("failed tool frame has no error message: %+v", frame)
 	}
 
 	gotChunk, frame = readUntilTerminal(t, conn)
