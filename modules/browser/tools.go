@@ -16,7 +16,7 @@ import (
 	"golang.org/x/net/html"
 )
 
-const callTimeout = 30 * time.Second
+var callTimeout = 30 * time.Second
 
 func navigate(sessionId string) modules.Tool {
 	return modules.Tool{

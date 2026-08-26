@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"github.com/devproje/mininaru/core"
-	"github.com/devproje/mininaru/util"
 )
 
 type commandResult struct {
@@ -78,6 +77,8 @@ func resetSessionCommand(sh *state, args []string) (commandResult, error) {
 	var base string
 	var current core.Session
 	var created core.Session
+	var agentId string
+	var target *core.Agent
 
 	var err error
 
@@ -91,7 +92,15 @@ func resetSessionCommand(sh *state, args []string) (commandResult, error) {
 		return commandResult{}, err
 	}
 
-	err = apiPost(base+"/sessions", sh.apiKey, map[string]string{"agent_id": current.AgentId, "name": "shell"}, &created)
+	agentId = current.AgentId
+	if sh.agent != "" {
+		target, err = resolveAgentByIdOrName(sh, base, sh.agent)
+		if err == nil {
+			agentId = target.Id
+		}
+	}
+
+	err = apiPost(base+"/sessions", sh.apiKey, map[string]string{"agent_id": agentId, "name": "shell"}, &created)
 	if err != nil {
 		return commandResult{}, err
 	}
@@ -99,6 +108,36 @@ func resetSessionCommand(sh *state, args []string) (commandResult, error) {
 	sh.session = created.Id
 
 	return commandResult{Message: "started a new session " + created.Id}, nil
+}
+
+func agentCommand(sh *state, args []string) (commandResult, error) {
+	var base string
+	var target *core.Agent
+
+	var err error
+
+	if len(args) == 0 {
+		return commandResult{}, fmt.Errorf("usage: /agent <id-or-name>")
+	}
+
+	base, err = apiBase(sh.url)
+	if err != nil {
+		return commandResult{}, err
+	}
+
+	target, err = resolveAgentByIdOrName(sh, base, args[0])
+	if err != nil {
+		return commandResult{}, err
+	}
+
+	sh.agent = target.Name
+
+	err = savePreferences(&preferences{Agent: target.Name})
+	if err != nil {
+		return commandResult{}, err
+	}
+
+	return commandResult{Message: "default agent set to " + target.Name + " — used for new shells and /reset from now on"}, nil
 }
 
 func showSessionCommand(sh *state, args []string) (commandResult, error) {
@@ -169,35 +208,6 @@ func yoloCommand(sh *state, args []string) (commandResult, error) {
 	return commandResult{Message: fmt.Sprintf("yolo mode set to %s for %v", mode, resp["root"])}, nil
 }
 
-func infoCommand(sh *state, args []string) (commandResult, error) {
-	var base string
-	var session core.Session
-
-	var err error
-
-	write("\n%s\n\n", util.NaruLogoWithPad("  "))
-	write("  %smininaru shell%s %s%s%s\n\n", BOLD, RESET, DIM, util.AppVersion, RESET)
-
-	if sh.conn == nil {
-		notice(YELLOW, "○", "%soffline%s %s", YELLOW, RESET, DIM+"bash mode only, Shift+Tab retries the connection"+RESET)
-		return commandResult{}, nil
-	}
-
-	notice(GREEN, "●", "%sconnected%s %s", GREEN, RESET, DIM+sh.url+" · session "+sh.session+RESET)
-
-	base, err = apiBase(sh.url)
-	if err != nil {
-		return commandResult{}, err
-	}
-
-	err = apiGet(base+"/sessions/"+sh.session, sh.apiKey, &session)
-	if err != nil {
-		return commandResult{}, err
-	}
-
-	return commandResult{Message: fmt.Sprintf("session %s\n  agent   %s\n  created %s", session.Id, agentLabel(sh), session.CreatedAt)}, nil
-}
-
 func init() {
 	registerCommand("help", "list available commands", helpCommand)
 	registerCommand("reset", "start a fresh session with the same agent", resetSessionCommand)
@@ -206,7 +216,7 @@ func init() {
 	registerCommand("exit", "quit mininaru shell", quitShellCommand)
 	registerCommand("bash", "leave agent mode, back to bash", leaveAgentCommand)
 	registerCommand("yolo", "set dangerous-tool trust for this directory (off|persist|on)", yoloCommand)
-	registerCommand("info", "show the splash banner and current session info", infoCommand)
+	registerCommand("agent", "set the default agent for new sessions (id or name)", agentCommand)
 }
 
 func dispatchCommand(sh *state, line string) error {

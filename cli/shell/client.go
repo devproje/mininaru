@@ -162,6 +162,32 @@ func refreshYoloMode(sh *state) {
 	sh.yoloMode, _ = resp["mode"].(string)
 }
 
+func resolveAgentByIdOrName(sh *state, base, idOrName string) (*core.Agent, error) {
+	var agent core.Agent
+	var list []*core.Agent
+	var item *core.Agent
+
+	var err error
+
+	err = apiGet(base+"/agents/"+idOrName, sh.apiKey, &agent)
+	if err == nil {
+		return &agent, nil
+	}
+
+	err = apiGet(base+"/agents", sh.apiKey, &list)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, item = range list {
+		if item.Name == idOrName {
+			return item, nil
+		}
+	}
+
+	return nil, fmt.Errorf("agent %q not found", idOrName)
+}
+
 func pickAgent(sh *state, base string) (*core.Agent, error) {
 	var list []*core.Agent
 	var item *core.Agent

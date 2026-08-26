@@ -5,6 +5,7 @@ package browser
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"sync"
@@ -92,7 +93,7 @@ func newSession() (*session, error) {
 	var ctx context.Context
 	var cancel context.CancelFunc
 	var current session
-
+	var launched chan error
 	var err error
 
 	allocCtx, allocCancel = chromedp.NewExecAllocator(context.Background(), allocatorOptions()...)
@@ -105,10 +106,20 @@ func newSession() (*session, error) {
 		allocCancel()
 	}
 
-	err = chromedp.Run(ctx)
-	if err != nil {
+	launched = make(chan error, 1)
+	go func() {
+		launched <- chromedp.Run(ctx)
+	}()
+
+	select {
+	case err = <-launched:
+		if err != nil {
+			current.cancel()
+			return nil, err
+		}
+	case <-time.After(callTimeout):
 		current.cancel()
-		return nil, err
+		return nil, fmt.Errorf("timed out launching the browser after %s", callTimeout)
 	}
 
 	return &current, nil

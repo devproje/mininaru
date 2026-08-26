@@ -4,9 +4,11 @@
 package browser
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestChromePathHonorsEnvOverride(t *testing.T) {
@@ -68,6 +70,44 @@ func TestSessionContextReusesTheSameSession(t *testing.T) {
 
 	if first != again {
 		t.Fatal("sessionContext created a second session for the same session id")
+	}
+}
+
+func TestNewSessionDoesNotHangForeverOnAStalledLaunch(t *testing.T) {
+	var dir string
+	var fake string
+	var previousTimeout time.Duration
+	var start time.Time
+	var elapsed time.Duration
+	var ctx context.Context
+	var err error
+
+	dir = t.TempDir()
+	fake = filepath.Join(dir, "fake-chrome")
+
+	err = os.WriteFile(fake, []byte("#!/bin/sh\nsleep 100\n"), 0755)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("MININARU_CHROME", fake)
+
+	previousTimeout = callTimeout
+	callTimeout = 300 * time.Millisecond
+	t.Cleanup(func() { callTimeout = previousTimeout })
+
+	t.Cleanup(func() { closeSession("test-stall") })
+
+	start = time.Now()
+	ctx, err = sessionContext("test-stall")
+	elapsed = time.Since(start)
+	_ = ctx
+
+	if err == nil {
+		t.Fatal("expected the stalled Chrome launch to time out with an error")
+	}
+	if elapsed > 5*time.Second {
+		t.Fatalf("sessionContext took %v to fail, want it bounded by the (lowered) launch timeout", elapsed)
 	}
 }
 

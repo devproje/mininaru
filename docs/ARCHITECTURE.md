@@ -171,6 +171,17 @@ Browser sessions are in-memory only — they don't survive a server restart,
 and a resumed mininaru session just opens a fresh tab on its next
 `browser_navigate`.
 
+`newSession()`'s initial `chromedp.Run(ctx)` call — the one that actually
+launches the browser and binds the target to `ctx` — runs in a goroutine
+bounded by `select`/`time.After(callTimeout)` rather than a
+`context.WithTimeout` wrapped around the call itself: chromedp binds a
+target to whichever context first runs a successful action on it, so
+canceling a context derived for just that one call (even after it
+succeeds) poisons the session for every later call sharing its parent. On
+timeout only the root `ctx` (and the session) is abandoned, so a stalled
+Chrome launch fails fast instead of holding the package-level session
+mutex forever and hanging every other session's browser tools with it.
+
 Screenshots hit a real constraint: the OpenAI Chat Completions API's `tool`
 message can only carry text (`ChatCompletionToolMessageParam.Content` is
 `string | []ChatCompletionContentPartTextParam` — no image parts), while a
@@ -472,14 +483,20 @@ approval prompt has fired in it.
 
 ### Slash commands
 
-`/help`, `/reset` (start a fresh session against the same agent), `/session`
-(show the current session id, agent, and creation time), `/info` (the splash
-banner again, minus the shortcut hints, plus current connection/session
-info), `/clear`, `/bash` (back to bash mode), `/exit` (quit the shell —
-`quitShellCommand` returns `commandResult{Quit: true}`, and `dispatchCommand`
-turns that into `io.EOF`, the same sentinel bash-mode `exit`/`quit` return to
-break `Run()`'s loop), `/yolo <off|persist|on>` (set the dangerous-tool trust
-mode for the shell's current directory — see "Tool calling" above) — a small
+`/help`, `/reset` (start a fresh session against the same agent, or the one
+set with `/agent` if any), `/session` (show the current session id, agent,
+and creation time), `/agent <id-or-name>` (set `state.agent` — the default
+agent `/reset` and a freshly opened connection pick; `resolveAgentByIdOrName`
+in `client.go` tries `GET /agents/<id>` first, then falls back to a name
+match against `GET /agents`, the same list `pickAgent` already used — and
+persists the choice via `cli/shell/preferences.go` to `.mininaru/shell.json`,
+so `Run()` loads it back into `state.agent` on the next `mininaru shell`
+launch whenever `--agent` wasn't passed explicitly), `/clear`,
+`/bash` (back to bash mode), `/exit` (quit the shell — `quitShellCommand`
+returns `commandResult{Quit: true}`, and `dispatchCommand` turns that into
+`io.EOF`, the same sentinel bash-mode `exit`/`quit` return to break
+`Run()`'s loop), `/yolo <off|persist|on>` (set the dangerous-tool trust mode
+for the shell's current directory — see "Tool calling" above) — a small
 name-keyed registry (`command.go`), dispatched only in agent mode when a line
 starts with `/`.
 Handlers take `*state` directly and read/write it in place; there is no

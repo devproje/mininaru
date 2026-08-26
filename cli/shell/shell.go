@@ -114,6 +114,7 @@ func Run(opts Options) error {
 	var previous *term.State
 	var line string
 	var composing string
+	var prefs *preferences
 
 	var err error
 
@@ -131,6 +132,14 @@ func Run(opts Options) error {
 	sh.seed = opts.Session
 	sh.agent = opts.Agent
 	sh.apiKey = opts.ApiKey
+
+	if sh.agent == "" {
+		prefs, err = loadPreferences()
+		if err == nil {
+			sh.agent = prefs.Agent
+		}
+	}
+
 	sh.mode = MODE_BASH
 	sh.root = os.Geteuid() == 0
 	sh.user = currentUser()
