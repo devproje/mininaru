@@ -174,7 +174,22 @@ func TestAgentCommandRequiresAnArgument(t *testing.T) {
 	}
 }
 
-func TestAgentCommandSetsDefaultAgentByName(t *testing.T) {
+func TestAgentCommandRejectsAnUnknownScope(t *testing.T) {
+	var server *httptest.Server
+	var sh state
+
+	var err error
+
+	server, _ = newAgentTestServer(t)
+	sh = state{url: server.URL}
+
+	_, err = agentCommand(&sh, []string{"forever", "worker"})
+	if err == nil {
+		t.Fatal("/agent forever worker should fail")
+	}
+}
+
+func TestAgentCommandGlobalSetsDefaultAgentByName(t *testing.T) {
 	var server *httptest.Server
 	var sh state
 	var result commandResult
@@ -185,9 +200,9 @@ func TestAgentCommandSetsDefaultAgentByName(t *testing.T) {
 	server, _ = newAgentTestServer(t)
 	sh = state{url: server.URL}
 
-	result, err = agentCommand(&sh, []string{"worker"})
+	result, err = agentCommand(&sh, []string{"global", "worker"})
 	if err != nil {
-		t.Fatalf("/agent worker failed: %v", err)
+		t.Fatalf("/agent global worker failed: %v", err)
 	}
 	if sh.agent != "worker" {
 		t.Fatalf("sh.agent = %q, want %q", sh.agent, "worker")
@@ -197,7 +212,7 @@ func TestAgentCommandSetsDefaultAgentByName(t *testing.T) {
 	}
 }
 
-func TestAgentCommandPersistsTheDefaultAcrossShellRestarts(t *testing.T) {
+func TestAgentCommandGlobalPersistsTheDefaultAcrossShellRestarts(t *testing.T) {
 	var server *httptest.Server
 	var sh state
 	var prefs *preferences
@@ -208,9 +223,9 @@ func TestAgentCommandPersistsTheDefaultAcrossShellRestarts(t *testing.T) {
 	server, _ = newAgentTestServer(t)
 	sh = state{url: server.URL}
 
-	_, err = agentCommand(&sh, []string{"worker"})
+	_, err = agentCommand(&sh, []string{"global", "worker"})
 	if err != nil {
-		t.Fatalf("/agent worker failed: %v", err)
+		t.Fatalf("/agent global worker failed: %v", err)
 	}
 
 	prefs, err = loadPreferences()
@@ -219,6 +234,38 @@ func TestAgentCommandPersistsTheDefaultAcrossShellRestarts(t *testing.T) {
 	}
 	if prefs.Agent != "worker" {
 		t.Fatalf("persisted agent = %q, want %q", prefs.Agent, "worker")
+	}
+}
+
+func TestAgentCommandCurrentSetsSessionAgentWithoutPersisting(t *testing.T) {
+	var server *httptest.Server
+	var sh state
+	var result commandResult
+	var prefs *preferences
+
+	var err error
+
+	setupTestNaruPath(t)
+	server, _ = newAgentTestServer(t)
+	sh = state{url: server.URL}
+
+	result, err = agentCommand(&sh, []string{"current", "worker"})
+	if err != nil {
+		t.Fatalf("/agent current worker failed: %v", err)
+	}
+	if sh.agent != "worker" {
+		t.Fatalf("sh.agent = %q, want %q", sh.agent, "worker")
+	}
+	if !strings.Contains(result.Message, "worker") {
+		t.Fatalf("result message = %q, want it to mention worker", result.Message)
+	}
+
+	prefs, err = loadPreferences()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if prefs.Agent != "" {
+		t.Fatalf("persisted agent = %q, want /agent current to leave preferences untouched", prefs.Agent)
 	}
 }
 
@@ -231,9 +278,9 @@ func TestAgentCommandRejectsUnknownAgent(t *testing.T) {
 	server, _ = newAgentTestServer(t)
 	sh = state{url: server.URL}
 
-	_, err = agentCommand(&sh, []string{"missing"})
+	_, err = agentCommand(&sh, []string{"global", "missing"})
 	if err == nil {
-		t.Fatal("/agent missing should fail")
+		t.Fatal("/agent global missing should fail")
 	}
 }
 

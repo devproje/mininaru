@@ -50,8 +50,10 @@ API key is `.mininaru/mininaru.key` (mode `0600`, generated the first time
 anything needs it); yolo trust state is `.mininaru/directory.json`, managed
 through `/yolo` rather than hand-edited; MCP servers are configured in
 `.mininaru/mcp.json`, which you do edit by hand; the shell's default agent
-(set via `/agent`) is persisted in `.mininaru/shell.json`, so it carries over
-to the next `mininaru shell` launch without needing `--agent` again.
+(set via `/agent global <id-or-name>`) is persisted in `.mininaru/shell.json`,
+so it carries over to the next `mininaru shell` launch without needing
+`--agent` again — `/agent current <id-or-name>` skips this file, affecting
+only the running shell.
 
 ## Set up a provider and an agent
 
@@ -176,7 +178,7 @@ Inside agent mode:
 /help       list available commands
 /reset      start a fresh session with the same agent
 /session    show the current session id, agent, and creation time
-/agent      set the default agent for new sessions (id or name)
+/agent      global <id-or-name> persists as the default; current <id-or-name> is this shell only
 /clear      clear the terminal screen
 /bash       back to bash mode
 /exit       quit mininaru shell

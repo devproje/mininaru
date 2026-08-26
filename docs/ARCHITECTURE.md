@@ -531,13 +531,16 @@ approval prompt has fired in it.
 
 `/help`, `/reset` (start a fresh session against the same agent, or the one
 set with `/agent` if any), `/session` (show the current session id, agent,
-and creation time), `/agent <id-or-name>` (set `state.agent` — the default
-agent `/reset` and a freshly opened connection pick; `resolveAgentByIdOrName`
-in `client.go` tries `GET /agents/<id>` first, then falls back to a name
-match against `GET /agents`, the same list `pickAgent` already used — and
-persists the choice via `cli/shell/preferences.go` to `.mininaru/shell.json`,
-so `Run()` loads it back into `state.agent` on the next `mininaru shell`
-launch whenever `--agent` wasn't passed explicitly), `/clear`,
+and creation time), `/agent <global|current> <id-or-name>` (set
+`state.agent` — the default agent `/reset` and a freshly opened connection
+pick; `resolveAgentByIdOrName` in `client.go` tries `GET /agents/<id>`
+first, then falls back to a name match against `GET /agents`, the same list
+`pickAgent` already used. Both scopes set `state.agent` for the running
+process; `global` additionally persists the choice via
+`cli/shell/preferences.go` to `.mininaru/shell.json`, so `Run()` loads it
+back into `state.agent` on the next `mininaru shell` launch whenever
+`--agent` wasn't passed explicitly, while `current` leaves that file alone
+so the change doesn't outlive this shell), `/clear`,
 `/bash` (back to bash mode), `/exit` (quit the shell — `quitShellCommand`
 returns `commandResult{Quit: true}`, and `dispatchCommand` turns that into
 `io.EOF`, the same sentinel bash-mode `exit`/`quit` return to break

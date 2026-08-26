@@ -111,13 +111,19 @@ func resetSessionCommand(sh *state, args []string) (commandResult, error) {
 }
 
 func agentCommand(sh *state, args []string) (commandResult, error) {
+	var scope string
 	var base string
 	var target *core.Agent
 
 	var err error
 
-	if len(args) == 0 {
-		return commandResult{}, fmt.Errorf("usage: /agent <id-or-name>")
+	if len(args) != 2 {
+		return commandResult{}, fmt.Errorf("usage: /agent <global|current> <id-or-name>")
+	}
+
+	scope = strings.ToLower(args[0])
+	if scope != "global" && scope != "current" {
+		return commandResult{}, fmt.Errorf("scope must be one of global, current")
 	}
 
 	base, err = apiBase(sh.url)
@@ -125,12 +131,16 @@ func agentCommand(sh *state, args []string) (commandResult, error) {
 		return commandResult{}, err
 	}
 
-	target, err = resolveAgentByIdOrName(sh, base, args[0])
+	target, err = resolveAgentByIdOrName(sh, base, args[1])
 	if err != nil {
 		return commandResult{}, err
 	}
 
 	sh.agent = target.Name
+
+	if scope == "current" {
+		return commandResult{Message: "agent for this session set to " + target.Name + " — used for /reset until this shell exits"}, nil
+	}
 
 	err = savePreferences(&preferences{Agent: target.Name})
 	if err != nil {
@@ -216,7 +226,7 @@ func init() {
 	registerCommand("exit", "quit mininaru shell", quitShellCommand)
 	registerCommand("bash", "leave agent mode, back to bash", leaveAgentCommand)
 	registerCommand("yolo", "set dangerous-tool trust for this directory (off|persist|on)", yoloCommand)
-	registerCommand("agent", "set the default agent for new sessions (id or name)", agentCommand)
+	registerCommand("agent", "set the agent: global <id-or-name> persists, current <id-or-name> is this shell only", agentCommand)
 }
 
 func dispatchCommand(sh *state, line string) error {
