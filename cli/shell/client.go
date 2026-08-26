@@ -439,12 +439,26 @@ func isReasoningFiller(s string) bool {
 	return dotSeen
 }
 
+func removeToolName(stack []string, name string) []string {
+	var index int
+
+	for index = len(stack) - 1; index >= 0; index-- {
+		if stack[index] == name {
+			return append(stack[:index], stack[index+1:]...)
+		}
+	}
+
+	return stack
+}
+
 func receiveAgent(sh *state, stop func(), watch *interruptWatch) error {
 	var reply reply
 	var text string
 	var thinking bool
 	var streaming bool
 	var decision string
+	var toolStack []string
+	var toolSpin func()
 
 	var err error
 
@@ -497,14 +511,31 @@ func receiveAgent(sh *state, stop func(), watch *interruptWatch) error {
 				streaming = false
 			}
 
+			if toolSpin != nil {
+				toolSpin()
+				toolSpin = nil
+			}
+
 			switch reply.Status {
 			case "started":
-				write("%s⚙ %s%s\n", GRAY, reply.Name, RESET)
+				if reply.Message != "" {
+					write("%s  %s%s\n", DIM, reply.Message, RESET)
+				}
+
+				toolStack = append(toolStack, reply.Name)
+			case "finished":
+				toolStack = removeToolName(toolStack, reply.Name)
+				write("%s✔ %s%s\n", GREEN, reply.Name, RESET)
 			case "failed":
+				toolStack = removeToolName(toolStack, reply.Name)
 				write("%s✖ %s failed%s\n", RED, reply.Name, RESET)
 				if reply.Message != "" {
 					write("%s  %s%s\n", DIM, reply.Message, RESET)
 				}
+			}
+
+			if len(toolStack) > 0 {
+				toolSpin = spinner(toolStack[len(toolStack)-1])
 			}
 		case "approval_request":
 			stop()
@@ -517,6 +548,10 @@ func receiveAgent(sh *state, stop func(), watch *interruptWatch) error {
 				write("%s\n", RESET)
 				streaming = false
 			}
+			if toolSpin != nil {
+				toolSpin()
+				toolSpin = nil
+			}
 
 			watch.pause()
 			decision = approvalPrompt(sh, reply.Name, reply.Arguments)
@@ -525,11 +560,18 @@ func receiveAgent(sh *state, stop func(), watch *interruptWatch) error {
 			if err != nil {
 				return err
 			}
+
+			if len(toolStack) > 0 {
+				toolSpin = spinner(toolStack[len(toolStack)-1])
+			}
 		case "error":
 			stop()
 
 			if thinking && !streaming {
 				write("%s\n", RESET)
+			}
+			if toolSpin != nil {
+				toolSpin()
 			}
 
 			notice(RED, "✖", "%s", reply.Message)
@@ -539,6 +581,9 @@ func receiveAgent(sh *state, stop func(), watch *interruptWatch) error {
 
 			if thinking && !streaming {
 				write("%s", RESET)
+			}
+			if toolSpin != nil {
+				toolSpin()
 			}
 
 			write("\n\n")

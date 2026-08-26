@@ -155,7 +155,7 @@ func handleFrame(ctx context.Context, remoteAddr string, conn *safeConn, frame i
 
 	anchor = core.ResolveAnchor(remoteAddr, frame.Cwd)
 
-	err = core.SendChatMessage(ctx, agent, session, anchor, func(chunk openai.ChatCompletionChunk) {
+	err = core.SendChatMessage(ctx, agent, session, anchor, 0, func(chunk openai.ChatCompletionChunk) {
 		conn.writeFrame(outboundFrame{Type: "chunk", SessionId: session.Id, Chunk: &chunk, Reasoning: chunkReasoning(chunk)})
 	}, func(name, status, message string) {
 		conn.writeFrame(outboundFrame{Type: "tool", SessionId: session.Id, Name: name, Status: status, Message: message})

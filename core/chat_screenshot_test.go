@@ -104,7 +104,7 @@ func TestSendChatMessageScreenshotBecomesSyntheticImageMessage(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = SendChatMessage(t.Context(), agent, session, anchor, func(chunk openai.ChatCompletionChunk) {}, func(name, status, message string) {},
+	err = SendChatMessage(t.Context(), agent, session, anchor, 0, func(chunk openai.ChatCompletionChunk) {}, func(name, status, message string) {},
 		func(ctx context.Context, name, arguments string) (string, error) { return "once", nil })
 	if err != nil {
 		t.Fatalf("SendChatMessage failed: %v", err)

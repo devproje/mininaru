@@ -134,11 +134,13 @@ tool calls, executes each one via `executeTool` and loops. Turns with no
 `call_id` recorded yet or a `tool_calls` row still `pending` (a turn that was
 cut off mid-flight, e.g. by a server restart) are not replayed.
 
-`buildTools(root, sessionId)` (`core/tools.go`) assembles the tool list every
-round: `bash_exec` and the three file tools from `modules/bash`/`modules/file`
-rooted at `root`, the six `modules/browser` tools scoped to `sessionId` (see
-below), plus whatever `modules/mcp.Tools()` currently exposes from
-`mcp.json`-configured MCP servers. Every `modules.Tool` carries a
+`buildTools(root, sessionId, caller, depth, onTool, approve)` (`core/tools.go`)
+assembles the tool list every round: `bash_exec` and the three file tools
+from `modules/bash`/`modules/file` rooted at `root`, the six
+`modules/browser` tools scoped to `sessionId` (see below), whatever
+`modules/mcp.Tools()` currently exposes from `mcp.json`-configured MCP
+servers, and `agent_spawn` (see "Delegation" below) if `depth` hasn't hit
+its cap. Every `modules.Tool` carries a
 `Permission` (`Safe`/`Dangerous`) — builtins are always `Dangerous`, MCP
 tools infer it from `ToolAnnotations.ReadOnlyHint` unless a server or
 per-tool override in `mcp.json` says otherwise. `executeTool` only consults
@@ -182,6 +184,49 @@ that prefix: the `tool_calls` row and the `ToolMessage` both get a short
 it as an attached image on its next round. The image itself is never
 persisted to SQLite (avoids blob bloat); a resumed session replays the
 placeholder text only, not the picture.
+
+### Delegation — `core/agentspawn.go`
+
+`agent_spawn` is the one built-in tool that lives in `core` rather than
+`modules/*` — it needs `AgentByName`/`SessionCreate`/`MessageCreate`/
+`SendChatMessage` directly, which a leaf package can't import without a
+cycle. It's also the only tool `core` builds by hand instead of pulling in
+from a `modules` subpackage. Calling it creates a real `Session` (named
+`"spawn: <prompt preview>"`) and a `Message` for the target agent, then
+recurses into `SendChatMessage` for that session with the same `anchor` and
+`approve` the caller has — a dangerous tool call inside the delegate prompts
+for approval exactly like one at the top level, routed through the same
+`/ws` connection since `approve` is a closure already bound to the parent
+session id. The delegate starts with no memory of the calling conversation;
+the prompt has to carry everything it needs. The tool's result is the
+delegate's last assistant message, read back with `MessageList` once
+`SendChatMessage` returns.
+
+Depth is capped at one level via a `depth int` threaded through
+`SendChatMessage` and `buildTools` (`core/tools.go`): `buildTools` only
+appends `agent_spawn` to the tool list when `depth < maxSpawnDepth`, so a
+delegate's own tool list never includes it — not a permission check the
+delegate could route around, the tool simply isn't there. Same shape as
+this session's own Explore/Plan subagents not carrying an `Agent` tool.
+
+Because the delegate's own streamed content never reaches the caller
+(`onChunk` is a no-op in the recursive call — only the final answer comes
+back), `agentSpawnTool` sends a few extra `onTool` events by hand so the
+delegation doesn't look like a silent multi-round pause: a synthetic
+`{name: target.Name, status: "started", message: "spawned by ..., running
+independently — <prompt>"}` right before the recursive call, one more
+`"finished"`/`"failed"` after it returns, and the delegate's *own* tool
+calls forwarded as `{name: target.Name + "/" + toolName, ...}` via a wrapped
+`onTool` closure.
+
+`cli/shell/client.go`'s `receiveAgent` tracks these as a stack (`toolStack`),
+not just a log: `"started"` pushes a name and (re)starts a `spinner()` for
+whatever is now on top, `"finished"`/`"failed"` pop their name, print a
+settled `✔`/`✖` line, and restart the spinner for whatever's left — so
+nested activity (`agent_spawn` → `worker` → `worker/bash_exec`) shows as one
+line spinning at a time, innermost first, with each level's settled line
+staying in scrollback once it completes. `"started"`'s `Message` (the
+delegation blurb) is printed once, plainly, right before its spinner starts.
 
 ### Yolo mode — the trust policy behind `approve`
 

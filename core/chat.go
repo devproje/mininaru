@@ -194,7 +194,7 @@ func chatStreamRound(ctx context.Context, prov *Provider, params openai.ChatComp
 	return &accumulator, nil
 }
 
-func SendChatMessage(ctx context.Context, agent *Agent, session *Session, anchor string, onChunk func(openai.ChatCompletionChunk), onTool func(name, status, message string), approve ApproveFunc) error {
+func SendChatMessage(ctx context.Context, agent *Agent, session *Session, anchor string, depth int, onChunk func(openai.ChatCompletionChunk), onTool func(name, status, message string), approve ApproveFunc) error {
 	var history []*Message
 	var union []openai.ChatCompletionMessageParamUnion
 	var pending *Message
@@ -235,7 +235,7 @@ func SendChatMessage(ctx context.Context, agent *Agent, session *Session, anchor
 		return err
 	}
 
-	tools = buildTools(anchor, session.Id)
+	tools = buildTools(anchor, session.Id, agent, depth, onTool, approve)
 
 	for round = 0; round < maxToolRounds; round++ {
 		params = chatParamsUnion(agent, union, tools)

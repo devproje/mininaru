@@ -77,7 +77,7 @@ func TestSendChatMessageFailsOnAStalledStreamInsteadOfHangingForever(t *testing.
 
 	start = time.Now()
 
-	err = SendChatMessage(t.Context(), agent, session, t.TempDir(), func(chunk openai.ChatCompletionChunk) {}, func(name, status, message string) {},
+	err = SendChatMessage(t.Context(), agent, session, t.TempDir(), 0, func(chunk openai.ChatCompletionChunk) {}, func(name, status, message string) {},
 		func(ctx context.Context, name, arguments string) (string, error) { return "once", nil })
 
 	elapsed = time.Since(start)
