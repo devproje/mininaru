@@ -86,7 +86,11 @@ text file (`.mininaru/shell_history` by default, or `$HISTFILE`); the server's
 API key is `.mininaru/mininaru.key` (mode `0600`, generated the first time
 anything needs it); yolo trust state is `.mininaru/directory.json`, managed
 through `/yolo` rather than hand-edited; MCP servers are configured in
-`.mininaru/mcp.json`, which you do edit by hand; the shell's default agent
+`.mininaru/mcp.json`, which you do edit by hand; each agent's persistent
+memory (see [Tools](#tools)) lives under
+`.mininaru/memory/<agent-id>/`, an `MEMORY.md` index plus one markdown
+file per saved memory, managed entirely by the agent itself through the
+`memory_*` tools rather than hand-edited; the shell's default agent
 (set via `/agent global <id-or-name>`) is persisted in `.mininaru/shell.json`,
 so it carries over to the next `mininaru shell` launch without needing
 `--agent` again — `/agent current <id-or-name>` skips this file, affecting
@@ -171,6 +175,17 @@ round these out and always run with no approval needed: `agent_list` (every
 configured agent, for picking an `agent_spawn` target) and `session_list`
 (the calling agent's own sessions that currently have a live viewer
 connected, for picking a `session_send` target).
+
+Every agent also has persistent memory, `memory_save`/`memory_read`/
+`memory_forget`. Memory is scoped to the agent (not the directory or
+session), so it carries over to every future conversation with that agent,
+in any working directory. A saved memory (`name`, `description`, `type` —
+`user`/`feedback`/`project`/`reference` — and free-form markdown content)
+shows up as a one-line entry in that agent's index at the start of every
+future turn; the full content is only fetched with `memory_read` when the
+agent actually needs it. These three tools are always safe to run — no
+approval prompt — since they're confined to that agent's own memory
+directory, never an arbitrary path.
 
 Every dangerous tool above is gated by **yolo mode**, set per directory with
 `/yolo <off|persist|on>` in the shell:

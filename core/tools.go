@@ -9,6 +9,7 @@ import (
 	"github.com/devproje/mininaru/modules/browser"
 	"github.com/devproje/mininaru/modules/file"
 	"github.com/devproje/mininaru/modules/mcp"
+	"github.com/devproje/mininaru/modules/memory"
 )
 
 func buildTools(root, sessionId string, caller *Agent, depth int, onTool func(name, status, message string), approve ApproveFunc) []modules.Tool {
@@ -17,6 +18,7 @@ func buildTools(root, sessionId string, caller *Agent, depth int, onTool func(na
 	tools = append(tools, bash.Exec(root), file.Read(root), file.Write(root), file.Edit(root))
 	tools = append(tools, browser.Tools(sessionId)...)
 	tools = append(tools, mcp.Tools()...)
+	tools = append(tools, memory.Tools(caller.Id)...)
 	tools = append(tools, sessionListTool(caller), agentListTool())
 
 	if depth < maxSpawnDepth {

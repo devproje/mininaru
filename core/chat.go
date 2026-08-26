@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/devproje/mininaru/modules"
+	"github.com/devproje/mininaru/modules/memory"
 	"github.com/google/uuid"
 	"github.com/openai/openai-go"
 	"github.com/openai/openai-go/option"
@@ -207,6 +208,7 @@ func SendChatMessage(ctx context.Context, agent *Agent, session *Session, anchor
 	var call openai.ChatCompletionMessageToolCall
 	var record *ToolCall
 	var result string
+	var memoryIndex string
 	var assistant Message
 	var updateErr error
 
@@ -226,6 +228,10 @@ func SendChatMessage(ctx context.Context, agent *Agent, session *Session, anchor
 		return err
 	}
 
+	memoryIndex = memory.LoadIndex(agent.Id)
+	if memoryIndex != "" {
+		union = append([]openai.ChatCompletionMessageParamUnion{openai.SystemMessage(memoryIndex)}, union...)
+	}
 	if agent.Soul != "" {
 		union = append([]openai.ChatCompletionMessageParamUnion{openai.SystemMessage(agent.Soul)}, union...)
 	}

@@ -142,7 +142,8 @@ assembles the tool list every round: `bash_exec` and the three file tools
 from `modules/bash`/`modules/file` rooted at `root`, the six
 `modules/browser` tools scoped to `sessionId` (see below), whatever
 `modules/mcp.Tools()` currently exposes from `mcp.json`-configured MCP
-servers, the `session_list`/`agent_list` discovery pair, and — only while
+servers, the three `modules/memory` tools scoped to `caller.Id` (see below),
+the `session_list`/`agent_list` discovery pair, and — only while
 `depth` hasn't hit its cap — `agent_spawn` and `session_send` (see
 "Delegation" below). Every `modules.Tool` carries a
 `Permission` (`Safe`/`Dangerous`) — builtins are always `Dangerous`, MCP
@@ -152,6 +153,49 @@ per-tool override in `mcp.json` says otherwise. `executeTool` only consults
 unconditionally; a `Dangerous` one calls `approve(ctx, name, arguments)` and
 runs only if the decision isn't `"deny"`. `core` itself has no opinion on
 *when* to ask — that policy lives one layer up, in `server/sock`.
+
+### Persistent memory — `modules/memory`
+
+mininaru has no project/git-repo concept to scope memory to the way
+Claude Code scopes its own auto-memory to a repository — the only durable
+identity in the system is `Agent` (`core/agent.go`), a named persona
+already injected into every turn via `agent.Soul`. Memory is scoped to
+`agent.Id` for that reason: `root`/`anchor` (`core.ResolveAnchor`,
+`core/yolo.go`) was considered and rejected, since it's recomputed from
+the client-reported cwd on every inbound message rather than persisted on
+`Session`, so keying storage on it would drift if a client's cwd changed
+mid-session.
+
+Storage lives under the existing global `.mininaru/` data dir
+(`util.RootDir`/`util.Path`, `util/narufs.go`), same tree `directory.json`
+(yolo) and `mcp.json` already use:
+
+```
+.mininaru/memory/<agent_id>/
+├── MEMORY.md       # index, auto-injected into every chat turn for that agent
+└── <slug>.md       # topic files: YAML frontmatter (name/description/metadata.type/modified) + markdown body
+```
+
+Three `modules.PermissionSafe` tools (`memory_save`, `memory_read`,
+`memory_forget`) — safe because they're confined to a validated slug under
+a managed directory, never an arbitrary path, the same trust level already
+given to `mcp` tools. Frontmatter keeps Claude Code's four-way
+`type` taxonomy (`user`/`feedback`/`project`/`reference`), enforced via a
+JSON Schema `enum` on `memory_save`'s `type` argument.
+
+One deliberate deviation from Claude Code: there, the model freely edits
+`MEMORY.md` itself with a generic file-edit tool, so the index can drift
+out of sync with the topic files it lists. mininaru's memory tools are
+structured (`memory_save` takes `name`/`description` as separate fields,
+not raw markdown), so `modules/memory` upserts the matching `MEMORY.md`
+line server-side on every save/forget instead — the model never edits the
+index directly, which removes that whole failure mode. `LoadIndex(agentId)`
+caps what actually gets read at session start to 200 lines / 25KB (mirroring
+Claude Code's own limit), returns `""` if there's nothing saved yet, and
+`SendChatMessage` (`core/chat.go`) prepends its result as a `SystemMessage`
+right after `agent.Soul` — topic files themselves are never preloaded, only
+fetched on demand via `memory_read`, same as Claude Code only loading topic
+files when the model actually reads them.
 
 ### Computer use — `modules/browser`
 
