@@ -1,4 +1,4 @@
-# mininaru
+콛# mininaru
 
 <img src="assets/logo.png" alt="mininaru" width="80" align="right">
 
@@ -7,9 +7,10 @@ interactive terminal shell — one Go binary, no external dependencies.
 
 This is a rewrite in progress (`refactor/1.0.0-alpha`). An earlier version of
 this project had skills, memory, subagent delegation, a Discord front end,
-and a paired gRPC client. None of that exists in this branch; it was dropped
-on purpose to rebuild the server and CLI from a small core. Tool calling
-(bash, file read/write/edit, browser automation, MCP) has come back — see
+and a paired gRPC client. Skills, memory, Discord, and gRPC do not exist in
+this branch; they were dropped on purpose to rebuild the server and CLI from
+a small core. Tool calling (bash, file read/write/edit, browser automation,
+MCP) and delegation (`agent_spawn`, `session_send`) have come back — see
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for what is actually here.
 
 ## Build from source
@@ -115,24 +116,24 @@ loopback.
 
 An agent can run `bash_exec`, read/write/edit files, drive a headless
 browser (`browser_navigate`/`browser_click`/`browser_type`/`browser_read`/
-`browser_screenshot`), delegate one self-contained task to another of your
-configured agents with `agent_spawn`, and inject a message into one of its
-own already-running sessions with `session_send` — plus whatever MCP
-servers you configure in `NARU_PATH/mcp.json`. `browser_*` needs a Chrome or
-Chromium binary reachable via `$PATH` or `MININARU_CHROME`; nothing else has
-an external dependency. `agent_spawn` runs the delegate as a real session
-(it shows up in `session list` like any other), starts it with no memory of
-the calling conversation; `session_send` targets a session that already
-exists (owned by the same agent, never the caller's own), and if a person is
-connected to it live, the injected message appears on their screen straight
-away — marked with the session it came from — and the reply streams in under
-it, whether or not they were typing at the time.
-Neither tool can be handed to whatever it delegates to or messages — one
-level of delegation, no chains. Two read-only discovery tools round these
-out and always run with no approval needed: `agent_list` (every configured
-agent, for picking an `agent_spawn` target) and `session_list` (the calling
-agent's own sessions that currently have a live viewer connected, for
-picking a `session_send` target).
+`browser_screenshot`/`browser_close`), delegate one self-contained task to
+another of your configured agents with `agent_spawn`, and inject a message
+into one of its own already-running sessions with `session_send` — plus
+whatever MCP servers you configure in `NARU_PATH/mcp.json`. `browser_*`
+needs a Chrome or Chromium binary reachable via `$PATH` or
+`MININARU_CHROME`; nothing else has an external dependency. `agent_spawn`
+runs the delegate as a real session (it shows up in `session list` like any
+other), starts it with no memory of the calling conversation; `session_send`
+targets a session that already exists (owned by the same agent, never the
+caller's own), and if a person is connected to it live, the injected message
+appears on their screen straight away — marked with the session it came
+from — and the reply streams in under it, whether or not they were typing at
+the time. Neither tool can be handed to whatever it delegates to or
+messages — one level of delegation, no chains. Two read-only discovery tools
+round these out and always run with no approval needed: `agent_list` (every
+configured agent, for picking an `agent_spawn` target) and `session_list`
+(the calling agent's own sessions that currently have a live viewer
+connected, for picking a `session_send` target).
 
 Every dangerous tool above is gated by **yolo mode**, set per directory with
 `/yolo <off|persist|on>` in the shell:

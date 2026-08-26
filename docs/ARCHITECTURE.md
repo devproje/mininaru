@@ -8,13 +8,16 @@ line editor.
 
 This is a rewrite in progress (`refactor/1.0.0-alpha`). An earlier version of
 this project had skills, memory, subagent delegation, a Discord front end, a
-paired gRPC client, and a full-screen TUI. None of that exists in this
-branch; it was deliberately dropped in favor of starting the server and CLI
-over from a small, well-understood core. If you are looking for any of that,
-it is not merely undocumented — it is not built yet. Tool calling (bash, file
-read/write/edit, browser automation, MCP client) has come back — see "Tool
-calling" below — gated by a directory-scoped trust model ("yolo mode") and a
-human-in-the-loop approval round-trip over `/ws`.
+paired gRPC client, and a full-screen TUI. Most of that still does not exist
+in this branch; it was deliberately dropped in favor of starting the server
+and CLI over from a small, well-understood core. If you are looking for
+skills, memory, the Discord front end, the gRPC client, or the TUI, they are
+not merely undocumented — they are not built yet. Two things have come back,
+both under a lighter design than the old one: tool calling (bash, file
+read/write/edit, browser automation, MCP client), gated by a
+directory-scoped trust model ("yolo mode") and a human-in-the-loop approval
+round-trip over `/ws`; and delegation, as the `agent_spawn` and
+`session_send` tools. See "Tool calling" below for both.
 
 ## Packages
 
@@ -139,8 +142,9 @@ assembles the tool list every round: `bash_exec` and the three file tools
 from `modules/bash`/`modules/file` rooted at `root`, the six
 `modules/browser` tools scoped to `sessionId` (see below), whatever
 `modules/mcp.Tools()` currently exposes from `mcp.json`-configured MCP
-servers, and `agent_spawn` (see "Delegation" below) if `depth` hasn't hit
-its cap. Every `modules.Tool` carries a
+servers, the `session_list`/`agent_list` discovery pair, and — only while
+`depth` hasn't hit its cap — `agent_spawn` and `session_send` (see
+"Delegation" below). Every `modules.Tool` carries a
 `Permission` (`Safe`/`Dangerous`) — builtins are always `Dangerous`, MCP
 tools infer it from `ToolAnnotations.ReadOnlyHint` unless a server or
 per-tool override in `mcp.json` says otherwise. `executeTool` only consults
@@ -230,11 +234,12 @@ independently — <prompt>"}` right before the recursive call, one more
 calls forwarded as `{name: target.Name + "/" + toolName, ...}` via a wrapped
 `onTool` closure.
 
-`cli/shell/client.go`'s `receiveAgent` tracks these as a stack (`toolStack`),
-not just a log: `"started"` pushes a name and (re)starts a `spinner()` for
-whatever is now on top, `"finished"`/`"failed"` pop their name, print a
-settled `✔`/`✖` line, and restart the spinner for whatever's left — so
-nested activity (`agent_spawn` → `worker` → `worker/bash_exec`) shows as one
+`cli/shell/client.go`'s `renderFrame` tracks these as a stack
+(`renderState.toolStack`), not just a log: `"started"` pushes a name and
+(re)starts a `spinner()` for whatever is now on top, `"finished"`/`"failed"`
+pop their name, print a settled `✔`/`✖` line, and restart the spinner for
+whatever's left — so nested activity
+(`agent_spawn` → `worker` → `worker/bash_exec`) shows as one
 line spinning at a time, innermost first, with each level's settled line
 staying in scrollback once it completes. `"started"`'s `Message` (the
 delegation blurb) is printed once, plainly, right before its spinner starts.
@@ -279,6 +284,17 @@ Because the target session may have a person watching it live over another
   frame reuses the existing `Name` field for the *origin* session id and
   `Message` for the injected content.
 
+  Registration used to happen lazily, only inside `handleFrame` once a real
+  chat frame for that session was processed — so a shell that had connected
+  but never sent a message wasn't "live" yet, even though its socket was
+  open and idle. `connect()` (`cli/shell/client.go`) now writes a
+  `{"type":"attach","session_id":...}` frame right after dialing, and
+  `SockHandler` dispatches `"attach"` to `handleAttach` (`server/sock/sock.go`)
+  — a synchronous, no-round path that just validates the session exists
+  (`core.SessionRead`) and calls the same `registerLiveConn`/`seen.Store`
+  pair `handleFrame` uses, so a session counts as live from the moment the
+  shell connects.
+
 A mirrored round only reaches a person if their shell is actually reading the
 socket, and a shell sitting at its prompt used to read nothing until the next
 time it sent something — mirrored frames piled up in the buffer and then
@@ -297,17 +313,6 @@ rendered as if they answered whatever the person typed next. Two changes in
   the half-typed line underneath them. `sendAgent` calls `awaitMirror` first,
   which blocks until any open mirrored round has rendered its terminal frame,
   so a local round can never start inside someone else's.
-
-  Registration used to happen lazily, only inside `handleFrame` once a real
-  chat frame for that session was processed — so a shell that had connected
-  but never sent a message wasn't "live" yet, even though its socket was
-  open and idle. `connect()` (`cli/shell/client.go`) now writes a
-  `{"type":"attach","session_id":...}` frame right after dialing, and
-  `SockHandler` dispatches `"attach"` to `handleAttach` (`server/sock/sock.go`)
-  — a synchronous, no-round path that just validates the session exists
-  (`core.SessionRead`) and calls the same `registerLiveConn`/`seen.Store`
-  pair `handleFrame` uses, so a session counts as live from the moment the
-  shell connects.
 
 `session_list` and `agent_list` (`core/sessiontools.go`) exist purely so a
 model can pick a valid target for the two tools above without being told one
@@ -374,7 +379,7 @@ approval wait is tied to a context that's canceled the moment the read loop
 exits (client disconnect), so it resolves to `"deny"` instead of leaking a
 goroutine.
 
-`cli/shell` mirrors this: `receiveAgent`'s `"approval_request"` case pauses
+`cli/shell` mirrors this: `renderFrame`'s `"approval_request"` case pauses
 the ESC-to-interrupt watcher (`interruptWatch.pause()`, `cli/shell/client.go`)
 before reading a synchronous y/a/n keypress — two goroutines can't safely
 read raw stdin at once — prompts, then writes the decision frame back. The
@@ -384,7 +389,9 @@ unread bytes just stay buffered in the terminal until the next `readLine()`.
 
 `/ws` also sends a `{type: "tool", name, status: "started"|"finished"|
 "failed"}` frame around each call purely for progress display, unrelated to
-approval; `cli/shell` renders it as a `⚙ tool_name` line.
+approval; `cli/shell` turns it into the spinner-and-settled-line stack
+described under "Delegation" above — a spinner while a call is open, a `✔`
+or `✖ ... failed` line once it settles.
 
 ## `server/` — three route groups, one gin engine
 
@@ -404,13 +411,20 @@ approval; `cli/shell` renders it as a `⚙ tool_name` line.
   agent** by its `Name`, resolved with `core.AgentByName` — not an upstream
   model string — so `GET /models` lists configured agents.
 - **`/ws`** (`server/sock/sock.go`) — one generic websocket that multiplexes
-  every session over a single connection type. An inbound "message" frame is
-  `{session_id, content, cwd}` (`cwd` feeds the yolo anchor); an inbound
-  "approval" frame is `{type: "approval", session_id, decision}`. Outbound
-  frames are `{type: "chunk"|"tool"|"approval_request"|"done"|"error", ...}`
-  — `chunk` carries a completion delta, `tool` reports a call's `name`/
-  `status`, `approval_request` carries `name`/`arguments` and blocks the
-  turn until an approval frame answers it (see "Tool calling" below).
+  every session over a single connection type. Inbound frames are dispatched
+  by their `type`: a chat frame carries no type at all and is
+  `{session_id, content, cwd}` (`cwd` feeds the yolo anchor), `{type:
+  "approval", session_id, decision}` answers a pending prompt, and `{type:
+  "attach", session_id}` registers the connection as that session's live
+  viewer without running a round. Because an absent field survives a
+  `json.Unmarshal` into a reused struct, `SockHandler` zeroes its
+  `inboundFrame` on every iteration — otherwise an `attach` would leave its
+  type behind and swallow the next chat frame. Outbound frames are
+  `{type: "message"|"chunk"|"tool"|"approval_request"|"done"|"error", ...}`
+  — `message` echoes a `session_send` injection (`name` is the *origin*
+  session id), `chunk` carries a completion delta, `tool` reports a call's
+  `name`/`status`, `approval_request` carries `name`/`arguments` and blocks
+  the turn until an approval frame answers it (see "Tool calling" below).
   Reasoning deltas are pulled out of the chunk's raw JSON (`chunkReasoning`),
   because `openai.ChatCompletionChunk` has no typed field for
   `reasoning`/`reasoning_content` and different providers use either key.
