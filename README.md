@@ -124,9 +124,13 @@ the calling conversation; `session_send` targets a session that already
 exists (owned by the same agent, never the caller's own), and if a person is
 connected to it live, they see the reply stream in without doing anything.
 Neither tool can be handed to whatever it delegates to or messages — one
-level of delegation, no chains.
+level of delegation, no chains. Two read-only discovery tools round these
+out and always run with no approval needed: `agent_list` (every configured
+agent, for picking an `agent_spawn` target) and `session_list` (the calling
+agent's own sessions that currently have a live viewer connected, for
+picking a `session_send` target).
 
-Every one of those is gated by **yolo mode**, set per directory with
+Every dangerous tool above is gated by **yolo mode**, set per directory with
 `/yolo <off|persist|on>` in the shell:
 
 - `off` (default) — always ask before running one.

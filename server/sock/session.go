@@ -43,7 +43,20 @@ func lookupLiveConn(sessionId string) (*safeConn, bool) {
 	return stored.(*safeConn), true
 }
 
+func liveSessionIds() []string {
+	var ids []string
+
+	liveConns.Range(func(key, value any) bool {
+		ids = append(ids, key.(string))
+		return true
+	})
+
+	return ids
+}
+
 func init() {
+	core.SetLiveSessionsLister(liveSessionIds)
+
 	core.SetSessionRouter(func(sessionId string, chunk openai.ChatCompletionChunk) {
 		var conn *safeConn
 		var ok bool

@@ -274,6 +274,17 @@ Because the target session may have a person watching it live over another
   render a mirrored round. `session_send`'s nested `onChunk`/`onTool` call
   these mirror hooks unconditionally; they're no-ops when nobody's watching.
 
+`session_list` and `agent_list` (`core/sessiontools.go`) exist purely so a
+model can pick a valid target for the two tools above without being told one
+in its prompt — `agent_list` is `AgentList()` unfiltered, and `session_list`
+is `SessionList(caller.Id)` intersected with the same `liveConns` registry
+`session_send`'s mirroring uses, via a second getter set alongside
+`SetSessionRouter`: `core.SetLiveSessionsLister(fn func() []string)`, called
+from the same `server/sock/session.go` `init()`. Both are
+`modules.PermissionSafe` — pure reads with no side effects, unlike
+`bash_exec`/`file_*`/`browser_*`, which stay `PermissionDangerous` because
+they touch the filesystem or network.
+
 ### Yolo mode — the trust policy behind `approve`
 
 `root` is the **anchor**: for a loopback `/ws` connection it's the client's

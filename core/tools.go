@@ -17,6 +17,7 @@ func buildTools(root, sessionId string, caller *Agent, depth int, onTool func(na
 	tools = append(tools, bash.Exec(root), file.Read(root), file.Write(root), file.Edit(root))
 	tools = append(tools, browser.Tools(sessionId)...)
 	tools = append(tools, mcp.Tools()...)
+	tools = append(tools, sessionListTool(caller), agentListTool())
 
 	if depth < maxSpawnDepth {
 		tools = append(tools, agentSpawnTool(caller, root, depth, onTool, approve))
