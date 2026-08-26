@@ -208,5 +208,5 @@ func banner(sh *state) {
 		return
 	}
 
-	notice(YELLOW, "○", "%soffline%s %s", YELLOW, RESET, DIM+"bash mode only, Shift+Tab retries the connection"+RESET)
+	notice(YELLOW, "○", "%soffline%s %s", YELLOW, RESET, DIM+"bash mode only, retrying in the background — Shift+Tab retries now"+RESET)
 }

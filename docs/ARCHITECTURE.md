@@ -473,10 +473,39 @@ to a `mininaru serve` instance only over `/api` and `/ws`; nothing in
 `readLine()` (`input.go`) is the single byte-at-a-time raw-terminal reader
 both modes share; `state.mode` only changes which prompt badge is drawn and
 what a submitted line dispatches to. Shift+Tab toggles it. Switching into
-agent mode with no live connection calls `connect()` lazily and falls back to
+agent mode with no live connection connects lazily and falls back to
 "still offline" on failure, so the shell works in bash-only mode with no
 server reachable at all — the initial connect at startup is best-effort in
 the same way.
+
+### Reconnecting
+
+Neither of those failures is final: whenever there is no connection, the
+shell keeps dialing on its own. A dial costs up to `DIAL_TIMEOUT` plus
+`openSession`'s HTTP round-trips, so running it inline would freeze typing on
+every attempt — instead `startDial` (`client.go`) hands a snapshot of the
+fields a dial needs (`dialConfig`) to a goroutine and takes the answer back
+as a `dialResult` on a channel. Nothing in `state` is touched off the main
+thread; `openSession`, `pickAgent`, and `seedAgent` were changed to take that
+snapshot and *return* the agent name rather than assigning `state.name`,
+which is what made them safe to call from the dial goroutine at all.
+
+`readLine`'s idle tick — the same 100ms `pollStdin` beat that drains mirrored
+frames — calls `retryConnect`, which adopts a finished dial if one has landed
+and starts the next one once `state.retryAt` has passed. `armRetry` doubles
+`state.retryDelay` from `RETRY_MIN` to a `RETRY_MAX` ceiling on every
+failure, and failed attempts print nothing at all: a notice per attempt would
+bury the prompt within a minute. A successful adopt resets the backoff,
+re-sends the `attach` frame for the **existing** session id (so the
+conversation survives a server restart), re-reads yolo mode, and prints one
+`reconnected` line.
+
+`disconnect` records whether the drop happened in agent mode
+(`state.wasAgent`) before dropping to bash mode, and `adoptDial` restores
+that mode on success — a `mininaru serve` restart reads as a pause rather
+than as being kicked back to a bash prompt. An explicit Shift+Tab while a
+background dial is in flight waits for that dial instead of starting a
+second one.
 
 ### Line editing
 

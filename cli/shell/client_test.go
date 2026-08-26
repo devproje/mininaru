@@ -542,3 +542,177 @@ func TestSendAgentFinishesAnOpenMirrorRoundFirst(t *testing.T) {
 		t.Fatalf("the mirrored round must be closed before the local round: %q", output)
 	}
 }
+
+func TestArmRetryBacksOffAndCapsOut(t *testing.T) {
+	var sh state
+	var round int
+
+	for round = 0; round < 10; round++ {
+		armRetry(&sh)
+	}
+
+	if sh.retryDelay != RETRY_MAX {
+		t.Fatalf("retryDelay = %v, want the %v cap after repeated failures", sh.retryDelay, RETRY_MAX)
+	}
+
+	sh.retryDelay = 0
+	armRetry(&sh)
+
+	if sh.retryDelay != RETRY_MIN {
+		t.Fatalf("first retryDelay = %v, want %v", sh.retryDelay, RETRY_MIN)
+	}
+	if sh.retryAt.IsZero() {
+		t.Fatalf("armRetry should schedule a retry time")
+	}
+
+	armRetry(&sh)
+	if sh.retryDelay != 2*RETRY_MIN {
+		t.Fatalf("second retryDelay = %v, want %v", sh.retryDelay, 2*RETRY_MIN)
+	}
+}
+
+func TestRetryConnectWaitsForTheBackoffAndStaysQuietOnFailure(t *testing.T) {
+	var sh state
+	var output string
+	var reconnected bool
+
+	sh.url = "ws://127.0.0.1:1/ws"
+	sh.session = "s"
+	sh.retryAt = time.Now().Add(time.Hour)
+	sh.retryDelay = RETRY_MIN
+
+	output = captureStdout(t, func() {
+		reconnected = retryConnect(&sh)
+	})
+
+	if reconnected || sh.dial != nil {
+		t.Fatalf("retryConnect dialed before its backoff elapsed")
+	}
+	if output != "" {
+		t.Fatalf("retryConnect should stay quiet while waiting: %q", output)
+	}
+
+	sh.retryAt = time.Now().Add(-time.Second)
+
+	output = captureStdout(t, func() {
+		reconnected = retryConnect(&sh)
+
+		for sh.dial != nil {
+			reconnected = adoptDial(&sh, true)
+		}
+	})
+
+	if reconnected || sh.conn != nil {
+		t.Fatalf("a dial against a dead port should not report a connection")
+	}
+	if output != "" {
+		t.Fatalf("a failed retry should print nothing: %q", output)
+	}
+	if sh.retryDelay != 2*RETRY_MIN {
+		t.Fatalf("retryDelay = %v, want it doubled after the failed attempt", sh.retryDelay)
+	}
+}
+
+func TestRetryConnectReconnectsAndRestoresAgentMode(t *testing.T) {
+	var upgrader websocket.Upgrader
+	var server *httptest.Server
+	var attached chan string
+	var sh state
+	var output string
+	var reconnected bool
+	var session string
+
+	attached = make(chan string, 1)
+
+	server = httptest.NewServer(http.HandlerFunc(func(res http.ResponseWriter, req *http.Request) {
+		var conn *websocket.Conn
+		var raw []byte
+
+		var handlerErr error
+
+		if req.URL.Path != "/ws" {
+			res.WriteHeader(http.StatusOK)
+			res.Write([]byte("{}"))
+			return
+		}
+
+		conn, handlerErr = upgrader.Upgrade(res, req, nil)
+		if handlerErr != nil {
+			return
+		}
+		defer conn.Close()
+
+		_, raw, handlerErr = conn.ReadMessage()
+		if handlerErr != nil {
+			return
+		}
+
+		attached <- string(raw)
+		<-req.Context().Done()
+	}))
+	defer server.Close()
+
+	sh.url = "ws" + strings.TrimPrefix(server.URL, "http") + "/ws"
+	sh.session = "s1"
+	sh.mode = MODE_BASH
+	sh.wasAgent = true
+	sh.retryAt = time.Now().Add(-time.Second)
+	sh.retryDelay = RETRY_MIN
+
+	output = captureStdout(t, func() {
+		retryConnect(&sh)
+
+		for sh.dial != nil {
+			reconnected = adoptDial(&sh, true)
+		}
+	})
+	if sh.conn != nil {
+		defer sh.conn.Close()
+	}
+
+	if !reconnected || sh.conn == nil {
+		t.Fatalf("retryConnect did not reconnect: output %q", output)
+	}
+	if !strings.Contains(output, "reconnected") {
+		t.Fatalf("a successful reconnect should say so: %q", output)
+	}
+	if sh.mode != MODE_AGENT || sh.wasAgent {
+		t.Fatalf("mode = %v wasAgent = %v, want agent mode restored and the flag cleared", sh.mode, sh.wasAgent)
+	}
+	if sh.retryDelay != 0 || !sh.retryAt.IsZero() {
+		t.Fatalf("backoff should reset once connected: delay=%v at=%v", sh.retryDelay, sh.retryAt)
+	}
+
+	select {
+	case session = <-attached:
+	case <-time.After(2 * time.Second):
+		t.Fatal("no attach frame arrived after the reconnect")
+	}
+
+	if !strings.Contains(session, `"attach"`) || !strings.Contains(session, "s1") {
+		t.Fatalf("attach frame = %q, want the existing session re-attached", session)
+	}
+}
+
+func TestStartDialDoesNotStackConcurrentDials(t *testing.T) {
+	var sh state
+	var first chan dialResult
+
+	sh.url = "ws://127.0.0.1:1/ws"
+	sh.session = "s"
+
+	startDial(&sh)
+	first = sh.dial
+
+	startDial(&sh)
+
+	if sh.dial != first {
+		t.Fatalf("startDial replaced an in-flight dial")
+	}
+
+	adoptDial(&sh, true)
+
+	if sh.dial != nil {
+		t.Fatalf("adoptDial should clear the in-flight dial")
+	}
+}

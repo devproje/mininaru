@@ -157,8 +157,12 @@ mininaru shell --agent coder                       # pick an agent by name for a
 
 `mininaru shell` runs a bash prompt and an agent chat over the same line
 editor. **Shift+Tab** switches between them; if the server is unreachable it
-starts in bash mode and retries the connection on every switch, so a running
-`mininaru serve` is optional for local shell use.
+starts in bash mode, so a running `mininaru serve` is optional for local
+shell use. The connection is not something you have to manage: whenever
+there isn't one, the shell keeps retrying in the background with a backoff,
+and when it lands it re-attaches to the same session and puts you back in
+whichever mode you were in. Restarting the server looks like a short pause.
+Shift+Tab still retries immediately if you don't want to wait.
 
 | Key | Bash mode | Agent mode |
 |---|---|---|

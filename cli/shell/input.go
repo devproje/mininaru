@@ -84,6 +84,8 @@ func readLine(sh *state) (string, error) {
 	var final byte
 	var histPos int
 	var draft string
+	var mirrored bool
+	var reconnected bool
 
 	var err error
 
@@ -93,7 +95,10 @@ func readLine(sh *state) (string, error) {
 
 	for {
 		if len(sh.pendingInput) == 0 && !pollStdin(idlePollInterval) {
-			if drainMirror(sh) {
+			mirrored = drainMirror(sh)
+			reconnected = retryConnect(sh)
+
+			if mirrored || reconnected {
 				redraw(sh, "", line, pos)
 			}
 

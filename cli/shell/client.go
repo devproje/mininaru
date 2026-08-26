@@ -35,6 +35,21 @@ type approvalResponse struct {
 	Decision  string `json:"decision"`
 }
 
+type dialConfig struct {
+	url     string
+	apiKey  string
+	seed    string
+	agent   string
+	session string
+}
+
+type dialResult struct {
+	conn    *websocket.Conn
+	session string
+	name    string
+	err     error
+}
+
 type renderState struct {
 	thinking    bool
 	streaming   bool
@@ -205,13 +220,13 @@ func resolveAgentByIdOrName(sh *state, base, idOrName string) (*core.Agent, erro
 	return nil, fmt.Errorf("agent %q not found", idOrName)
 }
 
-func pickAgent(sh *state, base string) (*core.Agent, error) {
+func pickAgent(cfg dialConfig, base string) (*core.Agent, error) {
 	var list []*core.Agent
 	var item *core.Agent
 
 	var err error
 
-	err = apiGet(base+"/agents", sh.apiKey, &list)
+	err = apiGet(base+"/agents", cfg.apiKey, &list)
 	if err != nil {
 		return nil, err
 	}
@@ -220,31 +235,31 @@ func pickAgent(sh *state, base string) (*core.Agent, error) {
 		return nil, fmt.Errorf("no agent is registered on the server")
 	}
 
-	if sh.agent == "" {
+	if cfg.agent == "" {
 		return list[0], nil
 	}
 
 	for _, item = range list {
-		if item.Name == sh.agent {
+		if item.Name == cfg.agent {
 			return item, nil
 		}
 	}
 
-	return nil, fmt.Errorf("agent %q not found", sh.agent)
+	return nil, fmt.Errorf("agent %q not found", cfg.agent)
 }
 
-func seedAgent(sh *state, base string) (*core.Agent, error) {
+func seedAgent(cfg dialConfig, base string) (*core.Agent, error) {
 	var session core.Session
 	var agent core.Agent
 
 	var err error
 
-	err = apiGet(base+"/sessions/"+sh.seed, sh.apiKey, &session)
+	err = apiGet(base+"/sessions/"+cfg.seed, cfg.apiKey, &session)
 	if err != nil {
 		return nil, err
 	}
 
-	err = apiGet(base+"/agents/"+session.AgentId, sh.apiKey, &agent)
+	err = apiGet(base+"/agents/"+session.AgentId, cfg.apiKey, &agent)
 	if err != nil {
 		return nil, err
 	}
@@ -252,81 +267,189 @@ func seedAgent(sh *state, base string) (*core.Agent, error) {
 	return &agent, nil
 }
 
-func openSession(sh *state) (string, error) {
+func openSession(cfg dialConfig) (string, string, error) {
 	var base string
 	var agent *core.Agent
 	var session core.Session
 
 	var err error
 
-	base, err = apiBase(sh.url)
+	base, err = apiBase(cfg.url)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 
-	if sh.seed != "" {
-		agent, err = seedAgent(sh, base)
+	if cfg.seed != "" {
+		agent, err = seedAgent(cfg, base)
 		if err != nil {
-			return "", err
+			return "", "", err
 		}
 
-		sh.name = agent.Name
-
-		return sh.seed, nil
+		return cfg.seed, agent.Name, nil
 	}
 
-	agent, err = pickAgent(sh, base)
+	agent, err = pickAgent(cfg, base)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 
-	err = apiPost(base+"/sessions", sh.apiKey, map[string]string{"agent_id": agent.Id, "name": "shell"}, &session)
+	err = apiPost(base+"/sessions", cfg.apiKey, map[string]string{"agent_id": agent.Id, "name": "shell"}, &session)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 
-	sh.name = agent.Name
-
-	return session.Id, nil
+	return session.Id, agent.Name, nil
 }
 
-func connect(sh *state) error {
+func shellDialConfig(sh *state) dialConfig {
+	var cfg dialConfig
+
+	cfg.url = sh.url
+	cfg.apiKey = sh.apiKey
+	cfg.seed = sh.seed
+	cfg.agent = sh.agent
+	cfg.session = sh.session
+
+	return cfg
+}
+
+func dialAgent(cfg dialConfig) dialResult {
+	var result dialResult
 	var dialer websocket.Dialer
 	var header http.Header
-	var conn *websocket.Conn
-	var session string
 
-	var err error
-
-	session = sh.session
-	if session == "" {
-		session, err = openSession(sh)
-		if err != nil {
-			return err
+	result.session = cfg.session
+	if result.session == "" {
+		result.session, result.name, result.err = openSession(cfg)
+		if result.err != nil {
+			return result
 		}
 	}
 
 	dialer = websocket.Dialer{HandshakeTimeout: DIAL_TIMEOUT}
 
-	if sh.apiKey != "" {
-		header = http.Header{"Authorization": []string{"Bearer " + sh.apiKey}}
+	if cfg.apiKey != "" {
+		header = http.Header{"Authorization": []string{"Bearer " + cfg.apiKey}}
 	}
 
-	conn, _, err = dialer.Dial(sh.url, header)
-	if err != nil {
-		return err
-	}
+	result.conn, _, result.err = dialer.Dial(cfg.url, header)
 
-	sh.conn = conn
-	sh.session = session
+	return result
+}
+
+func adoptConn(sh *state, result dialResult) {
+	var err error
+
+	sh.conn = result.conn
+	sh.session = result.session
 	sh.mirror = &renderState{}
+	sh.retryDelay = 0
+	sh.retryAt = time.Time{}
+
+	if result.name != "" {
+		sh.name = result.name
+	}
 
 	ensureReader(sh)
 
-	err = conn.WriteJSON(frame{Type: "attach", SessionId: session})
+	err = sh.conn.WriteJSON(frame{Type: "attach", SessionId: sh.session})
 	if err != nil {
 		util.Log.Debug("shell attach frame failed", "error", err)
 	}
+}
+
+func armRetry(sh *state) {
+	if sh.retryDelay == 0 {
+		sh.retryDelay = RETRY_MIN
+	} else {
+		sh.retryDelay = sh.retryDelay * 2
+	}
+
+	if sh.retryDelay > RETRY_MAX {
+		sh.retryDelay = RETRY_MAX
+	}
+
+	sh.retryAt = time.Now().Add(sh.retryDelay)
+}
+
+func startDial(sh *state) {
+	var cfg dialConfig
+	var out chan dialResult
+
+	if sh.dial != nil || sh.conn != nil {
+		return
+	}
+
+	cfg = shellDialConfig(sh)
+	out = make(chan dialResult, 1)
+	sh.dial = out
+
+	go func() {
+		out <- dialAgent(cfg)
+	}()
+}
+
+func adoptDial(sh *state, block bool) bool {
+	var result dialResult
+	var ok bool
+
+	if sh.dial == nil {
+		return false
+	}
+
+	if block {
+		result, ok = <-sh.dial
+	} else {
+		select {
+		case result, ok = <-sh.dial:
+		default:
+			return false
+		}
+	}
+
+	sh.dial = nil
+
+	if !ok || result.err != nil {
+		armRetry(sh)
+		return false
+	}
+
+	adoptConn(sh, result)
+	refreshYoloMode(sh)
+
+	if sh.wasAgent {
+		sh.mode = MODE_AGENT
+		sh.wasAgent = false
+	}
+
+	write("\r\x1b[0J")
+	notice(GREEN, "●", "%sreconnected%s %s", GREEN, RESET, DIM+sh.url+" · session "+sh.session+RESET)
+
+	return true
+}
+
+func retryConnect(sh *state) bool {
+	var adopted bool
+
+	adopted = adoptDial(sh, false)
+
+	if sh.conn == nil && sh.dial == nil && !sh.retryAt.IsZero() && !time.Now().Before(sh.retryAt) {
+		startDial(sh)
+	}
+
+	return adopted
+}
+
+func connect(sh *state) error {
+	var result dialResult
+
+	result = dialAgent(shellDialConfig(sh))
+	if result.err != nil {
+		armRetry(sh)
+		return result.err
+	}
+
+	adoptConn(sh, result)
 
 	return nil
 }
@@ -340,9 +463,13 @@ func disconnect(sh *state, reason error) {
 	sh.conn = nil
 	sh.frames = nil
 	sh.mirror = nil
+	sh.wasAgent = sh.mode == MODE_AGENT
 	sh.mode = MODE_BASH
+	sh.retryDelay = 0
 
-	notice(RED, "●", "%sdisconnected%s %s", RED, RESET, DIM+reason.Error()+", back to bash mode"+RESET)
+	armRetry(sh)
+
+	notice(RED, "●", "%sdisconnected%s %s", RED, RESET, DIM+reason.Error()+", reconnecting…"+RESET)
 }
 
 func chunkText(chunk *openai.ChatCompletionChunk) string {
@@ -832,8 +959,9 @@ func sendAgent(sh *state, content string) error {
 
 		err = connect(sh)
 		if err != nil {
+			sh.wasAgent = sh.mode == MODE_AGENT
 			sh.mode = MODE_BASH
-			notice(RED, "●", "%sdisconnected%s %s", RED, RESET, DIM+err.Error()+", back to bash mode"+RESET)
+			notice(RED, "●", "%sdisconnected%s %s", RED, RESET, DIM+err.Error()+", reconnecting…"+RESET)
 			return nil
 		}
 
@@ -852,6 +980,10 @@ func toggleMode(sh *state) {
 	if sh.mode == MODE_AGENT {
 		sh.mode = MODE_BASH
 		return
+	}
+
+	if sh.conn == nil && sh.dial != nil {
+		adoptDial(sh, true)
 	}
 
 	if sh.conn == nil {

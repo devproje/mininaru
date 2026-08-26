@@ -44,6 +44,10 @@ type state struct {
 	continuation bool
 	mirror       *renderState
 	frames       chan inbound
+	dial         chan dialResult
+	retryAt      time.Time
+	retryDelay   time.Duration
+	wasAgent     bool
 	pendingInput []byte
 }
 
@@ -56,6 +60,8 @@ const (
 	DEFAULT_URL  string        = "ws://127.0.0.1:8223/ws"
 	DIAL_TIMEOUT time.Duration = 3 * time.Second
 	SPINNER_TICK time.Duration = 90 * time.Millisecond
+	RETRY_MIN    time.Duration = time.Second
+	RETRY_MAX    time.Duration = 30 * time.Second
 )
 
 func dispatch(sh *state, line string, restore func() error, raw func() error) error {
