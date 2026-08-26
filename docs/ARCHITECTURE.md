@@ -266,13 +266,37 @@ Because the target session may have a person watching it live over another
   `sessionAutoApprove` map in the same file), populated the moment a session
   is resolved and cleared for a connection's sessions when `SockHandler`'s
   loop exits. `core` can't import `server/sock` (cycle), so the wiring runs
-  the other way: `core/sessionrouter.go` exposes `SetSessionRouter(chunkFn,
-  toolFn)`, and `server/sock/session.go`'s `init()` calls it once with
-  closures that look a session up in `liveConns` and, if present,
-  `writeFrame` the same `"chunk"`/`"tool"` frame shapes `handleFrame` already
-  sends — so `cli/shell/client.go` needs no changes to render a mirrored
-  round. `session_send`'s nested `onChunk`/`onTool` call these mirror hooks
-  unconditionally; they're no-ops when nobody's watching.
+  the other way: `core/sessionrouter.go` exposes
+  `SetSessionRouter(messageFn, chunkFn, toolFn, doneFn)`, and
+  `server/sock/session.go`'s `init()` calls it once with closures that look a
+  session up in `liveConns` and, if present, `writeFrame` the same frame
+  shapes `handleFrame` already sends. `session_send` calls these hooks
+  unconditionally and they are no-ops when nobody's watching: `messageFn`
+  right after the injected `Message` is persisted (so the viewer's transcript
+  order matches the stored order), `chunkFn`/`toolFn` from the nested round's
+  callbacks, and `doneFn` once the round settles — a `"done"` frame on
+  success, an `"error"` frame carrying the failure otherwise. The `"message"`
+  frame reuses the existing `Name` field for the *origin* session id and
+  `Message` for the injected content.
+
+A mirrored round only reaches a person if their shell is actually reading the
+socket, and a shell sitting at its prompt used to read nothing until the next
+time it sent something — mirrored frames piled up in the buffer and then
+rendered as if they answered whatever the person typed next. Two changes in
+`cli/shell` close that:
+
+- The socket is drained by one reader goroutine per connection
+  (`readFrames`, started lazily by `ensureReader`) feeding a buffered
+  `chan inbound`. Gorilla makes read errors sticky, so a read deadline cannot
+  be used to poll a connection that must survive the poll. All *rendering*
+  still happens on the main thread — `renderFrame` and the `renderState` it
+  mutates are never touched from the reader goroutine.
+- `readLine` polls stdin with the existing `pollStdin` on a 100ms
+  `idlePollInterval` instead of blocking. Each idle tick calls `drainMirror`,
+  which renders whatever frames have queued and then `redraw`s the prompt and
+  the half-typed line underneath them. `sendAgent` calls `awaitMirror` first,
+  which blocks until any open mirrored round has rendered its terminal frame,
+  so a local round can never start inside someone else's.
 
   Registration used to happen lazily, only inside `handleFrame` once a real
   chat frame for that session was processed — so a shell that had connected

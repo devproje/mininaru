@@ -35,6 +35,21 @@ type approvalResponse struct {
 	Decision  string `json:"decision"`
 }
 
+type renderState struct {
+	thinking    bool
+	streaming   bool
+	toolStack   []string
+	toolSpin    func()
+	stopSpinner func()
+	watch       *interruptWatch
+	active      bool
+}
+
+type inbound struct {
+	reply reply
+	err   error
+}
+
 type reply struct {
 	Type      string                      `json:"type"`
 	SessionId string                      `json:"session_id"`
@@ -304,6 +319,9 @@ func connect(sh *state) error {
 
 	sh.conn = conn
 	sh.session = session
+	sh.mirror = &renderState{}
+
+	ensureReader(sh)
 
 	err = conn.WriteJSON(frame{Type: "attach", SessionId: session})
 	if err != nil {
@@ -320,6 +338,8 @@ func disconnect(sh *state, reason error) {
 
 	sh.conn.Close()
 	sh.conn = nil
+	sh.frames = nil
+	sh.mirror = nil
 	sh.mode = MODE_BASH
 
 	notice(RED, "●", "%sdisconnected%s %s", RED, RESET, DIM+reason.Error()+", back to bash mode"+RESET)
@@ -484,144 +504,286 @@ func removeToolName(stack []string, name string) []string {
 	return stack
 }
 
-func receiveAgent(sh *state, stop func(), watch *interruptWatch) error {
-	var reply reply
+func (rs *renderState) stop() {
+	if rs.stopSpinner == nil {
+		return
+	}
+
+	rs.stopSpinner()
+	rs.stopSpinner = nil
+}
+
+func (rs *renderState) closeBlocks() {
+	if rs.thinking && !rs.streaming {
+		write("%s\n", RESET)
+		rs.thinking = false
+	}
+
+	if rs.streaming {
+		write("%s\n", RESET)
+		rs.streaming = false
+	}
+}
+
+func (rs *renderState) stopToolSpin() {
+	if rs.toolSpin == nil {
+		return
+	}
+
+	rs.toolSpin()
+	rs.toolSpin = nil
+}
+
+func (rs *renderState) startToolSpin() {
+	if len(rs.toolStack) == 0 {
+		return
+	}
+
+	rs.toolSpin = spinner(rs.toolStack[len(rs.toolStack)-1])
+}
+
+func renderFrame(sh *state, rs *renderState, reply reply) (bool, error) {
 	var text string
-	var thinking bool
-	var streaming bool
 	var decision string
-	var toolStack []string
-	var toolSpin func()
 
 	var err error
 
-	for {
-		err = sh.conn.ReadJSON(&reply)
+	switch reply.Type {
+	case "message":
+		rs.stop()
+		rs.closeBlocks()
+
+		write("%s↘ from session %s%s\n", GRAY, reply.Name, RESET)
+		write("%s  %s%s\n\n", DIM, reply.Message, RESET)
+	case "chunk":
+		text = chunkText(reply.Chunk)
+
+		if reply.Reasoning != "" && !rs.streaming && !isReasoningFiller(reply.Reasoning) {
+			if !rs.thinking {
+				rs.stop()
+				write("%s◇ thinking%s\n%s", GRAY, RESET, DIM)
+				rs.thinking = true
+			}
+
+			write("%s", reply.Reasoning)
+		}
+
+		if text == "" {
+			return false, nil
+		}
+
+		if !rs.streaming {
+			rs.stop()
+
+			if rs.thinking {
+				write("%s\n\n", RESET)
+			}
+
+			write("%s◆ %s%s\n", PURPLE, agentLabel(sh), RESET)
+			rs.streaming = true
+		}
+
+		write("%s", text)
+	case "tool":
+		rs.stop()
+		rs.closeBlocks()
+		rs.stopToolSpin()
+
+		switch reply.Status {
+		case "started":
+			if reply.Message != "" {
+				write("%s  %s%s\n", DIM, reply.Message, RESET)
+			}
+
+			rs.toolStack = append(rs.toolStack, reply.Name)
+		case "finished":
+			rs.toolStack = removeToolName(rs.toolStack, reply.Name)
+			write("%s✔ %s%s\n", GREEN, reply.Name, RESET)
+		case "failed":
+			rs.toolStack = removeToolName(rs.toolStack, reply.Name)
+			write("%s✖ %s failed%s\n", RED, reply.Name, RESET)
+			if reply.Message != "" {
+				write("%s  %s%s\n", DIM, reply.Message, RESET)
+			}
+		}
+
+		rs.startToolSpin()
+	case "approval_request":
+		rs.stop()
+		rs.closeBlocks()
+		rs.stopToolSpin()
+
+		if rs.watch != nil {
+			rs.watch.pause()
+		}
+
+		decision = approvalPrompt(sh, reply.Name, reply.Arguments)
+
+		err = sh.conn.WriteJSON(approvalResponse{Type: "approval", SessionId: reply.SessionId, Decision: decision})
 		if err != nil {
-			stop()
+			return false, err
+		}
+
+		rs.startToolSpin()
+	case "error":
+		rs.stop()
+
+		if rs.thinking && !rs.streaming {
+			write("%s\n", RESET)
+		}
+
+		rs.stopToolSpin()
+		notice(RED, "✖", "%s", reply.Message)
+
+		return true, nil
+	case "done":
+		rs.stop()
+
+		if rs.thinking && !rs.streaming {
+			write("%s", RESET)
+		}
+
+		rs.stopToolSpin()
+		write("\n\n")
+
+		return true, nil
+	}
+
+	return false, nil
+}
+
+func receiveAgent(sh *state, stop func(), watch *interruptWatch) error {
+	var rs renderState
+	var item inbound
+	var ok bool
+	var terminal bool
+
+	var err error
+
+	rs.stopSpinner = stop
+	rs.watch = watch
+
+	for {
+		item, ok = nextFrame(sh, true)
+		if !ok {
+			rs.stop()
+			return io.ErrUnexpectedEOF
+		}
+		if item.err != nil {
+			rs.stop()
+			return item.err
+		}
+
+		terminal, err = renderFrame(sh, &rs, item.reply)
+		if err != nil {
 			return err
 		}
-
-		switch reply.Type {
-		case "chunk":
-			text = chunkText(reply.Chunk)
-
-			if reply.Reasoning != "" && !streaming && !isReasoningFiller(reply.Reasoning) {
-				if !thinking {
-					stop()
-					write("%s◇ thinking%s\n%s", GRAY, RESET, DIM)
-					thinking = true
-				}
-
-				write("%s", reply.Reasoning)
-			}
-
-			if text == "" {
-				continue
-			}
-
-			if !streaming {
-				stop()
-
-				if thinking {
-					write("%s\n\n", RESET)
-				}
-
-				write("%s◆ %s%s\n", PURPLE, agentLabel(sh), RESET)
-				streaming = true
-			}
-
-			write("%s", text)
-		case "tool":
-			stop()
-
-			if thinking && !streaming {
-				write("%s\n", RESET)
-				thinking = false
-			}
-			if streaming {
-				write("%s\n", RESET)
-				streaming = false
-			}
-
-			if toolSpin != nil {
-				toolSpin()
-				toolSpin = nil
-			}
-
-			switch reply.Status {
-			case "started":
-				if reply.Message != "" {
-					write("%s  %s%s\n", DIM, reply.Message, RESET)
-				}
-
-				toolStack = append(toolStack, reply.Name)
-			case "finished":
-				toolStack = removeToolName(toolStack, reply.Name)
-				write("%s✔ %s%s\n", GREEN, reply.Name, RESET)
-			case "failed":
-				toolStack = removeToolName(toolStack, reply.Name)
-				write("%s✖ %s failed%s\n", RED, reply.Name, RESET)
-				if reply.Message != "" {
-					write("%s  %s%s\n", DIM, reply.Message, RESET)
-				}
-			}
-
-			if len(toolStack) > 0 {
-				toolSpin = spinner(toolStack[len(toolStack)-1])
-			}
-		case "approval_request":
-			stop()
-
-			if thinking && !streaming {
-				write("%s\n", RESET)
-				thinking = false
-			}
-			if streaming {
-				write("%s\n", RESET)
-				streaming = false
-			}
-			if toolSpin != nil {
-				toolSpin()
-				toolSpin = nil
-			}
-
-			watch.pause()
-			decision = approvalPrompt(sh, reply.Name, reply.Arguments)
-
-			err = sh.conn.WriteJSON(approvalResponse{Type: "approval", SessionId: reply.SessionId, Decision: decision})
-			if err != nil {
-				return err
-			}
-
-			if len(toolStack) > 0 {
-				toolSpin = spinner(toolStack[len(toolStack)-1])
-			}
-		case "error":
-			stop()
-
-			if thinking && !streaming {
-				write("%s\n", RESET)
-			}
-			if toolSpin != nil {
-				toolSpin()
-			}
-
-			notice(RED, "✖", "%s", reply.Message)
-			return nil
-		case "done":
-			stop()
-
-			if thinking && !streaming {
-				write("%s", RESET)
-			}
-			if toolSpin != nil {
-				toolSpin()
-			}
-
-			write("\n\n")
+		if terminal {
 			return nil
 		}
+	}
+}
+
+func readFrames(conn *websocket.Conn, frames chan<- inbound) {
+	var item inbound
+
+	defer close(frames)
+
+	for {
+		item = inbound{}
+
+		item.err = conn.ReadJSON(&item.reply)
+		frames <- item
+
+		if item.err != nil {
+			return
+		}
+	}
+}
+
+func ensureReader(sh *state) {
+	if sh.conn == nil || sh.frames != nil {
+		return
+	}
+
+	sh.frames = make(chan inbound, 64)
+
+	go readFrames(sh.conn, sh.frames)
+}
+
+func nextFrame(sh *state, block bool) (inbound, bool) {
+	var item inbound
+	var ok bool
+
+	if sh.frames == nil {
+		return inbound{}, false
+	}
+
+	if block {
+		item, ok = <-sh.frames
+		return item, ok
+	}
+
+	select {
+	case item, ok = <-sh.frames:
+		return item, ok
+	default:
+		return inbound{}, false
+	}
+}
+
+func drainMirror(sh *state) bool {
+	var rendered bool
+	var item inbound
+	var ok bool
+	var terminal bool
+
+	var err error
+
+	if sh.conn == nil {
+		return false
+	}
+
+	ensureReader(sh)
+
+	if sh.mirror == nil {
+		sh.mirror = &renderState{}
+	}
+
+	for {
+		item, ok = nextFrame(sh, sh.mirror.active)
+		if !ok {
+			return rendered
+		}
+
+		if item.err != nil {
+			disconnect(sh, item.err)
+			return rendered
+		}
+
+		if !rendered {
+			write("\r\x1b[0J")
+			rendered = true
+		}
+
+		sh.mirror.active = true
+
+		terminal, err = renderFrame(sh, sh.mirror, item.reply)
+		if err != nil {
+			disconnect(sh, err)
+			return rendered
+		}
+
+		if terminal {
+			sh.mirror = &renderState{}
+			return rendered
+		}
+	}
+}
+
+func awaitMirror(sh *state) {
+	for sh.conn != nil && sh.mirror != nil && sh.mirror.active {
+		drainMirror(sh)
 	}
 }
 
@@ -631,6 +793,15 @@ func sendAgent(sh *state, content string) error {
 	var result chan error
 
 	var err error
+
+	ensureReader(sh)
+	awaitMirror(sh)
+
+	if sh.conn == nil {
+		return fmt.Errorf("not connected")
+	}
+
+	sh.mirror = &renderState{}
 
 	err = sh.conn.WriteJSON(frame{SessionId: sh.session, Content: content, Cwd: sh.cwd})
 	if err != nil {
@@ -651,6 +822,8 @@ func sendAgent(sh *state, content string) error {
 		stop()
 		sh.conn.Close()
 		sh.conn = nil
+		sh.frames = nil
+		sh.mirror = nil
 
 		watch.pause()
 		sh.pendingInput = append(sh.pendingInput, *watch.captured...)

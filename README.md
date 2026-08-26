@@ -124,7 +124,9 @@ an external dependency. `agent_spawn` runs the delegate as a real session
 (it shows up in `session list` like any other), starts it with no memory of
 the calling conversation; `session_send` targets a session that already
 exists (owned by the same agent, never the caller's own), and if a person is
-connected to it live, they see the reply stream in without doing anything.
+connected to it live, the injected message appears on their screen straight
+away — marked with the session it came from — and the reply streams in under
+it, whether or not they were typing at the time.
 Neither tool can be handed to whatever it delegates to or messages — one
 level of delegation, no chains. Two read-only discovery tools round these
 out and always run with no approval needed: `agent_list` (every configured

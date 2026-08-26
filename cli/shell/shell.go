@@ -42,6 +42,8 @@ type state struct {
 	history      []string
 	agentHistory []string
 	continuation bool
+	mirror       *renderState
+	frames       chan inbound
 	pendingInput []byte
 }
 

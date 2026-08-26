@@ -86,6 +86,10 @@ func sessionSendTool(caller *Agent, callerSessionId, anchor string, depth int, o
 				return "", err
 			}
 
+			if mirrorMessage != nil {
+				mirrorMessage(target.Id, callerSessionId, payload.Content)
+			}
+
 			childOnTool = func(name, status, message string) {
 				if onTool != nil {
 					onTool(target.Id+"/"+name, status, message)
@@ -101,7 +105,15 @@ func sessionSendTool(caller *Agent, callerSessionId, anchor string, depth int, o
 				}
 			}, childOnTool, approve)
 			if err != nil {
+				if mirrorDone != nil {
+					mirrorDone(target.Id, err.Error())
+				}
+
 				return "", fmt.Errorf("session %s failed: %w", target.Id, err)
+			}
+
+			if mirrorDone != nil {
+				mirrorDone(target.Id, "")
 			}
 
 			answer, err = lastAssistantMessage(target.Id)

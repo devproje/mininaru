@@ -191,13 +191,21 @@ func TestAttachRegistersLiveConnWithoutStartingAChatRound(t *testing.T) {
 		t.Fatalf("caller round did not complete: gotChunk=%v type=%q", gotChunk, final.Type)
 	}
 
+	frame = readFrame(t, viewer)
+	if frame.Type != "message" {
+		t.Fatalf("first mirrored frame type = %q, want the injected message", frame.Type)
+	}
+	if frame.Name != "s1" || frame.Message != "ping" {
+		t.Fatalf("mirrored message = %+v, want origin s1 and content \"ping\"", frame)
+	}
+
 	for {
 		frame = readFrame(t, viewer)
+		if frame.Type == "done" {
+			break
+		}
 		if frame.Type != "chunk" {
 			t.Fatalf("frame type = %q, want a mirrored chunk", frame.Type)
-		}
-		if frame.Chunk != nil && len(frame.Chunk.Choices) > 0 && frame.Chunk.Choices[0].Delta.Content == "pong" {
-			break
 		}
 	}
 }
@@ -275,13 +283,29 @@ func TestSessionSendMirrorsToALiveConnectedViewer(t *testing.T) {
 		t.Fatalf("caller round did not complete: gotChunk=%v type=%q", gotChunk, final.Type)
 	}
 
+	frame = readFrame(t, viewer)
+	if frame.Type != "message" {
+		t.Fatalf("first mirrored frame type = %q, want the injected message", frame.Type)
+	}
+	if frame.Name != "s1" || frame.Message != "ping" {
+		t.Fatalf("mirrored message = %+v, want origin s1 and content \"ping\"", frame)
+	}
+
 	for {
 		frame = readFrame(t, viewer)
+		if frame.Type == "done" {
+			break
+		}
 		if frame.Type != "chunk" {
 			t.Fatalf("frame type = %q, want a mirrored chunk", frame.Type)
 		}
+
 		if frame.Chunk != nil && len(frame.Chunk.Choices) > 0 && frame.Chunk.Choices[0].Delta.Content == "pong" {
-			break
+			gotChunk = true
 		}
+	}
+
+	if !gotChunk {
+		t.Fatalf("the target's reply was not mirrored to the viewer")
 	}
 }

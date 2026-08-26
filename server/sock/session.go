@@ -57,7 +57,17 @@ func liveSessionIds() []string {
 func init() {
 	core.SetLiveSessionsLister(liveSessionIds)
 
-	core.SetSessionRouter(func(sessionId string, chunk openai.ChatCompletionChunk) {
+	core.SetSessionRouter(func(sessionId, origin, content string) {
+		var conn *safeConn
+		var ok bool
+
+		conn, ok = lookupLiveConn(sessionId)
+		if !ok {
+			return
+		}
+
+		conn.writeFrame(outboundFrame{Type: "message", SessionId: sessionId, Name: origin, Message: content})
+	}, func(sessionId string, chunk openai.ChatCompletionChunk) {
 		var conn *safeConn
 		var ok bool
 
@@ -77,6 +87,21 @@ func init() {
 		}
 
 		conn.writeFrame(outboundFrame{Type: "tool", SessionId: sessionId, Name: name, Status: status, Message: message})
+	}, func(sessionId, failure string) {
+		var conn *safeConn
+		var ok bool
+
+		conn, ok = lookupLiveConn(sessionId)
+		if !ok {
+			return
+		}
+
+		if failure != "" {
+			conn.writeFrame(outboundFrame{Type: "error", SessionId: sessionId, Message: failure})
+			return
+		}
+
+		conn.writeFrame(outboundFrame{Type: "done", SessionId: sessionId})
 	})
 }
 

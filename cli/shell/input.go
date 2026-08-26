@@ -12,6 +12,7 @@ import (
 )
 
 const escapeTimeout time.Duration = 50 * time.Millisecond
+const idlePollInterval time.Duration = 100 * time.Millisecond
 const shiftEnterParams string = "13;2"
 
 var errSoftNewline error = errors.New("soft newline")
@@ -91,6 +92,14 @@ func readLine(sh *state) (string, error) {
 	write("%s", prompt(sh))
 
 	for {
+		if len(sh.pendingInput) == 0 && !pollStdin(idlePollInterval) {
+			if drainMirror(sh) {
+				redraw(sh, "", line, pos)
+			}
+
+			continue
+		}
+
 		count, err = readByte(sh, buf)
 		if err != nil {
 			return "", err

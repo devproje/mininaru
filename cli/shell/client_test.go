@@ -383,3 +383,162 @@ func TestReplyDecodesReasoningField(t *testing.T) {
 		t.Fatalf("got %+v, err %v", got, err)
 	}
 }
+
+func TestDrainMirrorRendersAnInjectedMessageAndItsReply(t *testing.T) {
+	var upgrader websocket.Upgrader
+	var server *httptest.Server
+	var client *websocket.Conn
+	var sh state
+	var output string
+	var rendered bool
+
+	var err error
+
+	server = httptest.NewServer(http.HandlerFunc(func(res http.ResponseWriter, req *http.Request) {
+		var conn *websocket.Conn
+		var frames []string
+		var payload string
+
+		var handlerErr error
+
+		conn, handlerErr = upgrader.Upgrade(res, req, nil)
+		if handlerErr != nil {
+			return
+		}
+		defer conn.Close()
+
+		frames = []string{
+			`{"type":"message","session_id":"s","name":"s1","message":"check the build"}`,
+			`{"type":"chunk","session_id":"s","chunk":{"choices":[{"delta":{"content":"the build is green"}}]}}`,
+			`{"type":"done","session_id":"s"}`,
+		}
+
+		for _, payload = range frames {
+			handlerErr = conn.WriteMessage(websocket.TextMessage, []byte(payload))
+			if handlerErr != nil {
+				return
+			}
+		}
+
+		<-req.Context().Done()
+	}))
+	defer server.Close()
+
+	client, _, err = websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(server.URL, "http"), nil)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer client.Close()
+
+	sh = state{conn: client, session: "s"}
+
+	output = captureStdout(t, func() {
+		ensureReader(&sh)
+
+		for !rendered {
+			rendered = drainMirror(&sh)
+		}
+	})
+
+	if !strings.Contains(output, "↘ from session s1") {
+		t.Fatalf("injected message was not marked with its origin: %q", output)
+	}
+	if !strings.Contains(output, "check the build") {
+		t.Fatalf("injected message body was not rendered: %q", output)
+	}
+	if !strings.Contains(output, "the build is green") {
+		t.Fatalf("mirrored reply was not rendered: %q", output)
+	}
+
+	if strings.Index(output, "check the build") > strings.Index(output, "the build is green") {
+		t.Fatalf("the injected message should be rendered before the reply: %q", output)
+	}
+
+	if sh.mirror == nil || sh.mirror.active {
+		t.Fatalf("mirror round should be closed after the done frame")
+	}
+}
+
+func TestSendAgentFinishesAnOpenMirrorRoundFirst(t *testing.T) {
+	var upgrader websocket.Upgrader
+	var server *httptest.Server
+	var client *websocket.Conn
+	var sh state
+	var output string
+
+	var err error
+
+	server = httptest.NewServer(http.HandlerFunc(func(res http.ResponseWriter, req *http.Request) {
+		var conn *websocket.Conn
+		var raw []byte
+		var frames []string
+		var payload string
+
+		var handlerErr error
+
+		conn, handlerErr = upgrader.Upgrade(res, req, nil)
+		if handlerErr != nil {
+			return
+		}
+		defer conn.Close()
+
+		frames = []string{
+			`{"type":"message","session_id":"s","name":"s1","message":"injected question"}`,
+			`{"type":"chunk","session_id":"s","chunk":{"choices":[{"delta":{"content":"mirrored answer"}}]}}`,
+			`{"type":"done","session_id":"s"}`,
+		}
+
+		for _, payload = range frames {
+			handlerErr = conn.WriteMessage(websocket.TextMessage, []byte(payload))
+			if handlerErr != nil {
+				return
+			}
+		}
+
+		_, raw, handlerErr = conn.ReadMessage()
+		if handlerErr != nil || !strings.Contains(string(raw), "my own question") {
+			return
+		}
+
+		frames = []string{
+			`{"type":"chunk","session_id":"s","chunk":{"choices":[{"delta":{"content":"local answer"}}]}}`,
+			`{"type":"done","session_id":"s"}`,
+		}
+
+		for _, payload = range frames {
+			handlerErr = conn.WriteMessage(websocket.TextMessage, []byte(payload))
+			if handlerErr != nil {
+				return
+			}
+		}
+	}))
+	defer server.Close()
+
+	client, _, err = websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(server.URL, "http"), nil)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer client.Close()
+
+	sh = state{conn: client, session: "s"}
+
+	output = captureStdout(t, func() {
+		ensureReader(&sh)
+
+		for !drainMirror(&sh) {
+		}
+
+		err = sendAgent(&sh, "my own question")
+	})
+	if err != nil {
+		t.Fatalf("sendAgent: %v", err)
+	}
+
+	if !strings.Contains(output, "mirrored answer") || !strings.Contains(output, "local answer") {
+		t.Fatalf("both rounds should be rendered: %q", output)
+	}
+
+	if strings.Index(output, "mirrored answer") > strings.Index(output, "local answer") {
+		t.Fatalf("the mirrored round must be closed before the local round: %q", output)
+	}
+}

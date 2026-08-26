@@ -218,3 +218,70 @@ func TestBuildToolsHidesSessionSendBeyondMaxDepth(t *testing.T) {
 		t.Fatal("session_send should not be offered once the spawn depth limit is reached")
 	}
 }
+
+func TestSessionSendMirrorsTheInjectedMessageBeforeTheReply(t *testing.T) {
+	var caller *Agent
+	var session *Session
+	var target *Session
+	var events []string
+
+	var err error
+
+	setupTestDB(t)
+	setupTestSessionSendRoundtrip(t)
+
+	SetSessionRouter(func(sessionId, origin, content string) {
+		events = append(events, "message:"+sessionId+":"+origin+":"+content)
+	}, func(sessionId string, chunk openai.ChatCompletionChunk) {
+		events = append(events, "chunk:"+sessionId)
+	}, func(sessionId, name, status, message string) {
+		events = append(events, "tool:"+sessionId+":"+name+":"+status)
+	}, func(sessionId, failure string) {
+		events = append(events, "done:"+sessionId+":"+failure)
+	})
+	t.Cleanup(func() {
+		SetSessionRouter(nil, nil, nil, nil)
+	})
+
+	caller = &Agent{Id: "a1", Name: "caller", Model: "gpt-4o-mini"}
+	err = AgentCreate(caller)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	session = &Session{Id: "s1", AgentId: "a1"}
+	err = SessionCreate(session)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	target = &Session{Id: "s2", AgentId: "a1"}
+	err = SessionCreate(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = MessageCreate(&Message{Id: "m1", SessionId: "s1", Role: "user", Content: "ask the other session"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = SendChatMessage(t.Context(), caller, session, t.TempDir(), 0, func(chunk openai.ChatCompletionChunk) {},
+		func(name, status, message string) {},
+		func(ctx context.Context, name, arguments string) (string, error) { return "once", nil })
+	if err != nil {
+		t.Fatalf("SendChatMessage failed: %v", err)
+	}
+
+	if len(events) == 0 || events[0] != "message:s2:s1:ping" {
+		t.Fatalf("events = %v, want the injected message mirrored first", events)
+	}
+
+	if !strings.Contains(strings.Join(events, ","), "chunk:s2") {
+		t.Fatalf("events = %v, want the target's reply chunks mirrored", events)
+	}
+
+	if events[len(events)-1] != "done:s2:" {
+		t.Fatalf("events = %v, want a terminal done mirrored last", events)
+	}
+}
