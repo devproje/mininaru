@@ -234,6 +234,8 @@ func SockHandler(ctx *gin.Context) {
 	defer cancel()
 
 	for {
+		frame = inboundFrame{}
+
 		_, message, err = wsConn.ReadMessage()
 		if err != nil {
 			util.Log.Info("sock closed", "error", err)

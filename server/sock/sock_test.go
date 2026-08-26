@@ -300,3 +300,35 @@ func TestChunkReasoningReadsProviderFields(t *testing.T) {
 		t.Fatalf("plain content should carry no reasoning")
 	}
 }
+
+func TestSockHandlerChatFrameAfterAttach(t *testing.T) {
+	var conn *websocket.Conn
+	var sessionId string
+	var gotChunk bool
+	var final testFrame
+
+	var err error
+
+	setupTestDB(t)
+	sessionId = setupChatFixture(t)
+
+	conn = newTestConn(t)
+
+	err = conn.WriteJSON(map[string]string{"type": "attach", "session_id": sessionId})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = conn.WriteJSON(map[string]string{"session_id": sessionId, "content": "hi"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	gotChunk, final = readUntilTerminal(t, conn)
+	if !gotChunk {
+		t.Fatal("no chunk frame after a typeless chat frame following attach")
+	}
+	if final.Type != "done" {
+		t.Fatalf("final frame type = %q, want done (message: %q)", final.Type, final.Message)
+	}
+}
