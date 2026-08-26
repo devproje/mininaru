@@ -1,6 +1,8 @@
 // SPDX-FileCopyrightText: 2026 Wonhyeok Kim (Project_IO)
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+//go:build unix
+
 package shell
 
 import (
@@ -56,4 +58,7 @@ func runForeground(cmd *exec.Cmd) error {
 	setForeground(own)
 
 	return err
+}
+
+func enableAnsi() {
 }
