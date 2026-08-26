@@ -6,6 +6,7 @@ package shell
 import (
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 )
 
@@ -44,7 +45,7 @@ func changeDir(sh *state, args []string) {
 	}
 }
 
-func bashPath() string {
+func bashPathUnix() string {
 	var name string
 
 	name = os.Getenv("SHELL")
@@ -55,12 +56,39 @@ func bashPath() string {
 	return name
 }
 
+func bashPathWindows() string {
+	var name string
+
+	name = os.Getenv("COMSPEC")
+	if name == "" {
+		name = "cmd.exe"
+	}
+
+	return name
+}
+
+func bashPath() string {
+	if runtime.GOOS == "windows" {
+		return bashPathWindows()
+	}
+
+	return bashPathUnix()
+}
+
+func shellInvokeFlag() string {
+	if runtime.GOOS == "windows" {
+		return "/C"
+	}
+
+	return "-c"
+}
+
 func runBash(sh *state, line string) {
 	var cmd *exec.Cmd
 
 	var err error
 
-	cmd = exec.Command(bashPath(), "-c", line)
+	cmd = exec.Command(bashPath(), shellInvokeFlag(), line)
 	cmd.Dir = sh.cwd
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
@@ -115,6 +143,10 @@ func switchUser(args []string) (string, bool) {
 	var sawSu bool
 	var bare bool
 	var i int
+
+	if runtime.GOOS == "windows" {
+		return "", false
+	}
 
 	if args[0] != "su" && args[0] != "sudo" {
 		return "", false

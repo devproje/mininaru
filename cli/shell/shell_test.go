@@ -4,7 +4,9 @@
 package shell
 
 import (
+	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -136,5 +138,52 @@ func TestAgentLabelFallsBackWhenNameIsUnknown(t *testing.T) {
 	sh = state{agent: "requested", name: "resolved"}
 	if agentLabel(&sh) != "resolved" {
 		t.Fatalf("resolved agent name should win, got %q", agentLabel(&sh))
+	}
+}
+
+func TestBashPathUnixPrefersTheShellEnvVar(t *testing.T) {
+	var previous string
+
+	previous = os.Getenv("SHELL")
+	t.Cleanup(func() { os.Setenv("SHELL", previous) })
+
+	os.Setenv("SHELL", "/usr/bin/zsh")
+	if bashPathUnix() != "/usr/bin/zsh" {
+		t.Fatalf("bashPathUnix() = %q, want %q", bashPathUnix(), "/usr/bin/zsh")
+	}
+
+	os.Unsetenv("SHELL")
+	if bashPathUnix() != "/bin/bash" {
+		t.Fatalf("bashPathUnix() with no $SHELL = %q, want %q", bashPathUnix(), "/bin/bash")
+	}
+}
+
+func TestBashPathWindowsPrefersComspec(t *testing.T) {
+	var previous string
+
+	previous = os.Getenv("COMSPEC")
+	t.Cleanup(func() { os.Setenv("COMSPEC", previous) })
+
+	os.Setenv("COMSPEC", `C:\Windows\System32\cmd.exe`)
+	if bashPathWindows() != `C:\Windows\System32\cmd.exe` {
+		t.Fatalf("bashPathWindows() = %q, want the COMSPEC value", bashPathWindows())
+	}
+
+	os.Unsetenv("COMSPEC")
+	if bashPathWindows() != "cmd.exe" {
+		t.Fatalf("bashPathWindows() with no $COMSPEC = %q, want %q", bashPathWindows(), "cmd.exe")
+	}
+}
+
+func TestShellInvokeFlagMatchesTheHostShellSyntax(t *testing.T) {
+	var want string
+
+	want = "-c"
+	if runtime.GOOS == "windows" {
+		want = "/C"
+	}
+
+	if shellInvokeFlag() != want {
+		t.Fatalf("shellInvokeFlag() = %q, want %q for %s", shellInvokeFlag(), want, runtime.GOOS)
 	}
 }

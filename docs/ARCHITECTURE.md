@@ -512,6 +512,39 @@ agent mode with no live connection connects lazily and falls back to
 server reachable at all — the initial connect at startup is best-effort in
 the same way.
 
+### Platform split — `tty_unix.go` / `tty_windows.go`
+
+Four functions (`pollStdin`, `setForeground`, `runForeground`, `enableAnsi`)
+are the only OS-specific surface in `cli/shell` — everything else is
+already cross-platform Go stdlib or a dependency that handles both itself
+(`golang.org/x/term.MakeRaw` has its own `term_windows.go`, setting
+`ENABLE_VIRTUAL_TERMINAL_INPUT` so arrow-key escapes arrive the same way a
+unix pty sends them). Split with `//go:build unix` / `//go:build windows`,
+same shape `modules/bash/bashproc_unix.go`/`bashproc_other.go` already uses
+for process-group kill vs. plain `Process.Kill()`. Unix's `pollStdin` is a
+`poll(2)` on `POLLIN`; Windows' is `windows.WaitForSingleObject` on the
+stdin handle (safe to treat any signal as "a key is ready" because
+`ENABLE_MOUSE_INPUT`/`ENABLE_WINDOW_INPUT` are off by default and
+`MakeRaw` never turns them on). `setForeground`/`runForeground` are unix's
+POSIX foreground-process-group handoff (`SysProcAttr{Setpgid: true}` plus
+ignoring `SIGTTOU`/`SIGTTIN` around the transfer) versus a plain
+`cmd.Start()`/`cmd.Wait()` on Windows, where a child inheriting the console
+reads keyboard input directly with no such concept. `enableAnsi` is a
+Windows-only addition — `MakeRaw` only sets *input* mode, so rendering the
+ANSI color/cursor codes `style.go` writes needs
+`ENABLE_VIRTUAL_TERMINAL_PROCESSING` set on the *output* handle separately;
+`Run()` (`shell.go`) calls it once, right after `MakeRaw`, and it is a
+no-op on unix.
+
+`exec.go`'s `bashPath`/`switchUser` don't need build tags — no syscalls,
+just `runtime.GOOS`. `bashPath` dispatches to `bashPathUnix`
+(`$SHELL`/`/bin/bash`) or `bashPathWindows` (`$COMSPEC`/`cmd.exe`);
+`shellInvokeFlag` picks `-c` or `/C` to match. `switchUser` (the `su`/`sudo`
+parser behind `escalate`) returns unmatched on Windows unconditionally —
+there is no POSIX-style user-switch binary there, and Windows' UAC
+elevation is a different enough mechanism that it was left out rather than
+half-ported.
+
 ### Reconnecting
 
 Neither of those failures is final: whenever there is no connection, the

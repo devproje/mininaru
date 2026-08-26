@@ -168,6 +168,8 @@ func Run(opts Options) error {
 	}
 	defer term.Restore(fd, previous)
 
+	enableAnsi()
+
 	if sh.conn != nil {
 		defer sh.conn.Close()
 	}
