@@ -461,6 +461,40 @@ session (`core.SessionListAll`) and narrows to one agent with `--agent`.
 `cli/shell.go` is a thin wrapper that builds `shell.Options` from flags and
 calls `shell.Run`.
 
+### `cli/update.go` — self-update
+
+`mininaru update` fetches a release from `.github/workflows/release.yml`'s
+output (`mininaru_<tag>_<os>_<arch>.tar.gz`/`.zip` + `SHA256SUMS` +
+attestation, unchanged by this rewrite), verifies the checksum, and replaces
+the running executable. It intentionally does **not** call GitHub's
+`/releases/latest` — that endpoint excludes prereleases, and every
+`1.0.0-alpha.x` tag is one (`release.yml` marks any tag containing `-` as
+`--prerelease`). `updateLatestRelease` hits `GET /repos/{repo}/releases`
+(the list endpoint) and takes the newest entry instead, so "latest" doesn't
+fall through to an old, incompatible `0.x` release once one exists again.
+
+The download is staged to a temp file next to the target executable, hashed
+while downloading, and only extracted after the checksum matches
+(`updateDownloadArchive` → `updateExtractTarGz`/`updateExtractZip`, chosen
+by `updateAssetExt()`'s `runtime.GOOS` check — the two extractors themselves
+take the binary's expected filename as a parameter rather than reading
+`runtime.GOOS` internally, so tests can exercise the zip path on a Linux
+runner). Replacing the file is also OS-dependent, split into two directly
+testable functions rather than one branch: `updateReplaceUnix` is a plain
+`os.Rename` over the running binary, which POSIX allows; `updateReplaceWindows`
+renames the running `.exe` aside to `<name>.exe.old` first (Windows refuses to
+overwrite an open file, but allows renaming one), moves the staged build into
+place, then best-effort removes the `.old` file.
+
+`util/update.go` holds the half both `cli` (writes `update.json`) and
+`cli/shell` (only reads it, to print a notice in `banner()`) need — `cli` is
+`package main` and can't be imported by `cli/shell`. `updateCheckStart`,
+wired into `root.PersistentPreRunE` in `cli/main.go`, runs a TTL-gated
+(`util.UpdateCacheTTL`, 24h) background check on every command except
+`update` and `serve` itself, so the notice in `showVersion()` and the shell
+banner are usually a command or two behind rather than triggering a network
+call on every invocation.
+
 ## `cli/shell/` — the interactive shell
 
 `mininaru shell` is a line editor and terminal front end built from scratch

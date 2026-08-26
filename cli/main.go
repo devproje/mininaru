@@ -20,11 +20,18 @@ var (
 )
 
 func showVersion() {
+	var notice string
+
 	fmt.Println()
 	fmt.Println(util.NaruLogoWithPad("  "))
 	fmt.Println()
 
 	fmt.Println(util.RuntimeIdentity())
+
+	notice = util.UpdateNotice()
+	if notice != "" {
+		fmt.Println(notice)
+	}
 }
 
 func execute(cmd *cobra.Command, args []string) error {
@@ -39,6 +46,11 @@ func execute(cmd *cobra.Command, args []string) error {
 var root *cobra.Command = &cobra.Command{
 	RunE:         execute,
 	SilenceUsage: true,
+	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		updateCheckStart(cmd)
+
+		return nil
+	},
 }
 
 func main() {
@@ -74,6 +86,7 @@ func main() {
 	root.AddCommand(providerCmd)
 	root.AddCommand(agentCmd)
 	root.AddCommand(sessionCmd)
+	root.AddCommand(updateCmd)
 
 	util.DB, err = util.NewDatabase(util.Path("data.db"))
 	if err != nil {

@@ -1,4 +1,4 @@
-콛# mininaru
+# mininaru
 
 <img src="assets/logo.png" alt="mininaru" width="80" align="right">
 
@@ -40,6 +40,42 @@ gh attestation verify mininaru_v0.2.0_linux_amd64.tar.gz --repo devproje/mininar
 The attestation proves the archive came out of this repository's release
 workflow, which a checksum alone cannot tell you.
 
+## Updating
+
+```sh
+mininaru update                 # install the latest release
+mininaru update --check         # print the installed and latest versions only
+mininaru update --tag v1.0.0-alpha.2   # install a specific release
+mininaru update --force         # reinstall the version already running
+```
+
+The archive is checked against the release's `SHA256SUMS` **before** anything
+is replaced. On Linux and macOS the new file is moved into place with a
+rename, which works even while the old one is still running. Windows refuses
+to overwrite a running `.exe`, so there the current executable is renamed to
+`<name>.exe.old` first and the staged build takes its place; the `.old` file
+is removed on a best-effort basis (it may still be locked until the process
+exits — a later `update` run cleans it up automatically).
+
+Versioning restarts at `1.0.0-alpha.1` for this rewrite and does not
+continue the pre-refactor `0.x` line, so `update` looks at the full release
+list (including prereleases) rather than GitHub's "latest" endpoint, which
+excludes prereleases and would otherwise resolve to the old, incompatible
+architecture once a stable release exists again.
+
+Once a day, at most, mininaru checks GitHub for the latest release tag in
+the background and caches the answer in `update.json` under `NARU_PATH`. The
+check never blocks a command: the result is written for the *next* run,
+which is when the notice appears at the top of `mininaru shell` and under
+`--version`.
+
+```
+a newer version is available: v1.0.0-alpha.2 (run `mininaru update`)
+```
+
+A `dev` build never shows it. Set `MININARU_NO_UPDATE_CHECK=1` to turn the
+check off entirely.
+
 ## Storage
 
 Everything lives under `.mininaru/` by default; set `NARU_PATH` to use
@@ -54,7 +90,8 @@ through `/yolo` rather than hand-edited; MCP servers are configured in
 (set via `/agent global <id-or-name>`) is persisted in `.mininaru/shell.json`,
 so it carries over to the next `mininaru shell` launch without needing
 `--agent` again — `/agent current <id-or-name>` skips this file, affecting
-only the running shell.
+only the running shell; the daily background update check caches the latest
+known release tag in `.mininaru/update.json`.
 
 ## Set up a provider and an agent
 

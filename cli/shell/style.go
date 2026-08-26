@@ -198,6 +198,8 @@ func prompt(sh *state) string {
 }
 
 func banner(sh *state) {
+	var updateNotice string
+
 	write("\n%s\n\n", util.NaruLogoWithPad("  "))
 	write("  %smininaru shell%s %s%s%s\n", BOLD, RESET, DIM, util.AppVersion, RESET)
 	write("  %sShift+Tab%s switch mode   %s↑/↓%s history   %sCtrl+J%s newline   %sEsc%s interrupt agent\n", GRAY, RESET, GRAY, RESET, GRAY, RESET, GRAY, RESET)
@@ -205,8 +207,12 @@ func banner(sh *state) {
 
 	if sh.conn != nil {
 		notice(GREEN, "●", "%sconnected%s %s", GREEN, RESET, DIM+sh.url+" · agent "+agentLabel(sh)+" · session "+sh.session+RESET)
-		return
+	} else {
+		notice(YELLOW, "○", "%soffline%s %s", YELLOW, RESET, DIM+"bash mode only, retrying in the background — Shift+Tab retries now"+RESET)
 	}
 
-	notice(YELLOW, "○", "%soffline%s %s", YELLOW, RESET, DIM+"bash mode only, retrying in the background — Shift+Tab retries now"+RESET)
+	updateNotice = util.UpdateNotice()
+	if updateNotice != "" {
+		notice(YELLOW, "↑", "%s", updateNotice)
+	}
 }
