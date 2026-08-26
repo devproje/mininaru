@@ -113,14 +113,18 @@ loopback.
 
 An agent can run `bash_exec`, read/write/edit files, drive a headless
 browser (`browser_navigate`/`browser_click`/`browser_type`/`browser_read`/
-`browser_screenshot`), and delegate one self-contained task to another of
-your configured agents with `agent_spawn` — plus whatever MCP servers you
-configure in `NARU_PATH/mcp.json`. `browser_*` needs a Chrome or Chromium
-binary reachable via `$PATH` or `MININARU_CHROME`; nothing else has an
-external dependency. `agent_spawn` runs the delegate as a real session (it
-shows up in `session list` like any other), starts it with no memory of the
-calling conversation, and can't itself be handed to whatever it delegates
-to — one level of delegation, no chains.
+`browser_screenshot`), delegate one self-contained task to another of your
+configured agents with `agent_spawn`, and inject a message into one of its
+own already-running sessions with `session_send` — plus whatever MCP
+servers you configure in `NARU_PATH/mcp.json`. `browser_*` needs a Chrome or
+Chromium binary reachable via `$PATH` or `MININARU_CHROME`; nothing else has
+an external dependency. `agent_spawn` runs the delegate as a real session
+(it shows up in `session list` like any other), starts it with no memory of
+the calling conversation; `session_send` targets a session that already
+exists (owned by the same agent, never the caller's own), and if a person is
+connected to it live, they see the reply stream in without doing anything.
+Neither tool can be handed to whatever it delegates to or messages — one
+level of delegation, no chains.
 
 Every one of those is gated by **yolo mode**, set per directory with
 `/yolo <off|persist|on>` in the shell:

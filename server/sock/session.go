@@ -6,9 +6,66 @@ package sock
 import (
 	"context"
 	"sync"
+
+	"github.com/devproje/mininaru/core"
+	"github.com/openai/openai-go"
 )
 
 var sessionAutoApprove sync.Map
+
+var liveConns sync.Map
+
+func registerLiveConn(sessionId string, conn *safeConn) {
+	liveConns.Store(sessionId, conn)
+}
+
+func unregisterLiveConn(sessionId string, conn *safeConn) {
+	var stored any
+	var ok bool
+
+	stored, ok = liveConns.Load(sessionId)
+	if !ok || stored.(*safeConn) != conn {
+		return
+	}
+
+	liveConns.Delete(sessionId)
+}
+
+func lookupLiveConn(sessionId string) (*safeConn, bool) {
+	var stored any
+	var ok bool
+
+	stored, ok = liveConns.Load(sessionId)
+	if !ok {
+		return nil, false
+	}
+
+	return stored.(*safeConn), true
+}
+
+func init() {
+	core.SetSessionRouter(func(sessionId string, chunk openai.ChatCompletionChunk) {
+		var conn *safeConn
+		var ok bool
+
+		conn, ok = lookupLiveConn(sessionId)
+		if !ok {
+			return
+		}
+
+		conn.writeFrame(outboundFrame{Type: "chunk", SessionId: sessionId, Chunk: &chunk, Reasoning: chunkReasoning(chunk)})
+	}, func(sessionId, name, status, message string) {
+		var conn *safeConn
+		var ok bool
+
+		conn, ok = lookupLiveConn(sessionId)
+		if !ok {
+			return
+		}
+
+		conn.writeFrame(outboundFrame{Type: "tool", SessionId: sessionId, Name: name, Status: status, Message: message})
+	})
+}
 
 func sessionApproved(sessionId string) bool {
 	var value any

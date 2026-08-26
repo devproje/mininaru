@@ -115,11 +115,12 @@ func approveFunc(conn *safeConn, router *approvalRouter, sessionId, anchor strin
 	}
 }
 
-func handleFrame(ctx context.Context, remoteAddr string, conn *safeConn, frame inboundFrame, router *approvalRouter) {
+func handleFrame(ctx context.Context, remoteAddr string, conn *safeConn, frame inboundFrame, router *approvalRouter, seen *sync.Map) {
 	var session *core.Session
 	var agent *core.Agent
 	var msg core.Message
 	var anchor string
+	var unlock func()
 
 	var err error
 
@@ -144,6 +145,12 @@ func handleFrame(ctx context.Context, remoteAddr string, conn *safeConn, frame i
 		writeErrorFrame(conn, frame.SessionId, err.Error())
 		return
 	}
+
+	registerLiveConn(session.Id, conn)
+	seen.Store(session.Id, struct{}{})
+
+	unlock = core.SessionLock(session.Id)
+	defer unlock()
 
 	msg = core.Message{Id: uuid.NewString(), SessionId: session.Id, Role: "user", Content: frame.Content}
 
@@ -178,6 +185,7 @@ func SockHandler(ctx *gin.Context) {
 	var handlerCtx context.Context
 	var cancel context.CancelFunc
 	var wg sync.WaitGroup
+	var seen sync.Map
 
 	var err error
 
@@ -193,6 +201,12 @@ func SockHandler(ctx *gin.Context) {
 	handlerCtx, cancel = context.WithCancel(ctx.Request.Context())
 
 	defer wsConn.Close()
+	defer func() {
+		seen.Range(func(key, value any) bool {
+			unregisterLiveConn(key.(string), conn)
+			return true
+		})
+	}()
 	defer wg.Wait()
 	defer cancel()
 
@@ -217,7 +231,7 @@ func SockHandler(ctx *gin.Context) {
 		wg.Add(1)
 		go func(f inboundFrame) {
 			defer wg.Done()
-			handleFrame(handlerCtx, remoteAddr, conn, f, router)
+			handleFrame(handlerCtx, remoteAddr, conn, f, router, &seen)
 		}(frame)
 	}
 }

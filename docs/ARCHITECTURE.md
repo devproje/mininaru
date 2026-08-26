@@ -196,7 +196,7 @@ it as an attached image on its next round. The image itself is never
 persisted to SQLite (avoids blob bloat); a resumed session replays the
 placeholder text only, not the picture.
 
-### Delegation — `core/agentspawn.go`
+### Delegation — `core/agentspawn.go`, `core/sessionconnect.go`
 
 `agent_spawn` is the one built-in tool that lives in `core` rather than
 `modules/*` — it needs `AgentByName`/`SessionCreate`/`MessageCreate`/
@@ -238,6 +238,41 @@ nested activity (`agent_spawn` → `worker` → `worker/bash_exec`) shows as one
 line spinning at a time, innermost first, with each level's settled line
 staying in scrollback once it completes. `"started"`'s `Message` (the
 delegation blurb) is printed once, plainly, right before its spinner starts.
+
+`session_send` is `agent_spawn`'s sibling: instead of creating a fresh
+session for a fresh agent, it injects a message into a session that already
+exists, gated to sessions owned by the *same* agent as the caller
+(`target.AgentId != caller.Id` is refused, as is targeting the caller's own
+session — that would deadlock on its own session lock below). It reuses
+`agentSpawnTool`'s `lastAssistantMessage` helper and the same
+`depth < maxSpawnDepth` gate in `buildTools`, and — like `agent_spawn` —
+runs the nested `SendChatMessage` with the caller's own `anchor`/`approve`
+rather than building a second approval path.
+
+Because the target session may have a person watching it live over another
+`/ws` connection, two extra pieces exist purely to serve that case:
+
+- **`core.SessionLock(sessionId string) func()`** (`core/sessionlock.go`) —
+  a `sync.Map` of per-session `*sync.Mutex`, `Load`-or-`Store`d by id. Every
+  place that reads a session's history, appends a new pending message, and
+  runs a `SendChatMessage` round now holds this lock for the duration:
+  `session_send`'s `Execute`, and `server/sock/sock.go`'s `handleFrame` (the
+  normal per-frame path). Without it, `session_send` writing into a session
+  that a person is concurrently typing into — or two fast frames on the same
+  `/ws` connection — could interleave two `historyUnion` reads against the
+  same "one pending message" invariant and corrupt the session.
+- **The live-connection registry** (`server/sock/session.go`) — a
+  `sessionId -> *safeConn` `sync.Map` (`liveConns`, alongside the existing
+  `sessionAutoApprove` map in the same file), populated in `handleFrame` the
+  moment a frame's session is resolved and cleared for a connection's
+  sessions when `SockHandler`'s loop exits. `core` can't import `server/sock`
+  (cycle), so the wiring runs the other way: `core/sessionrouter.go` exposes
+  `SetSessionRouter(chunkFn, toolFn)`, and `server/sock/session.go`'s
+  `init()` calls it once with closures that look a session up in `liveConns`
+  and, if present, `writeFrame` the same `"chunk"`/`"tool"` frame shapes
+  `handleFrame` already sends — so `cli/shell/client.go` needs no changes to
+  render a mirrored round. `session_send`'s nested `onChunk`/`onTool` call
+  these mirror hooks unconditionally; they're no-ops when nobody's watching.
 
 ### Yolo mode — the trust policy behind `approve`
 

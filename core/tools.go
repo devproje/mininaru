@@ -20,6 +20,7 @@ func buildTools(root, sessionId string, caller *Agent, depth int, onTool func(na
 
 	if depth < maxSpawnDepth {
 		tools = append(tools, agentSpawnTool(caller, root, depth, onTool, approve))
+		tools = append(tools, sessionSendTool(caller, sessionId, root, depth, onTool, approve))
 	}
 
 	return tools
