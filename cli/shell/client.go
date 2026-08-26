@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/devproje/mininaru/core"
+	"github.com/devproje/mininaru/util"
 	"github.com/gorilla/websocket"
 	"github.com/openai/openai-go"
 )
@@ -22,8 +23,9 @@ import (
 const interruptPollInterval time.Duration = 100 * time.Millisecond
 
 type frame struct {
+	Type      string `json:"type,omitempty"`
 	SessionId string `json:"session_id"`
-	Content   string `json:"content"`
+	Content   string `json:"content,omitempty"`
 	Cwd       string `json:"cwd,omitempty"`
 }
 
@@ -302,6 +304,11 @@ func connect(sh *state) error {
 
 	sh.conn = conn
 	sh.session = session
+
+	err = conn.WriteJSON(frame{Type: "attach", SessionId: session})
+	if err != nil {
+		util.Log.Debug("shell attach frame failed", "error", err)
+	}
 
 	return nil
 }

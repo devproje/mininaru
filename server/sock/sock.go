@@ -115,6 +115,29 @@ func approveFunc(conn *safeConn, router *approvalRouter, sessionId, anchor strin
 	}
 }
 
+func handleAttach(conn *safeConn, sessionId string, seen *sync.Map) {
+	var err error
+
+	if sessionId == "" {
+		writeErrorFrame(conn, sessionId, "session_id is required")
+		return
+	}
+
+	_, err = core.SessionRead(sessionId)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeErrorFrame(conn, sessionId, "session not found")
+			return
+		}
+
+		writeErrorFrame(conn, sessionId, err.Error())
+		return
+	}
+
+	registerLiveConn(sessionId, conn)
+	seen.Store(sessionId, struct{}{})
+}
+
 func handleFrame(ctx context.Context, remoteAddr string, conn *safeConn, frame inboundFrame, router *approvalRouter, seen *sync.Map) {
 	var session *core.Session
 	var agent *core.Agent
@@ -225,6 +248,11 @@ func SockHandler(ctx *gin.Context) {
 
 		if frame.Type == "approval" {
 			router.deliver(frame.SessionId, frame.Decision)
+			continue
+		}
+
+		if frame.Type == "attach" {
+			handleAttach(conn, frame.SessionId, &seen)
 			continue
 		}
 

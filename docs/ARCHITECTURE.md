@@ -263,16 +263,27 @@ Because the target session may have a person watching it live over another
   same "one pending message" invariant and corrupt the session.
 - **The live-connection registry** (`server/sock/session.go`) — a
   `sessionId -> *safeConn` `sync.Map` (`liveConns`, alongside the existing
-  `sessionAutoApprove` map in the same file), populated in `handleFrame` the
-  moment a frame's session is resolved and cleared for a connection's
-  sessions when `SockHandler`'s loop exits. `core` can't import `server/sock`
-  (cycle), so the wiring runs the other way: `core/sessionrouter.go` exposes
-  `SetSessionRouter(chunkFn, toolFn)`, and `server/sock/session.go`'s
-  `init()` calls it once with closures that look a session up in `liveConns`
-  and, if present, `writeFrame` the same `"chunk"`/`"tool"` frame shapes
-  `handleFrame` already sends — so `cli/shell/client.go` needs no changes to
-  render a mirrored round. `session_send`'s nested `onChunk`/`onTool` call
-  these mirror hooks unconditionally; they're no-ops when nobody's watching.
+  `sessionAutoApprove` map in the same file), populated the moment a session
+  is resolved and cleared for a connection's sessions when `SockHandler`'s
+  loop exits. `core` can't import `server/sock` (cycle), so the wiring runs
+  the other way: `core/sessionrouter.go` exposes `SetSessionRouter(chunkFn,
+  toolFn)`, and `server/sock/session.go`'s `init()` calls it once with
+  closures that look a session up in `liveConns` and, if present,
+  `writeFrame` the same `"chunk"`/`"tool"` frame shapes `handleFrame` already
+  sends — so `cli/shell/client.go` needs no changes to render a mirrored
+  round. `session_send`'s nested `onChunk`/`onTool` call these mirror hooks
+  unconditionally; they're no-ops when nobody's watching.
+
+  Registration used to happen lazily, only inside `handleFrame` once a real
+  chat frame for that session was processed — so a shell that had connected
+  but never sent a message wasn't "live" yet, even though its socket was
+  open and idle. `connect()` (`cli/shell/client.go`) now writes a
+  `{"type":"attach","session_id":...}` frame right after dialing, and
+  `SockHandler` dispatches `"attach"` to `handleAttach` (`server/sock/sock.go`)
+  — a synchronous, no-round path that just validates the session exists
+  (`core.SessionRead`) and calls the same `registerLiveConn`/`seen.Store`
+  pair `handleFrame` uses, so a session counts as live from the moment the
+  shell connects.
 
 `session_list` and `agent_list` (`core/sessiontools.go`) exist purely so a
 model can pick a valid target for the two tools above without being told one

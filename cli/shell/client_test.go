@@ -11,6 +11,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gorilla/websocket"
 )
@@ -302,6 +303,73 @@ func TestRemoveToolNameDropsTheMostRecentMatch(t *testing.T) {
 
 	if len(stack) != 2 || stack[0] != "agent_spawn" || stack[1] != "worker" {
 		t.Fatalf("stack = %v, want the last worker removed", stack)
+	}
+}
+
+func TestConnectSendsAnAttachFrameForTheSession(t *testing.T) {
+	var upgrader websocket.Upgrader
+	var mux *http.ServeMux
+	var server *httptest.Server
+	var sh state
+	var raw []byte
+	var got frame
+	var received chan []byte
+
+	var err error
+
+	received = make(chan []byte, 1)
+
+	mux = http.NewServeMux()
+	mux.HandleFunc("/api/agents", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode([]map[string]string{{"id": "a1", "name": "naru"}})
+	})
+	mux.HandleFunc("/api/sessions", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]string{"id": "s1", "agent_id": "a1"})
+	})
+	mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
+		var conn *websocket.Conn
+		var body []byte
+		var handlerErr error
+
+		conn, handlerErr = upgrader.Upgrade(w, r, nil)
+		if handlerErr != nil {
+			return
+		}
+		defer conn.Close()
+
+		_, body, handlerErr = conn.ReadMessage()
+		if handlerErr == nil {
+			received <- body
+		}
+	})
+
+	server = httptest.NewServer(mux)
+	defer server.Close()
+
+	sh = state{url: "ws" + strings.TrimPrefix(server.URL, "http") + "/ws"}
+
+	err = connect(&sh)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer sh.conn.Close()
+
+	if sh.session != "s1" {
+		t.Fatalf("sh.session = %q, want %q", sh.session, "s1")
+	}
+
+	select {
+	case raw = <-received:
+	case <-time.After(2 * time.Second):
+		t.Fatal("server never received the attach frame")
+	}
+
+	err = json.Unmarshal(raw, &got)
+	if err != nil {
+		t.Fatalf("unmarshal attach frame: %v", err)
+	}
+	if got.Type != "attach" || got.SessionId != "s1" {
+		t.Fatalf("attach frame = %+v, want type=attach session_id=s1", got)
 	}
 }
 
