@@ -26,6 +26,7 @@ func TestChromePathFallsBackToKnownAbsolutePaths(t *testing.T) {
 	var dir string
 	var fake string
 	var original []string
+	var originalCandidates []string
 
 	var err error
 
@@ -36,6 +37,10 @@ func TestChromePathFallsBackToKnownAbsolutePaths(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	originalCandidates = chromeCandidates
+	chromeCandidates = nil
+	t.Cleanup(func() { chromeCandidates = originalCandidates })
 
 	original = chromeAbsolutePaths
 	chromeAbsolutePaths = []string{fake}
