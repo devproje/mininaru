@@ -204,7 +204,7 @@ func banner(sh *state) {
 	write("  %sCtrl+D%s exit   %sCtrl+U%s clear line   %s/help%s agent commands\n\n", GRAY, RESET, GRAY, RESET, GRAY, RESET)
 
 	if sh.conn != nil {
-		notice(GREEN, "●", "%sconnected%s %s", GREEN, RESET, DIM+sh.url+" · session "+sh.session+RESET)
+		notice(GREEN, "●", "%sconnected%s %s", GREEN, RESET, DIM+sh.url+" · agent "+agentLabel(sh)+" · session "+sh.session+RESET)
 		return
 	}
 
