@@ -10,6 +10,7 @@ import (
 	"errors"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/devproje/mininaru/core"
 	"github.com/devproje/mininaru/util"
@@ -52,6 +53,12 @@ type safeConn struct {
 	mu   sync.Mutex
 }
 
+const (
+	pongWait   = 60 * time.Second
+	pingPeriod = 25 * time.Second
+	writeWait  = 10 * time.Second
+)
+
 var upgrader websocket.Upgrader = websocket.Upgrader{
 	CheckOrigin: func(req *http.Request) bool {
 		return true
@@ -64,10 +71,22 @@ func (c *safeConn) writeFrame(frame outboundFrame) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	err = c.conn.SetWriteDeadline(time.Now().Add(writeWait))
+	if err != nil {
+		util.Log.Error("sock write deadline error", "error", err)
+	}
+
 	err = c.conn.WriteJSON(frame)
 	if err != nil {
 		util.Log.Error("sock write error", "error", err)
 	}
+}
+
+func (c *safeConn) ping() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return c.conn.WriteControl(websocket.PingMessage, nil, time.Now().Add(writeWait))
 }
 
 func chunkReasoning(chunk openai.ChatCompletionChunk) string {
@@ -232,6 +251,37 @@ func SockHandler(ctx *gin.Context) {
 	}()
 	defer wg.Wait()
 	defer cancel()
+
+	err = wsConn.SetReadDeadline(time.Now().Add(pongWait))
+	if err != nil {
+		util.Log.Error("sock read deadline error", "error", err)
+	}
+	wsConn.SetPongHandler(func(string) error {
+		return wsConn.SetReadDeadline(time.Now().Add(pongWait))
+	})
+
+	wg.Add(1)
+	go func() {
+		var tick *time.Ticker
+
+		defer wg.Done()
+
+		tick = time.NewTicker(pingPeriod)
+		defer tick.Stop()
+
+		for {
+			select {
+			case <-handlerCtx.Done():
+				return
+			case <-tick.C:
+				if conn.ping() != nil {
+					cancel()
+					wsConn.Close()
+					return
+				}
+			}
+		}
+	}()
 
 	for {
 		frame = inboundFrame{}

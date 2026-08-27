@@ -22,6 +22,12 @@ import (
 
 const interruptPollInterval time.Duration = 100 * time.Millisecond
 
+const (
+	pongWait   time.Duration = 60 * time.Second
+	pingPeriod time.Duration = 25 * time.Second
+	writeWait  time.Duration = 10 * time.Second
+)
+
 type frame struct {
 	Type      string `json:"type,omitempty"`
 	SessionId string `json:"session_id"`
@@ -337,6 +343,41 @@ func dialAgent(cfg dialConfig) dialResult {
 	return result
 }
 
+func writeJSON(sh *state, v any) error {
+	sh.connMu.Lock()
+	defer sh.connMu.Unlock()
+
+	if sh.conn == nil {
+		return fmt.Errorf("not connected")
+	}
+
+	sh.conn.SetWriteDeadline(time.Now().Add(writeWait))
+	return sh.conn.WriteJSON(v)
+}
+
+func pingLoop(sh *state, conn *websocket.Conn) {
+	var tick *time.Ticker
+
+	tick = time.NewTicker(pingPeriod)
+	defer tick.Stop()
+
+	for range tick.C {
+		sh.connMu.Lock()
+		if sh.conn != conn {
+			sh.connMu.Unlock()
+			return
+		}
+
+		conn.SetWriteDeadline(time.Now().Add(writeWait))
+		err := conn.WriteControl(websocket.PingMessage, nil, time.Now().Add(writeWait))
+		sh.connMu.Unlock()
+
+		if err != nil {
+			return
+		}
+	}
+}
+
 func adoptConn(sh *state, result dialResult) {
 	var err error
 
@@ -350,9 +391,15 @@ func adoptConn(sh *state, result dialResult) {
 		sh.name = result.name
 	}
 
-	ensureReader(sh)
+	sh.conn.SetReadDeadline(time.Now().Add(pongWait))
+	sh.conn.SetPongHandler(func(string) error {
+		return result.conn.SetReadDeadline(time.Now().Add(pongWait))
+	})
 
-	err = sh.conn.WriteJSON(frame{Type: "attach", SessionId: sh.session})
+	ensureReader(sh)
+	go pingLoop(sh, sh.conn)
+
+	err = writeJSON(sh, frame{Type: "attach", SessionId: sh.session})
 	if err != nil {
 		util.Log.Debug("shell attach frame failed", "error", err)
 	}
@@ -459,8 +506,11 @@ func disconnect(sh *state, reason error) {
 		return
 	}
 
+	sh.connMu.Lock()
 	sh.conn.Close()
 	sh.conn = nil
+	sh.connMu.Unlock()
+
 	sh.frames = nil
 	sh.mirror = nil
 	sh.wasAgent = sh.mode == MODE_AGENT
@@ -514,7 +564,7 @@ func watchInterrupt(done <-chan struct{}) (<-chan struct{}, <-chan struct{}, *[]
 				continue
 			}
 
-			if buf[0] == 0x1b {
+			if buf[0] == 0x1b || buf[0] == 0x03 {
 				close(interrupted)
 				return
 			}
@@ -746,7 +796,7 @@ func renderFrame(sh *state, rs *renderState, reply reply) (bool, error) {
 
 		decision = approvalPrompt(sh, reply.Name, reply.Arguments)
 
-		err = sh.conn.WriteJSON(approvalResponse{Type: "approval", SessionId: reply.SessionId, Decision: decision})
+		err = writeJSON(sh, approvalResponse{Type: "approval", SessionId: reply.SessionId, Decision: decision})
 		if err != nil {
 			return false, err
 		}
@@ -930,12 +980,12 @@ func sendAgent(sh *state, content string) error {
 
 	sh.mirror = &renderState{}
 
-	err = sh.conn.WriteJSON(frame{SessionId: sh.session, Content: content, Cwd: sh.cwd})
+	err = writeJSON(sh, frame{SessionId: sh.session, Content: content, Cwd: sh.cwd})
 	if err != nil {
 		return err
 	}
 
-	stop = spinner("thinking…")
+	stop = spinnerWords(thinkingWords)
 
 	watch = newInterruptWatch()
 	result = make(chan error, 1)

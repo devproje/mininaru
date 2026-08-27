@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/devproje/mininaru/util"
@@ -38,6 +39,7 @@ type state struct {
 	cwd          string
 	yoloMode     string
 	conn         *websocket.Conn
+	connMu       sync.Mutex
 	session      string
 	history      []string
 	agentHistory []string

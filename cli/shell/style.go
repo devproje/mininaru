@@ -69,7 +69,11 @@ func notice(color string, mark string, format string, args ...any) {
 	write("%s%s%s %s\n", color, mark, RESET, fmt.Sprintf(format, args...))
 }
 
-func spinner(label string) func() {
+const spinnerWordPeriod time.Duration = 2 * time.Second
+
+var thinkingWords = []string{"thinking…", "pondering…", "percolating…", "mulling…", "noodling…"}
+
+func runSpinner(label func(tick int) string) func() {
 	var stop chan struct{}
 	var done chan struct{}
 	var once sync.Once
@@ -90,7 +94,7 @@ func spinner(label string) func() {
 			case <-stop:
 				return
 			case <-tick.C:
-				write("\r\x1b[2K%s%s%s %s%s%s", PURPLE, spinnerFrames[i%len(spinnerFrames)], RESET, DIM, label, RESET)
+				write("\r\x1b[2K%s%s%s %s%s%s", PURPLE, spinnerFrames[i%len(spinnerFrames)], RESET, DIM, label(i), RESET)
 				i++
 			}
 		}
@@ -103,6 +107,25 @@ func spinner(label string) func() {
 			write("\r\x1b[2K")
 		})
 	}
+}
+
+func spinner(label string) func() {
+	return runSpinner(func(int) string { return label })
+}
+
+// spinnerWords rotates through words every spinnerWordPeriod, Claude-Code-style,
+// alongside the usual glyph spin.
+func spinnerWords(words []string) func() {
+	var wordTicks int
+
+	wordTicks = int(spinnerWordPeriod / SPINNER_TICK)
+	if wordTicks < 1 {
+		wordTicks = 1
+	}
+
+	return runSpinner(func(tick int) string {
+		return words[(tick/wordTicks)%len(words)]
+	})
 }
 
 func shortPath(cwd string) string {
@@ -202,7 +225,7 @@ func banner(sh *state) {
 
 	write("\n%s\n\n", util.NaruLogoWithPad("  "))
 	write("  %smininaru shell%s %s%s%s\n", BOLD, RESET, DIM, util.AppVersion, RESET)
-	write("  %sShift+Tab%s switch mode   %s↑/↓%s history   %sCtrl+J%s newline   %sEsc%s interrupt agent\n", GRAY, RESET, GRAY, RESET, GRAY, RESET, GRAY, RESET)
+	write("  %sShift+Tab%s switch mode   %s↑/↓%s history   %sCtrl+J%s newline   %sEsc/Ctrl+C%s interrupt agent\n", GRAY, RESET, GRAY, RESET, GRAY, RESET, GRAY, RESET)
 	write("  %sCtrl+D%s exit   %sCtrl+U%s clear line   %s/help%s agent commands\n\n", GRAY, RESET, GRAY, RESET, GRAY, RESET)
 
 	if sh.conn != nil {
