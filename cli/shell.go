@@ -28,6 +28,7 @@ var (
 	shellSessionRef string
 	shellAgentRef   string
 	shellApiKeyRef  string
+	shellVersionRef bool
 )
 
 func init() {
@@ -35,6 +36,8 @@ func init() {
 	shellCmd.Flags().StringVar(&shellSessionRef, "session", "", "existing session id to chat on")
 	shellCmd.Flags().StringVar(&shellAgentRef, "agent", "", "agent name to open a new session with")
 	shellCmd.Flags().StringVar(&shellApiKeyRef, "api-key", "", "api key for the mininaru server")
+
+	shellCmd.Flags().BoolVar(&shellVersionRef, "version", false, "checking narush version")
 }
 
 func isLoopbackURL(endpoint string) bool {
@@ -80,8 +83,22 @@ func resolveApiKey(explicit string, endpoint string) string {
 	return strings.TrimSpace(string(fromFile))
 }
 
+func showShellVersion() {
+	var base string
+
+	base = util.RuntimeIdentity()
+	base = strings.ReplaceAll(base, "mininaru", "narush")
+
+	fmt.Printf("%s\n", base)
+}
+
 func shellExecute(cmd *cobra.Command, args []string) error {
 	var apiKey string
+
+	if shellVersionRef {
+		showShellVersion()
+		return nil
+	}
 
 	apiKey = resolveApiKey(shellApiKeyRef, shellUrlRef)
 

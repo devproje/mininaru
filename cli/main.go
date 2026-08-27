@@ -39,11 +39,11 @@ func showVersion() {
 }
 
 func execute(cmd *cobra.Command, args []string) error {
-
 	if versionRef {
 		showVersion()
 		return nil
 	}
+
 	return nil
 }
 
