@@ -30,6 +30,10 @@ func bashIncomplete(source string) bool {
 
 	var err error
 
+	if !isBash(bashPath()) {
+		return false
+	}
+
 	cmd = exec.Command(bashPath(), "-n", "-c", source)
 	cmd.Stderr = &stderr
 

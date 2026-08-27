@@ -913,9 +913,33 @@ script itself, never touching `cmd.Stdout`, so it's invisible to the user;
 `state.lastExitCode` still reports the *line's* exit status, not the
 bookkeeping's. `quote()` (already used for the `su -c` re-exec argv above)
 handles safely quoting the state path. Left alone on purpose:
-`multiline.go`'s `bash -n -c` syntax probe (no side effects wanted there)
-and `runNested`'s `su`/`sudo` re-exec (a different process as a different
+`runNested`'s `su`/`sudo` re-exec (a different process as a different
 user — no state to share across that boundary).
+
+**None of this is safe to assume for every `$SHELL` by construction** —
+`bashPath()` resolves `$SHELL`, falling back to `/bin/bash` only when it's
+unset, so on a machine where the login shell is zsh or fish, "bash mode"
+launches *that* binary, not necessarily bash at all. `-i`'s exact
+rc-loading semantics, and definitely `stateWrappedLine`'s `export -p`/
+`declare -f`/`alias -p`/`$?` syntax and `multiline.go`'s `bash -n -c`
+syntax-probe wording (`bashIncomplete`, grepping stderr for bash's specific
+"unexpected EOF" phrasing), are not portable — zsh's `alias` has no `-p`
+flag at all (fails quietly, since stderr is already redirected to
+`/dev/null`, silently dropping only alias-persistence while exports and
+functions still work), and fish's syntax is different enough that the
+whole wrapped script would likely fail to parse, breaking bash-mode
+command execution generally rather than just the newer features.
+`isBash(path string) bool` (`exec.go`, `filepath.Base(path) == "bash"`)
+gates all three: `shellInvokeFlags(path)` only adds `-i` when
+`isBash(path)` (else just `-c`, the conservative choice given no way to
+verify another shell's `-i` behaves the same), `runBash` only calls
+`stateWrappedLine` when `isBash(bashPath())` (else the line runs
+unwrapped, exactly as before this feature existed), and `bashIncomplete`
+returns `false` immediately for a non-bash shell so `incomplete()` falls
+back to the shell-agnostic trailing-backslash check only. A non-bash
+`$SHELL` loses `-i`'s rc-loading, the state-persistence feature, and
+bash-aware multi-line continuation detection — but command execution
+itself never breaks.
 
 ### Agent mode
 

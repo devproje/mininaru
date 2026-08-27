@@ -80,12 +80,20 @@ func bashPath() string {
 	return bashPathUnix()
 }
 
-func shellInvokeFlags() []string {
+func isBash(path string) bool {
+	return filepath.Base(path) == "bash"
+}
+
+func shellInvokeFlags(path string) []string {
 	if runtime.GOOS == "windows" {
 		return []string{"/C"}
 	}
 
-	return []string{"-i", "-c"}
+	if isBash(path) {
+		return []string{"-i", "-c"}
+	}
+
+	return []string{"-c"}
 }
 
 func exitCode(cmd *exec.Cmd) int {
@@ -133,11 +141,17 @@ func runBash(sh *state, line string) {
 	var cmd *exec.Cmd
 	var exitErr *exec.ExitError
 	var args []string
+	var path string
 
 	var err error
 
-	args = append(shellInvokeFlags(), stateWrappedLine(sh.shellState, line))
-	cmd = exec.Command(bashPath(), args...)
+	path = bashPath()
+	if isBash(path) {
+		line = stateWrappedLine(sh.shellState, line)
+	}
+
+	args = append(shellInvokeFlags(path), line)
+	cmd = exec.Command(path, args...)
 	cmd.Dir = sh.cwd
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout

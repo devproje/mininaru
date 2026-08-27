@@ -206,8 +206,42 @@ func TestShellInvokeFlagsMatchTheHostShellSyntax(t *testing.T) {
 		want = []string{"/C"}
 	}
 
-	got = shellInvokeFlags()
+	got = shellInvokeFlags("/bin/bash")
 	if !slices.Equal(got, want) {
-		t.Fatalf("shellInvokeFlags() = %q, want %q for %s", got, want, runtime.GOOS)
+		t.Fatalf("shellInvokeFlags(bash) = %q, want %q for %s", got, want, runtime.GOOS)
+	}
+}
+
+func TestShellInvokeFlagsSkipInteractiveForANonBashShell(t *testing.T) {
+	var want []string
+	var got []string
+
+	want = []string{"-c"}
+	if runtime.GOOS == "windows" {
+		want = []string{"/C"}
+	}
+
+	got = shellInvokeFlags("/usr/bin/zsh")
+	if !slices.Equal(got, want) {
+		t.Fatalf("shellInvokeFlags(zsh) = %q, want %q for %s", got, want, runtime.GOOS)
+	}
+}
+
+func TestIsBash(t *testing.T) {
+	var cases map[string]bool
+	var path string
+	var want bool
+
+	cases = map[string]bool{
+		"/bin/bash":     true,
+		"bash":          true,
+		"/usr/bin/zsh":  false,
+		"/usr/bin/fish": false,
+	}
+
+	for path, want = range cases {
+		if isBash(path) != want {
+			t.Fatalf("isBash(%q) = %v, want %v", path, isBash(path), want)
+		}
 	}
 }
