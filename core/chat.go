@@ -5,309 +5,341 @@ package core
 
 import (
 	"context"
-	"database/sql"
-	"encoding/json"
 	"fmt"
+	"time"
 
-	"github.com/devproje/mininaru/config"
 	"github.com/devproje/mininaru/modules"
-	"github.com/devproje/mininaru/util"
+	"github.com/devproje/mininaru/modules/memory"
+	"github.com/devproje/mininaru/modules/skill"
 	"github.com/google/uuid"
 	"github.com/openai/openai-go"
-	"github.com/openai/openai-go/packages/param"
-	"github.com/openai/openai-go/packages/respjson"
+	"github.com/openai/openai-go/option"
+	"github.com/openai/openai-go/packages/ssestream"
+	"github.com/openai/openai-go/shared"
 )
 
-type Message struct {
-	Id        string `json:"id"`
-	SessionId string `json:"session_id"`
-	Role      string `json:"role"`
-	Content   string `json:"content"`
-	Reasoning string `json:"reasoning"`
-	Status    string `json:"status"`
-	Error     string `json:"error"`
+var streamIdleTimeout = 2 * time.Minute
+
+type ChatMessage struct {
+	Role    string
+	Content string
 }
 
-const (
-	MessagePending   = "pending"
-	MessageCompleted = "completed"
-	MessageFailed    = "failed"
-	MessageCancelled = "cancelled"
-)
+func chatClient(prov *Provider) openai.Client {
+	var opts []option.RequestOption
 
-func MessageList(sessionId string) ([]*Message, error) {
-	var rows *sql.Rows
-	var cur Message
-	var messages []*Message
+	if prov.ApiKey != "" {
+		opts = append(opts, option.WithAPIKey(prov.ApiKey))
+	}
+
+	if prov.BaseUrl != "" {
+		opts = append(opts, option.WithBaseURL(prov.BaseUrl))
+	}
+
+	return openai.NewClient(opts...)
+}
+
+func chatParams(agent *Agent, messages []ChatMessage) openai.ChatCompletionNewParams {
+	var union []openai.ChatCompletionMessageParamUnion
+	var msg ChatMessage
+
+	for _, msg = range messages {
+		switch msg.Role {
+		case "system":
+			union = append(union, openai.SystemMessage(msg.Content))
+		case "assistant":
+			union = append(union, openai.AssistantMessage(msg.Content))
+		default:
+			union = append(union, openai.UserMessage(msg.Content))
+		}
+	}
+
+	return chatParamsUnion(agent, union, nil)
+}
+
+func chatParamsUnion(agent *Agent, messages []openai.ChatCompletionMessageParamUnion, tools []modules.Tool) openai.ChatCompletionNewParams {
+	var params openai.ChatCompletionNewParams
+
+	params.Model = agent.Model
+	params.Messages = messages
+
+	switch ThinkingLevel(agent.ThinkingLevel) {
+	case Low:
+		params.ReasoningEffort = shared.ReasoningEffortLow
+	case Medium:
+		params.ReasoningEffort = shared.ReasoningEffortMedium
+	case High, Max:
+		params.ReasoningEffort = shared.ReasoningEffortHigh
+	}
+
+	if len(tools) > 0 {
+		params.Tools = toolParams(tools)
+	}
+
+	return params
+}
+
+func ChatCompletion(ctx context.Context, agent *Agent, messages []ChatMessage) (*openai.ChatCompletion, error) {
+	var prov *Provider
+	var client openai.Client
+	var params openai.ChatCompletionNewParams
+	var resp *openai.ChatCompletion
 
 	var err error
 
-	rows, err = util.DB.Query("SELECT id, session_id, role, content, reasoning, status, error FROM messages WHERE session_id = ? AND status = ? ORDER BY rowid ASC;", sessionId, MessageCompleted)
+	prov, err = ProviderActive()
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 
-	for rows.Next() {
-		err = rows.Scan(&cur.Id, &cur.SessionId, &cur.Role, &cur.Content, &cur.Reasoning, &cur.Status, &cur.Error)
+	client = chatClient(prov)
+	params = chatParams(agent, messages)
+
+	resp, err = client.Chat.Completions.New(ctx, params)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(resp.Choices) == 0 {
+		err = fmt.Errorf("provider returned no completion choices")
+		return nil, err
+	}
+
+	resp.Model = agent.Name
+
+	return resp, nil
+}
+
+func ChatCompletionStream(ctx context.Context, agent *Agent, messages []ChatMessage, onChunk func(openai.ChatCompletionChunk) error) error {
+	var prov *Provider
+	var client openai.Client
+	var params openai.ChatCompletionNewParams
+	var stream *ssestream.Stream[openai.ChatCompletionChunk]
+	var chunk openai.ChatCompletionChunk
+
+	var err error
+
+	prov, err = ProviderActive()
+	if err != nil {
+		return err
+	}
+
+	client = chatClient(prov)
+	params = chatParams(agent, messages)
+
+	stream = client.Chat.Completions.NewStreaming(ctx, params)
+	defer stream.Close()
+
+	for stream.Next() {
+		chunk = stream.Current()
+		chunk.Model = agent.Name
+
+		err = onChunk(chunk)
 		if err != nil {
-			return nil, err
+			return err
+		}
+	}
+
+	err = stream.Err()
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func chatStreamRound(ctx context.Context, prov *Provider, params openai.ChatCompletionNewParams, onChunk func(openai.ChatCompletionChunk)) (*openai.ChatCompletionAccumulator, error) {
+	var client openai.Client
+	var stream *ssestream.Stream[openai.ChatCompletionChunk]
+	var chunk openai.ChatCompletionChunk
+	var accumulator openai.ChatCompletionAccumulator
+	var roundCtx context.Context
+	var cancel context.CancelFunc
+	var idle *time.Timer
+
+	var err error
+
+	client = chatClient(prov)
+
+	roundCtx, cancel = context.WithCancel(ctx)
+	defer cancel()
+
+	idle = time.AfterFunc(streamIdleTimeout, cancel)
+	defer idle.Stop()
+
+	stream = client.Chat.Completions.NewStreaming(roundCtx, params)
+	defer stream.Close()
+
+	for stream.Next() {
+		idle.Reset(streamIdleTimeout)
+
+		chunk = stream.Current()
+		chunk.Model = params.Model
+		accumulator.AddChunk(chunk)
+
+		onChunk(chunk)
+	}
+
+	err = stream.Err()
+	if err != nil {
+		if roundCtx.Err() != nil && ctx.Err() == nil {
+			return nil, fmt.Errorf("provider stopped sending data (idle for %s)", streamIdleTimeout)
 		}
 
-		messages = append(messages, &Message{
-			Id:        cur.Id,
-			SessionId: cur.SessionId,
-			Role:      cur.Role,
-			Content:   cur.Content,
-			Reasoning: cur.Reasoning,
-			Status:    cur.Status,
-			Error:     cur.Error,
-		})
-	}
-	if err = rows.Err(); err != nil {
 		return nil, err
 	}
 
-	return messages, nil
+	if len(accumulator.Choices) == 0 {
+		return nil, fmt.Errorf("provider returned no completion choices")
+	}
+
+	return &accumulator, nil
 }
 
-func MessageSave(sessionId, role, content, reasoning string) (*Message, error) {
-	var message Message
-
-	var err error
-
-	message = Message{
-		Id:        uuid.NewString(),
-		SessionId: sessionId,
-		Role:      role,
-		Content:   content,
-		Reasoning: reasoning,
-		Status:    MessageCompleted,
-	}
-
-	_, err = util.DB.Exec("INSERT INTO messages (id, session_id, role, content, reasoning, status, error) VALUES (?, ?, ?, ?, ?, ?, ?);",
-		message.Id, message.SessionId, message.Role, message.Content, message.Reasoning, message.Status, message.Error)
-	if err != nil {
-		return nil, err
-	}
-
-	return &message, nil
-}
-
-func messageStart(sessionId, content string) (*Message, error) {
-	var message Message
-
-	var err error
-
-	message = Message{Id: uuid.NewString(), SessionId: sessionId, Role: "user", Content: content, Status: MessagePending}
-	_, err = util.DB.Exec("INSERT INTO messages (id, session_id, role, content, reasoning, status, error) VALUES (?, ?, ?, ?, '', ?, '');",
-		message.Id, message.SessionId, message.Role, message.Content, message.Status)
-	if err != nil {
-		return nil, err
-	}
-
-	return &message, nil
-}
-
-func messageFail(id, status string, chatErr error) error {
-	var text string
-
-	var err error
-
-	if chatErr != nil {
-		text = chatErr.Error()
-	}
-
-	_, err = util.DB.Exec("UPDATE messages SET status = ?, error = ? WHERE id = ?;", status, text, id)
-	return err
-}
-
-func messageCompleteTurn(userId, sessionId, assistantContent, reasoning string) (*Message, error) {
-	var assistant Message
-	var tx *sql.Tx
-
-	var err error
-
-	assistant = Message{Id: uuid.NewString(), SessionId: sessionId, Role: "assistant", Content: assistantContent, Reasoning: reasoning, Status: MessageCompleted}
-
-	tx, err = util.DB.Begin()
-	if err != nil {
-		return nil, err
-	}
-
-	_, err = tx.Exec("UPDATE messages SET status = ?, error = '' WHERE id = ? AND status = ?;", MessageCompleted, userId, MessagePending)
-	if err != nil {
-		tx.Rollback()
-		return nil, err
-	}
-
-	_, err = tx.Exec("INSERT INTO messages (id, session_id, role, content, reasoning, status, error) VALUES (?, ?, ?, ?, ?, ?, '');",
-		assistant.Id, assistant.SessionId, assistant.Role, assistant.Content, assistant.Reasoning, assistant.Status)
-	if err != nil {
-		tx.Rollback()
-		return nil, err
-	}
-
-	err = tx.Commit()
-	if err != nil {
-		return nil, err
-	}
-
-	return &assistant, nil
-}
-
-func deltaReasoning(delta openai.ChatCompletionChunkChoiceDelta) string {
-	var field respjson.Field
-	var ok bool
-	var text string
-
-	var err error
-
-	field, ok = delta.JSON.ExtraFields["reasoning_content"]
-	if !ok {
-		field, ok = delta.JSON.ExtraFields["reasoning"]
-	}
-
-	if !ok {
-		return ""
-	}
-
-	if field.Raw() == "" || field.Raw() == respjson.Null {
-		return ""
-	}
-
-	err = json.Unmarshal([]byte(field.Raw()), &text)
-	if err != nil {
-		return ""
-	}
-
-	return text
-}
-
-func chatWithToolPolicy(ctx context.Context, session *Session, agent *NaruAgent, content string, parts []openai.ChatCompletionContentPartUnionParam,
-	defs []modules.Def, thinking string, onContent, onReasoning func(string), onTool ToolEventFunc, approve ToolApprovalFunc, allowDangerous bool) (*Message, error) {
+func SendChatMessage(ctx context.Context, agent *Agent, session *Session, anchor string, depth int, onChunk func(openai.ChatCompletionChunk), onTool func(name, status, message string), approve ApproveFunc) error {
 	var history []*Message
-	var calls map[string][]*ToolCall
-	var prompt string
-	var summary string
-	var messages []openai.ChatCompletionMessageParamUnion
-	var params openai.ChatCompletionNewParams
+	var union []openai.ChatCompletionMessageParamUnion
 	var pending *Message
-	var run completionRun
-	var result *Completion
-	var contextWindow int64
-	var status string
-	var saveErr error
+	var tools []modules.Tool
+	var prov *Provider
+	var params openai.ChatCompletionNewParams
+	var accumulator *openai.ChatCompletionAccumulator
+	var message openai.ChatCompletionMessage
+	var round int
+	var call openai.ChatCompletionMessageToolCall
+	var record *ToolCall
+	var result string
+	var memoryIndex string
+	var skillCatalog string
+	var assistant Message
+	var updateErr error
 
 	var err error
-
-	if session == nil || agent == nil {
-		return nil, fmt.Errorf("session and agent are required to chat")
-	}
-	if agent.AI == nil && agent.Anthropic == nil {
-		return nil, fmt.Errorf("agent %s has no available provider client", agent.Id)
-	}
 
 	history, err = MessageList(session.Id)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	defs = permittedTools(defs)
+	union, pending, err = historyUnion(history)
+	if err != nil {
+		return err
+	}
+	if pending == nil {
+		err = fmt.Errorf("session %s has no pending user message", session.Id)
+		return err
+	}
 
-	if len(defs) > 0 {
-		calls, err = toolCallsBySession(session.Id)
+	memoryIndex = memory.LoadIndex(agent.Id)
+	if memoryIndex != "" {
+		union = append([]openai.ChatCompletionMessageParamUnion{openai.SystemMessage(memoryIndex)}, union...)
+	}
+	skillCatalog = skill.Catalog()
+	if skillCatalog != "" {
+		union = append([]openai.ChatCompletionMessageParamUnion{openai.SystemMessage(skillCatalog)}, union...)
+	}
+	if agent.Soul != "" {
+		union = append([]openai.ChatCompletionMessageParamUnion{openai.SystemMessage(agent.Soul)}, union...)
+	}
+
+	prov, err = ProviderActive()
+	if err != nil {
+		return err
+	}
+
+	tools = buildTools(anchor, session.Id, agent, depth, onTool, approve)
+
+	for round = 0; round < maxToolRounds; round++ {
+		params = chatParamsUnion(agent, union, tools)
+
+		accumulator, err = chatStreamRound(ctx, prov, params, onChunk)
 		if err != nil {
-			return nil, err
+			updateErr = MessageUpdate(pending.Id, &Message{Status: "failed", Error: err.Error()})
+			if updateErr != nil {
+				return updateErr
+			}
+
+			return err
+		}
+
+		message = accumulator.Choices[0].Message
+		if len(message.ToolCalls) == 0 {
+			err = MessageUpdate(pending.Id, &Message{Status: "completed"})
+			if err != nil {
+				return err
+			}
+
+			assistant = Message{Id: uuid.NewString(), SessionId: session.Id, Role: "assistant", Content: message.Content, Status: "completed"}
+
+			return MessageCreate(&assistant)
+		}
+
+		union = append(union, assistantToolCallMessage(message))
+
+		for _, call = range message.ToolCalls {
+			record, err = toolCallStart(pending.Id, call)
+			if err != nil {
+				return err
+			}
+
+			if onTool != nil {
+				onTool(record.Name, "started", "")
+			}
+
+			result, err = executeTool(ctx, tools, call.Function.Name, call.Function.Arguments, approve)
+			if err != nil {
+				updateErr = ToolCallUpdate(record.Id, &ToolCall{Status: "failed", Error: err.Error(), Result: "error: " + err.Error()})
+				if updateErr != nil {
+					return updateErr
+				}
+
+				if onTool != nil {
+					onTool(record.Name, "failed", err.Error())
+				}
+
+				union = append(union, openai.ToolMessage("error: "+err.Error(), call.ID))
+				continue
+			}
+
+			if isScreenshotResult(result) {
+				err = ToolCallUpdate(record.Id, &ToolCall{Status: "completed", Result: screenshotPlaceholder})
+				if err != nil {
+					return err
+				}
+
+				if onTool != nil {
+					onTool(record.Name, "finished", "")
+				}
+
+				union = append(union, openai.ToolMessage(screenshotPlaceholder, call.ID))
+				union = append(union, openai.UserMessage([]openai.ChatCompletionContentPartUnionParam{
+					openai.ImageContentPart(openai.ChatCompletionContentPartImageImageURLParam{URL: result}),
+				}))
+				continue
+			}
+
+			err = ToolCallUpdate(record.Id, &ToolCall{Status: "completed", Result: result})
+			if err != nil {
+				return err
+			}
+
+			if record.Name == skill.ToolName {
+				skillUseRecord(session.Id, record)
+			}
+
+			if onTool != nil {
+				onTool(record.Name, "finished", "")
+			}
+
+			union = append(union, openai.ToolMessage(result, call.ID))
 		}
 	}
 
-	prompt = systemPrompt(agent, defs)
-	contextWindow = agent.CachedModelContextWindow()
-
-	summary, history = compactHistory(ctx, agent, session, history)
-	if summary != "" {
-		prompt = prompt + "\n\n" + summaryBlock(summary)
+	err = fmt.Errorf("tool call limit exceeded after %d rounds", maxToolRounds)
+	updateErr = MessageUpdate(pending.Id, &Message{Status: "failed", Error: err.Error()})
+	if updateErr != nil {
+		return updateErr
 	}
 
-	messages = append(messages, openai.SystemMessage(prompt))
-	messages = append(messages, historyMessages(history, calls)...)
-	if len(parts) > 0 {
-		messages = append(messages, openai.UserMessage(parts))
-	} else {
-		messages = append(messages, openai.UserMessage(content))
-	}
-
-	params = openai.ChatCompletionNewParams{
-		Model:    agent.Model,
-		Messages: messages,
-	}
-	params.StreamOptions.IncludeUsage = param.NewOpt(true)
-	applyOpenAICache(&params, agentProvider(agent))
-	if len(defs) > 0 {
-		params.Tools = toolParams(defs)
-	}
-
-	if thinking != "" && thinking != config.ThinkingOff {
-		params.ReasoningEffort = openai.ReasoningEffort(thinking)
-	}
-
-	pending, err = messageStart(session.Id, content)
-	if err != nil {
-		return nil, err
-	}
-
-	run = completionRun{
-		AI: agent.AI, Anthropic: agent.Anthropic, Provider: agentProvider(agent), Params: params, Defs: defs, AllowDangerous: allowDangerous, AllowPrivileged: true,
-		AgentId:   agent.Id,
-		SessionId: session.Id, MessageId: pending.Id,
-		OnContent: onContent, OnReasoning: onReasoning, OnTool: onTool, Approve: approve,
-	}
-
-	result, err = run.execute(ctx)
-	if err != nil {
-		status = MessageFailed
-		if ctx.Err() != nil {
-			status = MessageCancelled
-		}
-
-		saveErr = messageFail(pending.Id, status, err)
-		if saveErr != nil {
-			return nil, fmt.Errorf("chat failed: %v; recording failure also failed: %w", err, saveErr)
-		}
-
-		return nil, err
-	}
-
-	usageRecordWithContext(session.Id, pending.Id, UsageTurn, result.Usage, result.ContextTokens, contextWindow)
-
-	return messageCompleteTurn(pending.Id, session.Id, result.Content, result.Reasoning)
-}
-
-func chatWithTools(ctx context.Context, session *Session, agent *NaruAgent, content string, defs []modules.Def, onContent, onReasoning func(string), onTool ToolEventFunc, approve ToolApprovalFunc) (*Message, error) {
-	return chatWithToolPolicy(ctx, session, agent, content, nil, defs, config.Client.Thinking.Level, onContent, onReasoning, onTool, approve, config.AllowDangerousTools)
-}
-
-func Chat(ctx context.Context, session *Session, agent *NaruAgent, content string, onContent, onReasoning func(string)) (*Message, error) {
-	var defs []modules.Def
-
-	if config.Client.Tools.Enabled {
-		defs = modules.DefaultTools()
-	}
-
-	return chatWithTools(ctx, session, agent, content, defs, onContent, onReasoning, nil, nil)
-}
-
-func ChatWithApproval(ctx context.Context, session *Session, agent *NaruAgent, content string, onContent, onReasoning func(string), onTool ToolEventFunc, approve ToolApprovalFunc) (*Message, error) {
-	var defs []modules.Def
-
-	if config.Client.Tools.Enabled {
-		defs = modules.DefaultTools()
-	}
-
-	return chatWithTools(ctx, session, agent, content, defs, onContent, onReasoning, onTool, approve)
-}
-
-func ChatWithTools(ctx context.Context, session *Session, agent *NaruAgent, content string, defs []modules.Def, onContent, onReasoning func(string)) (*Message, error) {
-	return chatWithTools(ctx, session, agent, content, defs, onContent, onReasoning, nil, nil)
+	return err
 }

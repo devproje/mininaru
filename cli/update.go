@@ -5,6 +5,7 @@ package main
 
 import (
 	"archive/tar"
+	"archive/zip"
 	"compress/gzip"
 	"context"
 	"crypto/sha256"
@@ -20,7 +21,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/devproje/mininaru/config"
 	"github.com/devproje/mininaru/util"
 	"github.com/spf13/cobra"
 )
@@ -36,20 +36,11 @@ type release struct {
 	Assets     []releaseAsset `json:"assets"`
 }
 
-type updateCache struct {
-	Tag       string `json:"tag"`
-	CheckedAt int64  `json:"checked_at"`
-}
-
 const updateRepo = "devproje/mininaru"
 
 const updateBinaryName = "mininaru"
 
 const updateSumsName = "SHA256SUMS"
-
-const updateCacheFile = "update.json"
-
-const updateCacheTTL = 24 * time.Hour
 
 const maxUpdateBinary = 64 << 20
 
@@ -57,17 +48,16 @@ const maxUpdateSums = 1 << 20
 
 const maxUpdateRelease = 4 << 20
 
-const devVersion = "dev"
+const maxUpdateReleaseList = 16 << 20
 
 var updateApiBase string = "https://api.github.com"
 
 var updateClient *http.Client = &http.Client{Timeout: 60 * time.Second}
 
 var (
-	updateTagRef       string
-	updateCheckRef     bool
-	updateForceRef     bool
-	updateNoRestartRef bool
+	updateTagRef   string
+	updateCheckRef bool
+	updateForceRef bool
 )
 
 var updateCmd *cobra.Command = &cobra.Command{
@@ -76,29 +66,32 @@ var updateCmd *cobra.Command = &cobra.Command{
 	Long: `Replace the running mininaru executable with a published release build.
 
 The archive is verified against the release's SHA256SUMS before anything is
-replaced, and the new file is moved into place atomically, so a failed update
-leaves the current executable untouched. If the systemd user daemon is
-installed it is restarted afterwards.
-
-Linux and macOS only; on Windows, download the zip from the releases page.`,
+replaced, and the new file is moved into place atomically.`,
 	Example: `  mininaru update
   mininaru update --check
-  mininaru update --tag v0.3.0`,
-	Args: usageArgs(cobra.NoArgs),
+  mininaru update --tag v1.0.0-alpha.2`,
+	Args: cobra.NoArgs,
 	RunE: updateExecute,
 }
 
-func updateSupported() error {
-	if runtime.GOOS == "linux" || runtime.GOOS == "darwin" {
-		return nil
+func updateAssetExt() string {
+	if runtime.GOOS == "windows" {
+		return ".zip"
 	}
 
-	return configErrorf("`mininaru update` supports linux and darwin, not %s: download the release from https://github.com/%s/releases",
-		runtime.GOOS, updateRepo)
+	return ".tar.gz"
+}
+
+func updateBinaryFile() string {
+	if runtime.GOOS == "windows" {
+		return updateBinaryName + ".exe"
+	}
+
+	return updateBinaryName
 }
 
 func updateAssetName(tag string) string {
-	return fmt.Sprintf("%s_%s_%s_%s.tar.gz", updateBinaryName, tag, runtime.GOOS, runtime.GOARCH)
+	return fmt.Sprintf("%s_%s_%s_%s%s", updateBinaryName, tag, runtime.GOOS, runtime.GOARCH, updateAssetExt())
 }
 
 func updateGet(ctx context.Context, url string) (*http.Response, error) {
@@ -139,17 +132,41 @@ func updateGet(ctx context.Context, url string) (*http.Response, error) {
 	return nil, fmt.Errorf("github answered %s for %s", response.Status, url)
 }
 
-func updateFetchRelease(ctx context.Context, tag string) (*release, error) {
+func updateLatestRelease(ctx context.Context) (*release, error) {
+	var url string
+	var response *http.Response
+	var list []release
+
+	var err error
+
+	url = updateApiBase + "/repos/" + updateRepo + "/releases"
+
+	response, err = updateGet(ctx, url)
+	if err != nil {
+		return nil, err
+	}
+	defer response.Body.Close()
+
+	err = json.NewDecoder(io.LimitReader(response.Body, maxUpdateReleaseList)).Decode(&list)
+	if err != nil {
+		return nil, fmt.Errorf("reading the release list failed: %w", err)
+	}
+
+	if len(list) == 0 {
+		return nil, fmt.Errorf("repository %s has no releases", updateRepo)
+	}
+
+	return &list[0], nil
+}
+
+func updateTaggedRelease(ctx context.Context, tag string) (*release, error) {
 	var url string
 	var response *http.Response
 	var current release
 
 	var err error
 
-	url = updateApiBase + "/repos/" + updateRepo + "/releases/latest"
-	if tag != "" {
-		url = updateApiBase + "/repos/" + updateRepo + "/releases/tags/" + tag
-	}
+	url = updateApiBase + "/repos/" + updateRepo + "/releases/tags/" + tag
 
 	response, err = updateGet(ctx, url)
 	if err != nil {
@@ -167,6 +184,14 @@ func updateFetchRelease(ctx context.Context, tag string) (*release, error) {
 	}
 
 	return &current, nil
+}
+
+func updateFetchRelease(ctx context.Context, tag string) (*release, error) {
+	if tag == "" {
+		return updateLatestRelease(ctx)
+	}
+
+	return updateTaggedRelease(ctx, tag)
 }
 
 func updateFindAsset(current *release, name string) (string, error) {
@@ -223,57 +248,11 @@ func updateDownloadSums(ctx context.Context, url string) ([]byte, error) {
 	return buf, nil
 }
 
-func updateExtract(archive io.Reader, out io.Writer) error {
-	var reader *gzip.Reader
-	var entries *tar.Reader
-	var header *tar.Header
-	var written int64
-
-	var err error
-
-	reader, err = gzip.NewReader(archive)
-	if err != nil {
-		return fmt.Errorf("the archive is not gzip: %w", err)
-	}
-	defer reader.Close()
-
-	entries = tar.NewReader(reader)
-
-	for {
-		header, err = entries.Next()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return fmt.Errorf("reading the archive failed: %w", err)
-		}
-
-		if header.Typeflag != tar.TypeReg || filepath.Base(header.Name) != updateBinaryName {
-			continue
-		}
-
-		written, err = io.Copy(out, io.LimitReader(entries, maxUpdateBinary+1))
-		if err != nil {
-			return err
-		}
-		if written > maxUpdateBinary {
-			return fmt.Errorf("the executable in the archive exceeds %d bytes", maxUpdateBinary)
-		}
-		if written == 0 {
-			return fmt.Errorf("the executable in the archive is empty")
-		}
-
-		return nil
-	}
-
-	return fmt.Errorf("the archive has no %s executable", updateBinaryName)
-}
-
-func updateStage(ctx context.Context, url, want, dir string) (string, error) {
+func updateDownloadArchive(ctx context.Context, url, want, dir string) (string, error) {
 	var response *http.Response
 	var hasher stdhash.Hash
 	var reader io.Reader
-	var staged *os.File
+	var archive *os.File
 	var got string
 
 	var err error
@@ -286,34 +265,180 @@ func updateStage(ctx context.Context, url, want, dir string) (string, error) {
 	}
 	defer response.Body.Close()
 
-	staged, err = os.CreateTemp(dir, updateBinaryName+".new")
+	archive, err = os.CreateTemp(dir, updateBinaryName+".archive")
 	if err != nil {
-		return "", fmt.Errorf("cannot stage the download next to the current executable in %s: %w", dir, err)
+		return "", fmt.Errorf("cannot stage the download in %s: %w", dir, err)
 	}
 
-	reader = io.TeeReader(response.Body, hasher)
+	reader = io.TeeReader(io.LimitReader(response.Body, maxUpdateBinary+1<<20), hasher)
 
-	err = updateExtract(reader, staged)
-	if err == nil {
-		_, err = io.Copy(io.Discard, reader)
-	}
-
-	staged.Close()
-
+	_, err = io.Copy(archive, reader)
+	archive.Close()
 	if err != nil {
-		os.Remove(staged.Name())
+		os.Remove(archive.Name())
 
 		return "", err
 	}
 
 	got = hex.EncodeToString(hasher.Sum(nil))
 	if got != want {
-		os.Remove(staged.Name())
+		os.Remove(archive.Name())
 
 		return "", fmt.Errorf("checksum mismatch for the download: expected %s, got %s", want, got)
 	}
 
-	return staged.Name(), nil
+	return archive.Name(), nil
+}
+
+func updateExtractTarGz(archivePath, dir, binaryName string) (string, error) {
+	var archive *os.File
+	var reader *gzip.Reader
+	var entries *tar.Reader
+	var header *tar.Header
+	var staged *os.File
+	var written int64
+
+	var err error
+
+	archive, err = os.Open(archivePath)
+	if err != nil {
+		return "", err
+	}
+	defer archive.Close()
+
+	reader, err = gzip.NewReader(archive)
+	if err != nil {
+		return "", fmt.Errorf("the archive is not gzip: %w", err)
+	}
+	defer reader.Close()
+
+	entries = tar.NewReader(reader)
+
+	for {
+		header, err = entries.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return "", fmt.Errorf("reading the archive failed: %w", err)
+		}
+
+		if header.Typeflag != tar.TypeReg || filepath.Base(header.Name) != binaryName {
+			continue
+		}
+
+		staged, err = os.CreateTemp(dir, updateBinaryName+".new")
+		if err != nil {
+			return "", fmt.Errorf("cannot stage the executable in %s: %w", dir, err)
+		}
+
+		written, err = io.Copy(staged, io.LimitReader(entries, maxUpdateBinary+1))
+		staged.Close()
+		if err != nil {
+			os.Remove(staged.Name())
+
+			return "", err
+		}
+		if written > maxUpdateBinary {
+			os.Remove(staged.Name())
+
+			return "", fmt.Errorf("the executable in the archive exceeds %d bytes", maxUpdateBinary)
+		}
+		if written == 0 {
+			os.Remove(staged.Name())
+
+			return "", fmt.Errorf("the executable in the archive is empty")
+		}
+
+		return staged.Name(), nil
+	}
+
+	return "", fmt.Errorf("the archive has no %s executable", binaryName)
+}
+
+func updateExtractZip(archivePath, dir, binaryName string) (string, error) {
+	var reader *zip.ReadCloser
+	var entry *zip.File
+	var source io.ReadCloser
+	var staged *os.File
+	var written int64
+
+	var err error
+
+	reader, err = zip.OpenReader(archivePath)
+	if err != nil {
+		return "", fmt.Errorf("the archive is not zip: %w", err)
+	}
+	defer reader.Close()
+
+	for _, entry = range reader.File {
+		if filepath.Base(entry.Name) != binaryName {
+			continue
+		}
+
+		source, err = entry.Open()
+		if err != nil {
+			return "", err
+		}
+
+		staged, err = os.CreateTemp(dir, updateBinaryName+".new")
+		if err != nil {
+			source.Close()
+
+			return "", fmt.Errorf("cannot stage the executable in %s: %w", dir, err)
+		}
+
+		written, err = io.Copy(staged, io.LimitReader(source, maxUpdateBinary+1))
+		source.Close()
+		staged.Close()
+		if err != nil {
+			os.Remove(staged.Name())
+
+			return "", err
+		}
+		if written > maxUpdateBinary {
+			os.Remove(staged.Name())
+
+			return "", fmt.Errorf("the executable in the archive exceeds %d bytes", maxUpdateBinary)
+		}
+		if written == 0 {
+			os.Remove(staged.Name())
+
+			return "", fmt.Errorf("the executable in the archive is empty")
+		}
+
+		return staged.Name(), nil
+	}
+
+	return "", fmt.Errorf("the archive has no %s executable", binaryName)
+}
+
+func updateExtract(archivePath, dir string) (string, error) {
+	if updateAssetExt() == ".zip" {
+		return updateExtractZip(archivePath, dir, updateBinaryFile())
+	}
+
+	return updateExtractTarGz(archivePath, dir, updateBinaryFile())
+}
+
+func updateStage(ctx context.Context, url, want, dir string) (string, error) {
+	var archivePath string
+	var staged string
+
+	var err error
+
+	archivePath, err = updateDownloadArchive(ctx, url, want, dir)
+	if err != nil {
+		return "", err
+	}
+	defer os.Remove(archivePath)
+
+	staged, err = updateExtract(archivePath, dir)
+	if err != nil {
+		return "", err
+	}
+
+	return staged, nil
 }
 
 func updateTarget() (string, error) {
@@ -329,7 +454,7 @@ func updateTarget() (string, error) {
 	return filepath.EvalSymlinks(target)
 }
 
-func updateReplace(staged, target string) error {
+func updateReplaceUnix(staged, target string) error {
 	var err error
 
 	err = os.Chmod(staged, 0755)
@@ -347,58 +472,40 @@ func updateReplace(staged, target string) error {
 	return nil
 }
 
-func updateCachePath() string {
-	return util.Path(updateCacheFile)
-}
-
-func updateCacheRead() updateCache {
-	var current updateCache
-	var buf []byte
+func updateReplaceWindows(staged, target string) error {
+	var previous string
 
 	var err error
 
-	buf, err = os.ReadFile(updateCachePath())
+	previous = target + ".old"
+
+	os.Remove(previous)
+
+	err = os.Rename(target, previous)
 	if err != nil {
-		return current
+		os.Remove(staged)
+
+		return fmt.Errorf("moving the running executable aside failed: %w", err)
 	}
 
-	err = json.Unmarshal(buf, &current)
+	err = os.Rename(staged, target)
 	if err != nil {
-		return updateCache{}
+		os.Rename(previous, target)
+
+		return fmt.Errorf("replacing %s failed: %w", target, err)
 	}
 
-	return current
+	os.Remove(previous)
+
+	return nil
 }
 
-func updateCacheWrite(tag string) {
-	var buf []byte
-
-	var err error
-
-	buf, err = json.MarshalIndent(updateCache{Tag: tag, CheckedAt: time.Now().Unix()}, "", "    ")
-	if err != nil {
-		return
+func updateReplace(staged, target string) error {
+	if runtime.GOOS == "windows" {
+		return updateReplaceWindows(staged, target)
 	}
 
-	err = util.WriteFileAtomic(updateCachePath(), buf, 0600)
-	if err != nil {
-		util.Log.Debug("caching the update check failed", "error", err)
-	}
-}
-
-func updateNotice() string {
-	var current updateCache
-
-	if util.AppVersion == devVersion || !config.UpdateCheckEnabled() {
-		return ""
-	}
-
-	current = updateCacheRead()
-	if current.Tag == "" || current.Tag == util.AppVersion {
-		return ""
-	}
-
-	return fmt.Sprintf("a newer version is available: %s (run `mininaru update`)", current.Tag)
+	return updateReplaceUnix(staged, target)
 }
 
 func updateCheckSkipped(cmd *cobra.Command) bool {
@@ -406,7 +513,7 @@ func updateCheckSkipped(cmd *cobra.Command) bool {
 
 	for current = cmd; current != nil; current = current.Parent() {
 		switch current.Name() {
-		case "update", "serve", "daemon":
+		case "update", "serve":
 			return true
 		}
 	}
@@ -415,14 +522,14 @@ func updateCheckSkipped(cmd *cobra.Command) bool {
 }
 
 func updateCheckStart(cmd *cobra.Command) {
-	var cached updateCache
+	var cached util.UpdateCache
 
-	if util.AppVersion == devVersion || !config.UpdateCheckEnabled() || updateCheckSkipped(cmd) {
+	if util.AppVersion == "dev" || os.Getenv("MININARU_NO_UPDATE_CHECK") != "" || updateCheckSkipped(cmd) {
 		return
 	}
 
-	cached = updateCacheRead()
-	if time.Since(time.Unix(cached.CheckedAt, 0)) < updateCacheTTL {
+	cached = util.UpdateCacheRead()
+	if time.Since(time.Unix(cached.CheckedAt, 0)) < util.UpdateCacheTTL {
 		return
 	}
 
@@ -436,14 +543,14 @@ func updateCheckStart(cmd *cobra.Command) {
 		ctx, cancel = context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
-		latest, err = updateFetchRelease(ctx, "")
+		latest, err = updateLatestRelease(ctx)
 		if err != nil {
 			util.Log.Debug("the background update check failed", "error", err)
 
 			return
 		}
 
-		updateCacheWrite(latest.TagName)
+		util.UpdateCacheWrite(latest.TagName)
 	}()
 }
 
@@ -456,7 +563,6 @@ func updateExecute(cmd *cobra.Command, args []string) error {
 	var sums []byte
 	var want string
 	var staged string
-	var installed bool
 
 	var err error
 
@@ -466,32 +572,27 @@ func updateExecute(cmd *cobra.Command, args []string) error {
 	}
 
 	if updateTagRef == "" {
-		updateCacheWrite(latest.TagName)
+		util.UpdateCacheWrite(latest.TagName)
 	}
 
 	if updateCheckRef {
-		uiOk("installed: %s", util.AppVersion)
-		uiOk("latest:    %s", latest.TagName)
+		fmt.Printf("installed: %s\n", util.AppVersion)
+		fmt.Printf("latest:    %s\n", latest.TagName)
 
 		if latest.TagName == util.AppVersion {
-			uiNote("already up to date")
+			fmt.Println("already up to date")
 
 			return nil
 		}
 
-		uiNote("run `mininaru update` to install %s", latest.TagName)
+		fmt.Println("run `mininaru update` to install it")
 
 		return nil
 	}
 
-	err = updateSupported()
-	if err != nil {
-		return err
-	}
-
 	if latest.TagName == util.AppVersion && !updateForceRef {
-		uiOk("already running %s", util.AppVersion)
-		uiNote("pass --force to reinstall it")
+		fmt.Printf("already running %s\n", util.AppVersion)
+		fmt.Println("pass --force to reinstall it")
 
 		return nil
 	}
@@ -523,7 +624,7 @@ func updateExecute(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	uiNote("downloading %s", assetName)
+	fmt.Printf("downloading %s\n", assetName)
 
 	staged, err = updateStage(cmd.Context(), assetUrl, want, filepath.Dir(target))
 	if err != nil {
@@ -535,26 +636,7 @@ func updateExecute(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	uiOk("updated %s to %s", target, latest.TagName)
-
-	if updateNoRestartRef {
-		return nil
-	}
-
-	installed, err = daemonInstalled()
-	if err != nil {
-		return err
-	}
-	if !installed {
-		return nil
-	}
-
-	err = daemonRestart(cmd.Context())
-	if err != nil {
-		return fmt.Errorf("the executable was updated but restarting the daemon failed: %w", err)
-	}
-
-	uiOk("restarted %s", daemonUnitName)
+	fmt.Printf("updated %s to %s\n", target, latest.TagName)
 
 	return nil
 }
@@ -563,5 +645,4 @@ func init() {
 	updateCmd.Flags().StringVar(&updateTagRef, "tag", "", "release tag to install, defaults to the latest release")
 	updateCmd.Flags().BoolVar(&updateCheckRef, "check", false, "report the installed and latest versions without installing")
 	updateCmd.Flags().BoolVar(&updateForceRef, "force", false, "reinstall even when the latest version is already running")
-	updateCmd.Flags().BoolVar(&updateNoRestartRef, "no-restart", false, "leave the systemd user daemon alone after updating")
 }

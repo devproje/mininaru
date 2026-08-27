@@ -22,7 +22,6 @@ const migrationSchema = `CREATE TABLE IF NOT EXISTS migrations(
 
 var (
 	DB *sql.DB
-
 	//go:embed migrations/*.sql
 	files embed.FS
 )
@@ -135,53 +134,7 @@ func migrations(db *sql.DB) error {
 		return err
 	}
 
-	err = ensureTokenUsageCachedTokens(db)
-	if err != nil {
-		return err
-	}
-
 	return nil
-}
-
-func ensureTokenUsageCachedTokens(db *sql.DB) error {
-	var rows *sql.Rows
-	var name string
-	var exists bool
-
-	var err error
-
-	rows, err = db.Query("SELECT name FROM pragma_table_info('token_usage');")
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		err = rows.Scan(&name)
-		if err != nil {
-			return err
-		}
-		if name == "cached_tokens" {
-			exists = true
-			break
-		}
-	}
-
-	err = rows.Err()
-	if err != nil {
-		return err
-	}
-	if exists {
-		return nil
-	}
-
-	err = rows.Close()
-	if err != nil {
-		return err
-	}
-
-	_, err = db.Exec("ALTER TABLE token_usage ADD COLUMN cached_tokens INTEGER NOT NULL DEFAULT 0;")
-	return err
 }
 
 func databaseDSN(dbPath string) string {
@@ -196,21 +149,19 @@ func databaseDSN(dbPath string) string {
 	return "file:" + dbPath + "?" + query
 }
 
-func InitDatabase(dbPath string) (*sql.DB, error) {
-	var database *sql.DB
-
+func NewDatabase(dbPath string) (*sql.DB, error) {
+	var db *sql.DB
 	var err error
 
-	database, err = sql.Open("sqlite", databaseDSN(dbPath))
+	db, err = sql.Open("sqlite", databaseDSN(dbPath))
 	if err != nil {
 		return nil, err
 	}
 
-	err = migrations(database)
+	err = migrations(db)
 	if err != nil {
-		database.Close()
 		return nil, err
 	}
 
-	return database, nil
+	return db, nil
 }

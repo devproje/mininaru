@@ -40,3 +40,25 @@ jobs:
           GOOS=linux GOARCH=amd64 go build ./...
           GOOS=linux GOARCH=arm64 go build ./...
           GOOS=darwin GOARCH=arm64 go build ./...
+
+  scripts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: shellcheck
+        run: shellcheck scripts/*.sh
+
+      - name: parse powershell
+        shell: pwsh
+        run: |
+          $failed = $false
+          foreach ($file in Get-ChildItem scripts/*.ps1) {
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($file.FullName, [ref]$null, [ref]$errors) | Out-Null
+            if ($errors) {
+              $failed = $true
+              Write-Host "::error file=$($file.Name)::$($errors -join '; ')"
+            }
+          }
+          if ($failed) { exit 1 }

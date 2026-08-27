@@ -9,15 +9,20 @@ LD_FLAGS := -s -w						\
 			-X main.hash=$(GIT_HASH)$(DIRTY)
 
 TARGET  = out/mininaru
-FMT_DIR = bot/ cli/ config/ core/ modules/ rpc/ server/ util/
+ALIAS   = out/narush
+FMT_DIR = cli/ core/ server/ modules/ util/
 
 COVER_OUT = out/coverage.out
 
 DIST_DIR = dist
 GOOS    ?= $(shell go env GOOS)
 GOARCH  ?= $(shell go env GOARCH)
-DIST_NAME = mininaru_$(GOOS)_$(GOARCH)
-DIST_BIN  = $(DIST_DIR)/$(DIST_NAME)/mininaru$(if $(filter windows,$(GOOS)),.exe,)
+DIST_NAME  = mininaru_$(GOOS)_$(GOARCH)
+DIST_BIN   = $(DIST_DIR)/$(DIST_NAME)/mininaru$(if $(filter windows,$(GOOS)),.exe,)
+DIST_ALIAS = $(DIST_DIR)/$(DIST_NAME)/narush$(if $(filter windows,$(GOOS)),.exe,)
+
+PREFIX ?= $(HOME)/.local
+BINDIR ?= $(PREFIX)/bin
 
 .PHONY: all build generate fmt vet test test-race test-cover test-all dist install uninstall clean
 
@@ -25,16 +30,21 @@ all: build
 
 build:
 	go build -ldflags "$(LD_FLAGS)" -o $(TARGET) ./cli
-
-generate:
-	sh ./scripts/generate-proto.sh
+	@ln -sf $(notdir $(TARGET)) $(ALIAS)
 
 dist:
 	@mkdir -p $(dir $(DIST_BIN))
 	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) \
 		go build -trimpath -ldflags "$(LD_FLAGS)" -o $(DIST_BIN) ./cli
+	@cp $(DIST_BIN) $(DIST_ALIAS)
 	@cp LICENSE COPYRIGHT.md README.md $(dir $(DIST_BIN))
-	@echo "built $(DIST_BIN)"
+	@echo "built $(DIST_BIN) and $(DIST_ALIAS)"
+
+install: build
+	@BINDIR="$(BINDIR)" DESTDIR="$(DESTDIR)" scripts/install-binary.sh
+
+uninstall:
+	@BINDIR="$(BINDIR)" DESTDIR="$(DESTDIR)" scripts/install-binary.sh --uninstall
 
 fmt:
 	@echo "checking code format..."
@@ -60,12 +70,6 @@ test-cover: fmt vet
 
 test-all: test-race test-cover
 
-install: build
-	bash ./scripts/binary-install.sh
-
-uninstall:
-	bash ./scripts/binary-install.sh --uninstall
-
 clean:
-	@rm -f $(TARGET) $(COVER_OUT)
+	@rm -f $(TARGET) $(ALIAS) $(COVER_OUT)
 	@rm -rf out/ $(DIST_DIR)/

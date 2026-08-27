@@ -8,7 +8,7 @@ import (
 	"encoding/json"
 	"strings"
 
-	"github.com/devproje/mininaru/modules"
+	"github.com/devproje/mininaru/modules/skill"
 	"github.com/devproje/mininaru/util"
 	"github.com/google/uuid"
 )
@@ -26,7 +26,7 @@ func skillUseRecord(sessionId string, record *ToolCall) {
 		Name string `json:"name"`
 		Path string `json:"path"`
 	}
-	var entry *modules.Skill
+	var entry *skill.Skill
 	var scope string
 	var path string
 
@@ -46,7 +46,7 @@ func skillUseRecord(sessionId string, record *ToolCall) {
 		return
 	}
 
-	entry = modules.SkillFind(payload.Name)
+	entry = skill.Find(payload.Name)
 	if entry != nil {
 		scope = entry.Scope
 		path = entry.Path

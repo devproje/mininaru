@@ -11,26 +11,26 @@ import (
 	"testing"
 )
 
-func TestLogInitRejectsUnknownLevelAndFormat(t *testing.T) {
+func TestNewLogRejectsUnknownLevelAndFormat(t *testing.T) {
 	var err error
 
-	err = LogInit(LogOptions{Level: "chatty", Output: &bytes.Buffer{}})
+	err = NewLog(LogOptions{Level: "chatty", Output: &bytes.Buffer{}})
 	if err == nil {
 		t.Fatal("expected an error for an unknown level")
 	}
 
-	err = LogInit(LogOptions{Format: "yaml", Output: &bytes.Buffer{}})
+	err = NewLog(LogOptions{Format: "yaml", Output: &bytes.Buffer{}})
 	if err == nil {
 		t.Fatal("expected an error for an unknown format")
 	}
 }
 
-func TestLogInitHonorsLevel(t *testing.T) {
+func TestNewLogHonorsLevel(t *testing.T) {
 	var out bytes.Buffer
 
 	var err error
 
-	err = LogInit(LogOptions{Level: "warn", Format: LogFormatText, Output: &out})
+	err = NewLog(LogOptions{Level: "warn", Format: LogFormatText, Output: &out})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,13 +46,13 @@ func TestLogInitHonorsLevel(t *testing.T) {
 	}
 }
 
-func TestLogInitDefaultsToJSONOffTerminal(t *testing.T) {
+func TestNewLogDefaultsToJSONOffTerminal(t *testing.T) {
 	var out bytes.Buffer
 	var record map[string]any
 
 	var err error
 
-	err = LogInit(LogOptions{Output: &out})
+	err = NewLog(LogOptions{Output: &out})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +74,7 @@ func TestLogHoldDefersOutputUntilRelease(t *testing.T) {
 
 	var err error
 
-	err = LogInit(LogOptions{Format: LogFormatText, Output: &out})
+	err = NewLog(LogOptions{Format: LogFormatText, Output: &out})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,7 +103,7 @@ func TestLogRejectsReservedAttributeKeys(t *testing.T) {
 
 	var err error
 
-	err = LogInit(LogOptions{Format: LogFormatJSON, Output: &out})
+	err = NewLog(LogOptions{Format: LogFormatJSON, Output: &out})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,7 +134,7 @@ func TestLogWritesAreConcurrencySafe(t *testing.T) {
 
 	var err error
 
-	err = LogInit(LogOptions{Format: LogFormatText, Output: &out})
+	err = NewLog(LogOptions{Format: LogFormatText, Output: &out})
 	if err != nil {
 		t.Fatal(err)
 	}

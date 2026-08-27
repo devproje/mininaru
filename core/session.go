@@ -5,239 +5,199 @@ package core
 
 import (
 	"database/sql"
-	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/devproje/mininaru/util"
-	"github.com/google/uuid"
 )
 
 type Session struct {
-	Id         string `json:"id"`
-	AgentId    string `json:"agent_id"`
-	Name       string `json:"name"`
-	Origin     string `json:"origin"`
-	ExternalId string `json:"external_id"`
+	Id        string `json:"id"`
+	AgentId   string `json:"agent_id"`
+	Name      string `json:"name"`
+	CreatedAt string `json:"created_at"`
 }
 
-const sessionColumns = "id, agent_id, name, origin, external_id"
+func SessionCreate(session *Session) error {
+	var opts []string
+	var values []any
+	var i int
+	var wild []string
 
-func NewSession(agent *NaruAgent, name string) *Session {
-	var session Session
-
-	if agent == nil {
-		return nil
-	}
-
-	session = Session{
-		Id:      uuid.NewString(),
-		AgentId: agent.Id,
-		Name:    name,
-	}
-
-	return &session
-}
-
-func SessionCreate(agent *NaruAgent, name string) (*Session, error) {
-	var session *Session
-
-	var err error
-
-	session = NewSession(agent, name)
-	if session == nil {
-		return nil, fmt.Errorf("agent is required to create a session")
-	}
-
-	_, err = util.DB.Exec("INSERT INTO sessions (id, agent_id, name, origin, external_id) VALUES (?, ?, ?, ?, ?);",
-		session.Id, session.AgentId, session.Name, session.Origin, session.ExternalId)
-	if err != nil {
-		return nil, err
-	}
-
-	return session, nil
-}
-
-func SessionFind(id string) (*Session, error) {
-	var session Session
-
-	var err error
-
-	err = util.DB.QueryRow("SELECT "+sessionColumns+" FROM sessions WHERE id = ?;", id).
-		Scan(&session.Id, &session.AgentId, &session.Name, &session.Origin, &session.ExternalId)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, fmt.Errorf("session id %s not found", id)
-		}
-
-		return nil, err
-	}
-
-	return &session, nil
-}
-
-func SessionLatest(agentId string) (*Session, error) {
 	var query string
-	var session Session
+	var stmt *sql.Stmt
 
 	var err error
 
-	query = `SELECT ` + sessionColumns + ` FROM sessions
-	WHERE agent_id = ? AND EXISTS (SELECT 1 FROM messages WHERE messages.session_id = sessions.id AND messages.status = 'completed')
-	ORDER BY rowid DESC LIMIT 1;`
+	if session.Name == "" {
+		session.Name = randomSessionName()
+	}
 
-	err = util.DB.QueryRow(query, agentId).Scan(&session.Id, &session.AgentId, &session.Name, &session.Origin, &session.ExternalId)
+	opts = []string{"id", "agent_id", "name"}
+	values = []any{session.Id, session.AgentId, session.Name}
+
+	if session.Id == "" || session.AgentId == "" {
+		err = fmt.Errorf("session id or agent_id is required")
+		return err
+	}
+
+	for i = 0; i < len(opts); i++ {
+		wild = append(wild, "?")
+	}
+
+	query = fmt.Sprintf("INSERT INTO sessions (%s) VALUES (%s);", strings.Join(opts, ", "), strings.Join(wild, ", "))
+
+	stmt, err = util.DB.Prepare(query)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, nil
-		}
+		return err
+	}
+	defer stmt.Close()
 
+	_, err = stmt.Exec(values...)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func SessionRead(id string) (*Session, error) {
+	var stmt *sql.Stmt
+	var row *sql.Row
+	var obj Session
+
+	var err error
+
+	stmt, err = util.DB.Prepare("SELECT id, agent_id, name, created_at FROM sessions WHERE id = ?;")
+	if err != nil {
+		return nil, err
+	}
+	defer stmt.Close()
+
+	row = stmt.QueryRow(id)
+	err = row.Err()
+	if err != nil {
 		return nil, err
 	}
 
-	return &session, nil
+	err = row.Scan(&obj.Id, &obj.AgentId, &obj.Name, &obj.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+
+	return &obj, nil
 }
 
 func SessionList(agentId string) ([]*Session, error) {
+	var stmt *sql.Stmt
 	var rows *sql.Rows
-	var cur Session
-	var sessions []*Session
+	var list []*Session
+	var obj Session
 
 	var err error
 
-	rows, err = util.DB.Query("SELECT "+sessionColumns+" FROM sessions WHERE agent_id = ?;", agentId)
+	stmt, err = util.DB.Prepare("SELECT id, agent_id, name, created_at FROM sessions WHERE agent_id = ? ORDER BY created_at DESC;")
+	if err != nil {
+		return nil, err
+	}
+	defer stmt.Close()
+
+	rows, err = stmt.Query(agentId)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
 	for rows.Next() {
-		err = rows.Scan(&cur.Id, &cur.AgentId, &cur.Name, &cur.Origin, &cur.ExternalId)
+		err = rows.Scan(&obj.Id, &obj.AgentId, &obj.Name, &obj.CreatedAt)
 		if err != nil {
 			return nil, err
 		}
 
-		sessions = append(sessions, &Session{Id: cur.Id, AgentId: cur.AgentId, Name: cur.Name,
-			Origin: cur.Origin, ExternalId: cur.ExternalId})
+		list = append(list, &Session{Id: obj.Id, AgentId: obj.AgentId, Name: obj.Name, CreatedAt: obj.CreatedAt})
 	}
 
-	return sessions, nil
+	err = rows.Err()
+	if err != nil {
+		return nil, err
+	}
+
+	return list, nil
 }
 
-func SessionByExternal(origin, externalId string) (*Session, error) {
-	var session Session
+func SessionListAll() ([]*Session, error) {
+	var rows *sql.Rows
+	var list []*Session
+	var obj Session
 
 	var err error
 
-	if origin == "" || externalId == "" {
-		return nil, fmt.Errorf("origin and external id are required")
-	}
-
-	err = util.DB.QueryRow("SELECT "+sessionColumns+" FROM sessions WHERE origin = ? AND external_id = ?;", origin, externalId).
-		Scan(&session.Id, &session.AgentId, &session.Name, &session.Origin, &session.ExternalId)
+	rows, err = util.DB.Query("SELECT id, agent_id, name, created_at FROM sessions ORDER BY created_at DESC;")
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, nil
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		err = rows.Scan(&obj.Id, &obj.AgentId, &obj.Name, &obj.CreatedAt)
+		if err != nil {
+			return nil, err
 		}
 
+		list = append(list, &Session{Id: obj.Id, AgentId: obj.AgentId, Name: obj.Name, CreatedAt: obj.CreatedAt})
+	}
+
+	err = rows.Err()
+	if err != nil {
 		return nil, err
 	}
 
-	return &session, nil
+	return list, nil
 }
 
-func SessionAttach(agent *NaruAgent, origin, externalId, name string) (*Session, error) {
-	var session *Session
-	var tx *sql.Tx
+func SessionUpdate(id string, session *Session) error {
+	var opts []string
+	var values []any
+	var query string
 
+	var stmt *sql.Stmt
 	var err error
 
-	if agent == nil {
-		return nil, fmt.Errorf("agent is required to attach a session")
+	if session.Name != "" {
+		opts = append(opts, "name = ?")
+		values = append(values, session.Name)
 	}
 
-	if origin == "" || externalId == "" {
-		return nil, fmt.Errorf("origin and external id are required")
-	}
+	values = append(values, id)
+	query = fmt.Sprintf("UPDATE sessions SET %s WHERE id = ?;", strings.Join(opts, ", "))
 
-	session = NewSession(agent, name)
-	session.Origin = origin
-	session.ExternalId = externalId
-
-	tx, err = util.DB.Begin()
-	if err != nil {
-		return nil, err
-	}
-
-	_, err = tx.Exec("UPDATE sessions SET external_id = '' WHERE origin = ? AND external_id = ?;", origin, externalId)
-	if err != nil {
-		tx.Rollback()
-		return nil, err
-	}
-
-	_, err = tx.Exec("INSERT INTO sessions (id, agent_id, name, origin, external_id) VALUES (?, ?, ?, ?, ?);",
-		session.Id, session.AgentId, session.Name, session.Origin, session.ExternalId)
-	if err != nil {
-		tx.Rollback()
-		return nil, err
-	}
-
-	err = tx.Commit()
-	if err != nil {
-		return nil, err
-	}
-
-	return session, nil
-}
-
-func SessionUpdate(id, name string) error {
-	var result sql.Result
-	var affected int64
-
-	var err error
-
-	result, err = util.DB.Exec("UPDATE sessions SET name = ? WHERE id = ?;", name, id)
+	stmt, err = util.DB.Prepare(query)
 	if err != nil {
 		return err
 	}
+	defer stmt.Close()
 
-	affected, err = result.RowsAffected()
+	_, err = stmt.Exec(values...)
 	if err != nil {
 		return err
-	}
-
-	if affected == 0 {
-		return fmt.Errorf("session id %s not found", id)
 	}
 
 	return nil
 }
 
-func SessionDeleteByAgent(agentId string) error {
-	var err error
-
-	_, err = util.DB.Exec("DELETE FROM sessions WHERE agent_id = ?;", agentId)
-
-	return err
-}
-
 func SessionDelete(id string) error {
-	var result sql.Result
-	var affected int64
-
+	var stmt *sql.Stmt
 	var err error
 
-	result, err = util.DB.Exec("DELETE FROM sessions WHERE id = ?;", id)
+	stmt, err = util.DB.Prepare("DELETE FROM sessions WHERE id = ?;")
 	if err != nil {
 		return err
 	}
+	defer stmt.Close()
 
-	affected, err = result.RowsAffected()
+	_, err = stmt.Exec(id)
 	if err != nil {
 		return err
-	}
-
-	if affected == 0 {
-		return fmt.Errorf("session is not found, aborted.")
 	}
 
 	return nil

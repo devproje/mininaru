@@ -4,159 +4,45 @@
 package server
 
 import (
-	"encoding/json"
-	"net/http"
-	"strings"
-
-	"github.com/openai/openai-go"
+	"github.com/devproje/mininaru/server/controller"
+	"github.com/gin-gonic/gin"
 )
 
-type RequestMessage struct {
-	Role    string          `json:"role"`
-	Content json.RawMessage `json:"content"`
-}
+func apiRoutes(api *gin.RouterGroup) {
+	var agents *gin.RouterGroup
+	var providers *gin.RouterGroup
+	var sessions *gin.RouterGroup
+	var messages *gin.RouterGroup
 
-type ChatRequest struct {
-	Model           string           `json:"model"`
-	Messages        []RequestMessage `json:"messages"`
-	Stream          bool             `json:"stream"`
-	ReasoningEffort string           `json:"reasoning_effort"`
-}
+	agents = api.Group("/agents")
+	agents.POST("", controller.AgentCreate)
+	agents.GET("", controller.AgentList)
+	agents.GET("/:id", controller.AgentRead)
+	agents.PATCH("/:id", controller.AgentUpdate)
+	agents.DELETE("/:id", controller.AgentDelete)
 
-type ResponseMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
-}
+	providers = api.Group("/providers")
+	providers.POST("", controller.ProviderCreate)
+	providers.GET("", controller.ProviderList)
+	providers.GET("/:id", controller.ProviderRead)
+	providers.PATCH("/:id", controller.ProviderUpdate)
+	providers.DELETE("/:id", controller.ProviderDelete)
+	providers.POST("/:id/activate", controller.ProviderActivate)
 
-type Delta struct {
-	Role      string `json:"role,omitempty"`
-	Content   string `json:"content,omitempty"`
-	Reasoning string `json:"reasoning_content,omitempty"`
-}
+	sessions = api.Group("/sessions")
+	sessions.POST("", controller.SessionCreate)
+	sessions.GET("", controller.SessionList)
+	sessions.GET("/:id", controller.SessionRead)
+	sessions.PATCH("/:id", controller.SessionUpdate)
+	sessions.DELETE("/:id", controller.SessionDelete)
+	sessions.POST("/:id/messages", controller.MessageCreate)
+	sessions.GET("/:id/messages", controller.MessageList)
 
-type Choice struct {
-	Index        int              `json:"index"`
-	Message      *ResponseMessage `json:"message,omitempty"`
-	Delta        *Delta           `json:"delta,omitempty"`
-	FinishReason *string          `json:"finish_reason"`
-}
+	messages = api.Group("/messages")
+	messages.GET("/:id", controller.MessageRead)
+	messages.PATCH("/:id", controller.MessageUpdate)
+	messages.DELETE("/:id", controller.MessageDelete)
 
-type Usage struct {
-	PromptTokens     int64 `json:"prompt_tokens"`
-	CompletionTokens int64 `json:"completion_tokens"`
-	TotalTokens      int64 `json:"total_tokens"`
-}
-
-type ChatResponse struct {
-	Id      string   `json:"id"`
-	Object  string   `json:"object"`
-	Created int64    `json:"created"`
-	Model   string   `json:"model"`
-	Choices []Choice `json:"choices"`
-	Usage   *Usage   `json:"usage,omitempty"`
-}
-
-type Model struct {
-	Id      string `json:"id"`
-	Object  string `json:"object"`
-	Created int64  `json:"created"`
-	OwnedBy string `json:"owned_by"`
-}
-
-type ModelList struct {
-	Object string  `json:"object"`
-	Data   []Model `json:"data"`
-}
-
-type ErrorBody struct {
-	Message string `json:"message"`
-	Type    string `json:"type"`
-	Code    string `json:"code"`
-}
-
-type ErrorResponse struct {
-	Error ErrorBody `json:"error"`
-}
-
-type contentPart struct {
-	Type string `json:"type"`
-	Text string `json:"text"`
-}
-
-const (
-	objectCompletion = "chat.completion"
-	objectChunk      = "chat.completion.chunk"
-	objectModel      = "model"
-	objectList       = "list"
-)
-
-const (
-	roleSystem    = "system"
-	roleUser      = "user"
-	roleAssistant = "assistant"
-)
-
-func contentText(raw json.RawMessage) string {
-	var text string
-	var parts []contentPart
-	var part contentPart
-	var builder strings.Builder
-
-	var err error
-
-	if len(raw) == 0 {
-		return ""
-	}
-
-	err = json.Unmarshal(raw, &text)
-	if err == nil {
-		return text
-	}
-
-	err = json.Unmarshal(raw, &parts)
-	if err != nil {
-		return ""
-	}
-
-	for _, part = range parts {
-		if part.Text == "" {
-			continue
-		}
-
-		builder.WriteString(part.Text)
-	}
-
-	return builder.String()
-}
-
-func requestMessages(messages []RequestMessage) []openai.ChatCompletionMessageParamUnion {
-	var message RequestMessage
-	var text string
-	var converted []openai.ChatCompletionMessageParamUnion
-
-	for _, message = range messages {
-		text = contentText(message.Content)
-
-		switch message.Role {
-		case roleSystem:
-			converted = append(converted, openai.SystemMessage(text))
-		case roleAssistant:
-			converted = append(converted, openai.AssistantMessage(text))
-		default:
-			converted = append(converted, openai.UserMessage(text))
-		}
-	}
-
-	return converted
-}
-
-func writeJSON(w http.ResponseWriter, status int, payload any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-
-	json.NewEncoder(w).Encode(payload)
-}
-
-func writeError(w http.ResponseWriter, status int, kind, code, message string) {
-	writeJSON(w, status, ErrorResponse{Error: ErrorBody{Message: message, Type: kind, Code: code}})
+	api.POST("/yolo", controller.YoloSet)
+	api.GET("/yolo", controller.YoloGet)
 }

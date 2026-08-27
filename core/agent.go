@@ -4,567 +4,240 @@
 package core
 
 import (
-	"context"
-	"encoding/json"
+	"database/sql"
 	"fmt"
-	"io"
-	"net/http"
-	"net/url"
-	"os"
 	"strings"
-	"sync"
-	"time"
 
-	"github.com/anthropics/anthropic-sdk-go"
-	anthropicoption "github.com/anthropics/anthropic-sdk-go/option"
 	"github.com/devproje/mininaru/util"
-	"github.com/google/uuid"
-	"github.com/openai/openai-go"
-	openaioption "github.com/openai/openai-go/option"
 )
 
-type NaruAgent struct {
-	Id         string `json:"id"`
-	Name       string `json:"name"`
-	Role       string `json:"role"`
-	Soul       string `json:"soul"`
-	Model      string `json:"model"`
-	ProviderId string `json:"provider_id"`
+type ThinkingLevel string
 
-	AI        *openai.Client    `json:"-"`
-	Anthropic *anthropic.Client `json:"-"`
+const (
+	Off    ThinkingLevel = "off"
+	Low    ThinkingLevel = "low"
+	Medium ThinkingLevel = "medium"
+	High   ThinkingLevel = "high"
+	Max    ThinkingLevel = "max"
+)
+
+type Agent struct {
+	Id            string `json:"id"`
+	Name          string `json:"name"`
+	Model         string `json:"model"`
+	Soul          string `json:"soul"`
+	ThinkingLevel string `json:"thinking_level"`
+	MaxContext    uint64 `json:"max_context"`
 }
 
-var modelContextWindows sync.Map
+func AgentCreate(agent *Agent) error {
+	var opts []string
+	var values []any
+	var i int
+	var wild []string
 
-func (a *NaruAgent) modelContextCacheKey() string {
-	var provider *Provider
+	var query string
+	var stmt *sql.Stmt
 
 	var err error
 
-	if a == nil {
-		return ""
-	}
-	provider, err = ProviderFind(a.ProviderId)
-	if err != nil || provider.BaseURL == "" {
-		return ""
+	if agent.Id == "" || agent.Name == "" || agent.Model == "" {
+		err = fmt.Errorf("Agent id or name, model is required")
+		return err
 	}
 
-	return a.ProviderId + "\x00" + provider.BaseURL + "\x00" + a.Model
+	opts = []string{"id", "name", "model"}
+	values = []any{agent.Id, agent.Name, agent.Model}
+
+	if agent.Soul != "" {
+		opts = append(opts, "soul")
+		values = append(values, agent.Soul)
+	}
+
+	if agent.ThinkingLevel != "" {
+		opts = append(opts, "thinking_level")
+		values = append(values, agent.ThinkingLevel)
+	}
+
+	if agent.MaxContext != 0 {
+		opts = append(opts, "max_context")
+		values = append(values, agent.MaxContext)
+	}
+
+	for i = 0; i < len(opts); i++ {
+		wild = append(wild, "?")
+	}
+
+	query = fmt.Sprintf("INSERT INTO agents (%s) VALUES (%s)", strings.Join(opts, ", "), strings.Join(wild, ", "))
+	stmt, err = util.DB.Prepare(query)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	_, err = stmt.Exec(values...)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
-func (a *NaruAgent) CachedModelContextWindow() int64 {
-	var cached any
-	var cacheKey string
-	var ok bool
-
-	cacheKey = a.modelContextCacheKey()
-	if cacheKey == "" {
-		return 0
-	}
-	cached, ok = modelContextWindows.Load(cacheKey)
-	if !ok {
-		return 0
-	}
-
-	return cached.(int64)
-}
-
-func (a *NaruAgent) ModelContextWindow(ctx context.Context) int64 {
-	var provider *Provider
-	var requestCtx context.Context
-	var cancel context.CancelFunc
-	var endpoint string
-	var parsed *url.URL
-	var query url.Values
-	var request *http.Request
-	var response *http.Response
-	var payload struct {
-		DefaultGenerationSettings struct {
-			NCtx int64 `json:"n_ctx"`
-		} `json:"default_generation_settings"`
-	}
-	var window int64
-	var cached any
-	var cacheKey string
-	var ok bool
+func AgentRead(id string) (*Agent, error) {
+	var stmt *sql.Stmt
+	var row *sql.Row
+	var obj Agent
 
 	var err error
 
-	if a == nil {
-		return 0
-	}
-	provider, err = ProviderFind(a.ProviderId)
-	if err != nil || provider.BaseURL == "" || provider.ProviderKind() == ProviderAnthropic {
-		return 0
-	}
-	cacheKey = a.modelContextCacheKey()
-	cached, ok = modelContextWindows.Load(cacheKey)
-	if ok {
-		return cached.(int64)
-	}
-	endpoint = strings.TrimRight(provider.BaseURL, "/")
-	endpoint = strings.TrimSuffix(endpoint, "/v1") + "/props"
-	parsed, err = url.Parse(endpoint)
+	stmt, err = util.DB.Prepare("SELECT id, name, model, soul, thinking_level, max_context FROM agents WHERE id = ?;")
 	if err != nil {
-		return 0
+		return nil, err
 	}
-	if a.Model != "" {
-		query = parsed.Query()
-		query.Set("model", a.Model)
-		parsed.RawQuery = query.Encode()
-	}
-	requestCtx, cancel = context.WithTimeout(ctx, 2*time.Second)
-	defer cancel()
-	request, err = http.NewRequestWithContext(requestCtx, http.MethodGet, parsed.String(), nil)
+	defer stmt.Close()
+
+	row = stmt.QueryRow(id)
+	err = row.Err()
 	if err != nil {
-		return 0
+		return nil, err
 	}
-	if provider.ApiKey != "" {
-		request.Header.Set("Authorization", "Bearer "+provider.ApiKey)
-	}
-	response, err = http.DefaultClient.Do(request)
+
+	err = row.Scan(&obj.Id, &obj.Name, &obj.Model, &obj.Soul, &obj.ThinkingLevel, &obj.MaxContext)
 	if err != nil {
-		return 0
-	}
-	defer response.Body.Close()
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return 0
-	}
-	err = json.NewDecoder(io.LimitReader(response.Body, 1<<20)).Decode(&payload)
-	if err != nil {
-		return 0
-	}
-	window = payload.DefaultGenerationSettings.NCtx
-	if window > 0 {
-		modelContextWindows.Store(cacheKey, window)
+		return nil, err
 	}
 
-	return window
+	return &obj, nil
 }
 
-type AgentConfig struct {
-	Global *NaruAgent   `json:"global"`
-	Agents []*NaruAgent `json:"agents"`
-}
-
-const AGENT_PATH = "agent.json"
-
-var Global *NaruAgent
-var Agents []*NaruAgent
-var emptyAgentObj AgentConfig = AgentConfig{}
-
-func newClient(prov *Provider) *openai.Client {
-	var opts []openaioption.RequestOption
-	var ai openai.Client
-
-	if prov == nil {
-		return nil
-	}
-
-	if prov.ApiKey != "" {
-		opts = append(opts, openaioption.WithAPIKey(prov.ApiKey))
-	}
-
-	if prov.BaseURL != "" {
-		opts = append(opts, openaioption.WithBaseURL(prov.BaseURL))
-	}
-
-	if prov.ResponseCache && isOpenRouter(prov.BaseURL) {
-		opts = append(opts, openaioption.WithHeader("X-OpenRouter-Cache", "true"))
-		if prov.ResponseCacheTTL > 0 {
-			opts = append(opts, openaioption.WithHeader("X-OpenRouter-Cache-TTL", fmt.Sprintf("%d", prov.ResponseCacheTTL)))
-		}
-	}
-
-	ai = openai.NewClient(opts...)
-
-	return &ai
-}
-
-func newAnthropicClient(prov *Provider) *anthropic.Client {
-	var opts []anthropicoption.RequestOption
-	var ai anthropic.Client
-
-	if prov == nil || prov.ProviderKind() != ProviderAnthropic {
-		return nil
-	}
-	if prov.ApiKey != "" {
-		opts = append(opts, anthropicoption.WithAPIKey(prov.ApiKey))
-	}
-	if prov.BaseURL != "" {
-		opts = append(opts, anthropicoption.WithBaseURL(prov.BaseURL))
-	}
-
-	ai = anthropic.NewClient(opts...)
-	return &ai
-}
-
-func configureAgentClients(agent *NaruAgent, prov *Provider) {
-	if agent == nil {
-		return
-	}
-
-	if prov != nil && prov.ProviderKind() == ProviderAnthropic {
-		agent.AI = nil
-		agent.Anthropic = newAnthropicClient(prov)
-		return
-	}
-
-	agent.AI = newClient(prov)
-	agent.Anthropic = nil
-}
-
-func AgentNew(name, role, soul, model string, prov *Provider) *NaruAgent {
-	var agent NaruAgent
-
-	if prov == nil || prov.Id == "" {
-		return nil
-	}
-
-	agent = NaruAgent{
-		Id:         uuid.NewString(),
-		Name:       name,
-		Role:       role,
-		Soul:       soul,
-		Model:      model,
-		ProviderId: prov.Id,
-	}
-	configureAgentClients(&agent, prov)
-
-	return &agent
-}
-
-func agentProvider(agent *NaruAgent) *Provider {
-	var prov *Provider
+func AgentByName(name string) (*Agent, error) {
+	var stmt *sql.Stmt
+	var row *sql.Row
+	var obj Agent
 
 	var err error
 
-	prov, err = ProviderFind(agent.ProviderId)
+	stmt, err = util.DB.Prepare("SELECT id, name, model, soul, thinking_level, max_context FROM agents WHERE name = ?;")
 	if err != nil {
-		return DefaultProvider
+		return nil, err
+	}
+	defer stmt.Close()
+
+	row = stmt.QueryRow(name)
+	err = row.Err()
+	if err != nil {
+		return nil, err
 	}
 
-	return prov
+	err = row.Scan(&obj.Id, &obj.Name, &obj.Model, &obj.Soul, &obj.ThinkingLevel, &obj.MaxContext)
+	if err != nil {
+		return nil, err
+	}
+
+	return &obj, nil
 }
 
-func AgentInit() error {
-	var path string
-	var buf []byte
-	var cfg AgentConfig
-	var cur *NaruAgent
+func AgentList() ([]*Agent, error) {
+	var rows *sql.Rows
+	var list []*Agent
+	var obj Agent
 
 	var err error
 
-	path = util.Path(AGENT_PATH)
-	buf, err = os.ReadFile(path)
+	rows, err = util.DB.Query("SELECT id, name, model, soul, thinking_level, max_context FROM agents ORDER BY name ASC;")
 	if err != nil {
-		if !os.IsNotExist(err) {
-			return err
-		}
+		return nil, err
+	}
+	defer rows.Close()
 
-		buf, _ = json.MarshalIndent(emptyAgentObj, "", "    ")
-
-		err = util.WriteFileAtomic(path, buf, 0600)
+	for rows.Next() {
+		err = rows.Scan(&obj.Id, &obj.Name, &obj.Model, &obj.Soul, &obj.ThinkingLevel, &obj.MaxContext)
 		if err != nil {
-			return err
+			return nil, err
 		}
+
+		list = append(list, &Agent{
+			Id:            obj.Id,
+			Name:          obj.Name,
+			Model:         obj.Model,
+			Soul:          obj.Soul,
+			ThinkingLevel: obj.ThinkingLevel,
+			MaxContext:    obj.MaxContext,
+		})
 	}
 
-	err = json.Unmarshal(buf, &cfg)
+	err = rows.Err()
+	if err != nil {
+		return nil, err
+	}
+
+	return list, nil
+}
+
+func AgentUpdate(id string, agent *Agent) error {
+	var opts []string
+	var values []any
+	var query string
+
+	var stmt *sql.Stmt
+	var err error
+
+	if agent.Name != "" {
+		opts = append(opts, "name = ?")
+		values = append(values, agent.Name)
+	}
+
+	if agent.Model != "" {
+		opts = append(opts, "model = ?")
+		values = append(values, agent.Model)
+	}
+
+	if agent.Soul != "" {
+		opts = append(opts, "soul = ?")
+		values = append(values, agent.Soul)
+	}
+
+	if agent.ThinkingLevel != "" {
+		opts = append(opts, "thinking_level = ?")
+		values = append(values, agent.ThinkingLevel)
+	}
+
+	if agent.MaxContext != 0 {
+		opts = append(opts, "max_context = ?")
+		values = append(values, agent.MaxContext)
+	}
+
+	values = append(values, id)
+	query = fmt.Sprintf("UPDATE agents SET %s WHERE id = ?;", strings.Join(opts, ", "))
+
+	stmt, err = util.DB.Prepare(query)
 	if err != nil {
 		return err
 	}
+	defer stmt.Close()
 
-	Global = cfg.Global
-	Agents = cfg.Agents
-
-	if Global != nil {
-		configureAgentClients(Global, agentProvider(Global))
-	}
-
-	for _, cur = range Agents {
-		configureAgentClients(cur, agentProvider(cur))
+	_, err = stmt.Exec(values...)
+	if err != nil {
+		return err
 	}
 
 	return nil
 }
 
-func AgentSave() error {
-	var cfg AgentConfig
-	var path string
-	var buf []byte
-
+func AgentDelete(id string) error {
+	var stmt *sql.Stmt
 	var err error
 
-	cfg = AgentConfig{
-		Global: Global,
-		Agents: Agents,
-	}
-
-	path = util.Path(AGENT_PATH)
-	buf, err = json.MarshalIndent(cfg, "", "    ")
+	stmt, err = util.DB.Prepare("DELETE FROM agents WHERE id = ?;")
 	if err != nil {
 		return err
 	}
+	defer stmt.Close()
 
-	err = util.WriteFileAtomic(path, buf, 0600)
+	_, err = stmt.Exec(id)
 	if err != nil {
 		return err
 	}
 
 	return nil
-}
-
-func AgentCreate(name, role, soul, model string, prov *Provider) error {
-	var agent *NaruAgent
-
-	var err error
-
-	if Global == nil {
-		return fmt.Errorf("orchestration agent not initialized")
-	}
-
-	agent = AgentNew(name, role, soul, model, prov)
-	if agent == nil {
-		return fmt.Errorf("provider is required to create an agent")
-	}
-
-	Agents = append(Agents, agent)
-
-	err = AgentSave()
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func AgentFind(id string) *NaruAgent {
-	var cur *NaruAgent
-
-	for _, cur = range Agents {
-		if cur.Id != id {
-			continue
-		}
-
-		return cur
-	}
-
-	return nil
-}
-
-func AgentAll() []*NaruAgent {
-	var all []*NaruAgent
-	var cur *NaruAgent
-
-	if Global != nil {
-		all = append(all, Global)
-	}
-
-	for _, cur = range Agents {
-		if Global != nil && cur.Id == Global.Id {
-			continue
-		}
-
-		all = append(all, cur)
-	}
-
-	return all
-}
-
-func AgentByName(name string) (*NaruAgent, error) {
-	var cur *NaruAgent
-
-	var err error
-
-	if name == "" {
-		return nil, fmt.Errorf("agent name is required")
-	}
-
-	for _, cur = range AgentAll() {
-		if cur.Name != name {
-			continue
-		}
-
-		return cur, nil
-	}
-
-	for _, cur = range AgentAll() {
-		if cur.Id != name {
-			continue
-		}
-
-		return cur, nil
-	}
-
-	err = fmt.Errorf("agent %s not found", name)
-
-	return nil, err
-}
-
-func AgentDefault(ref string) error {
-	var target *NaruAgent
-	var previous *NaruAgent
-	var cur *NaruAgent
-	var remaining []*NaruAgent
-
-	var err error
-
-	target, err = AgentByName(ref)
-	if err != nil {
-		return err
-	}
-
-	if Global != nil && Global.Id == target.Id {
-		return nil
-	}
-
-	previous = Global
-
-	for _, cur = range Agents {
-		if cur.Id == target.Id {
-			continue
-		}
-
-		remaining = append(remaining, cur)
-	}
-
-	if previous != nil {
-		remaining = append(remaining, previous)
-	}
-
-	Global = target
-	Agents = remaining
-
-	return AgentSave()
-}
-
-func AgentRefreshClient(agent *NaruAgent) error {
-	var prov *Provider
-
-	var err error
-
-	if agent == nil {
-		return fmt.Errorf("agent is required")
-	}
-
-	prov, err = ProviderFind(agent.ProviderId)
-	if err != nil {
-		return err
-	}
-
-	configureAgentClients(agent, prov)
-
-	return nil
-}
-
-func AgentUpdateFields(id string, name, role, soul, model, providerId *string) error {
-	var index int
-	var cur *NaruAgent
-	var update NaruAgent
-
-	var err error
-
-	for index, cur = range Agents {
-		if cur.Id != id {
-			continue
-		}
-
-		update = *cur
-
-		if name != nil {
-			update.Name = *name
-		}
-
-		if role != nil {
-			update.Role = *role
-		}
-
-		if soul != nil {
-			update.Soul = *soul
-		}
-
-		if model != nil {
-			update.Model = *model
-		}
-
-		if providerId != nil {
-			update.ProviderId = *providerId
-			configureAgentClients(&update, agentProvider(&update))
-		}
-
-		Agents[index] = &update
-		err = AgentSave()
-		if err != nil {
-			return err
-		}
-
-		return nil
-	}
-
-	err = fmt.Errorf("cannot find agent id for %s", id)
-
-	return err
-}
-
-func AgentUpdate(id string, payload NaruAgent) error {
-	var name, role, soul, model, providerId *string
-
-	if payload.Name != "" {
-		name = &payload.Name
-	}
-	if payload.Role != "" {
-		role = &payload.Role
-	}
-	if payload.Soul != "" {
-		soul = &payload.Soul
-	}
-	if payload.Model != "" {
-		model = &payload.Model
-	}
-	if payload.ProviderId != "" {
-		providerId = &payload.ProviderId
-	}
-
-	return AgentUpdateFields(id, name, role, soul, model, providerId)
-}
-
-func AgentDelete(ref string) error {
-	var target *NaruAgent
-	var cur *NaruAgent
-	var remaining []*NaruAgent
-
-	var err error
-
-	target, err = AgentByName(ref)
-	if err != nil {
-		return err
-	}
-
-	for _, cur = range Agents {
-		if cur.Id == target.Id {
-			continue
-		}
-
-		remaining = append(remaining, cur)
-	}
-
-	Agents = remaining
-
-	if Global != nil && Global.Id == target.Id {
-		Global = nil
-
-		if len(Agents) > 0 {
-			Global = Agents[0]
-			Agents = Agents[1:]
-		}
-	}
-
-	err = SessionDeleteByAgent(target.Id)
-	if err != nil {
-		return err
-	}
-
-	return AgentSave()
 }

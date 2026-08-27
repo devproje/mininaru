@@ -7,32 +7,32 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/devproje/mininaru/modules"
+	"github.com/devproje/mininaru/modules/mcp"
 	"github.com/spf13/cobra"
 )
 
-var mcpConfig *cobra.Command = &cobra.Command{
+var mcpCmd *cobra.Command = &cobra.Command{
 	Use:   "mcp",
-	Short: "show or manage configured mcp servers",
+	Short: "manage mcp servers",
 	Long: `Manage the MCP servers mininaru connects to for extra tools.
 
-Every server is connected on startup, so a slow or unreachable one delays each
-run until its timeout expires. Disable a server instead of removing it to keep
-its configuration around.`,
-	Example: `  mininaru mcp
-  mininaru mcp add files --stdio npx --arg -y --arg @modelcontextprotocol/server-filesystem
-  mininaru mcp disable files`,
-	Args:              usageArgs(cobra.NoArgs),
-	PersistentPreRunE: mcpLoadExecute,
-	RunE:              mcpListExecute,
+A running "mininaru serve" reloads its own connections on SIGHUP, so changes
+made here take effect without a restart.`,
+	RunE: mcpListExecute,
 }
 
 var mcpListCmd *cobra.Command = &cobra.Command{
 	Use:     "list",
 	Aliases: []string{"ls"},
 	Short:   "list configured mcp servers and their connection state",
-	Args:    usageArgs(cobra.NoArgs),
 	RunE:    mcpListExecute,
+}
+
+var mcpShowCmd *cobra.Command = &cobra.Command{
+	Use:   "show <name>",
+	Short: "show one mcp server's configuration and connection state",
+	Args:  cobra.ExactArgs(1),
+	RunE:  mcpShowExecute,
 }
 
 var mcpAddCmd *cobra.Command = &cobra.Command{
@@ -40,11 +40,10 @@ var mcpAddCmd *cobra.Command = &cobra.Command{
 	Short: "add an mcp server",
 	Long: `Add an MCP server under the given name.
 
-Pass --stdio to launch a local command, or --url for a streamable HTTP endpoint.
-On a terminal, omitting both prompts for the transport and its settings.`,
+Pass --stdio to launch a local command, or --url for a streamable HTTP endpoint.`,
 	Example: `  mininaru mcp add files --stdio npx --arg -y --arg @modelcontextprotocol/server-filesystem
   mininaru mcp add remote --url https://example.com/mcp --header Authorization="Bearer token"`,
-	Args: usageArgs(cobra.ExactArgs(1)),
+	Args: cobra.ExactArgs(1),
 	RunE: mcpAddExecute,
 }
 
@@ -52,201 +51,245 @@ var mcpRemoveCmd *cobra.Command = &cobra.Command{
 	Use:     "remove <name>",
 	Aliases: []string{"rm"},
 	Short:   "remove an mcp server",
-	Args:    usageArgs(cobra.ExactArgs(1)),
+	Args:    cobra.ExactArgs(1),
 	RunE:    mcpRemoveExecute,
 }
 
 var mcpEnableCmd *cobra.Command = &cobra.Command{
 	Use:   "enable <name>",
 	Short: "enable an mcp server",
-	Args:  usageArgs(cobra.ExactArgs(1)),
+	Args:  cobra.ExactArgs(1),
 	RunE:  mcpEnableExecute,
 }
 
 var mcpDisableCmd *cobra.Command = &cobra.Command{
 	Use:   "disable <name>",
 	Short: "disable an mcp server without removing its configuration",
-	Args:  usageArgs(cobra.ExactArgs(1)),
+	Args:  cobra.ExactArgs(1),
 	RunE:  mcpDisableExecute,
 }
 
 var (
-	mcpCommandRef    string
-	mcpArgsRef       []string
-	mcpEnvRef        map[string]string
-	mcpDirRef        string
-	mcpUrlRef        string
-	mcpHeaderRef     map[string]string
-	mcpNoDaemonRef   bool
-	mcpPermissionRef string
-	mcpTimeoutRef    int
+	mcpAddStdioRef          string
+	mcpAddArgsRef           []string
+	mcpAddEnvRef            map[string]string
+	mcpAddDirRef            string
+	mcpAddUrlRef            string
+	mcpAddHeaderRef         map[string]string
+	mcpAddPermissionRef     string
+	mcpAddTimeoutRef        int
+	mcpAddToolPermissionRef map[string]string
 )
+
+func init() {
+	mcpAddCmd.Flags().StringVar(&mcpAddStdioRef, "stdio", "", "command to run for a stdio mcp server")
+	mcpAddCmd.Flags().StringArrayVar(&mcpAddArgsRef, "arg", nil, "argument for the stdio command, repeatable")
+	mcpAddCmd.Flags().StringToStringVar(&mcpAddEnvRef, "env", nil, "extra environment variable for the stdio command, repeatable")
+	mcpAddCmd.Flags().StringVar(&mcpAddDirRef, "dir", "", "working directory for the stdio command")
+	mcpAddCmd.Flags().StringVar(&mcpAddUrlRef, "url", "", "endpoint of a streamable http mcp server")
+	mcpAddCmd.Flags().StringToStringVar(&mcpAddHeaderRef, "header", nil, "extra http header, repeatable")
+	mcpAddCmd.Flags().StringVar(&mcpAddPermissionRef, "permission", "", "force safe or dangerous for every tool of this server")
+	mcpAddCmd.Flags().IntVar(&mcpAddTimeoutRef, "timeout", 0, "seconds to wait while connecting, defaults to 10")
+	mcpAddCmd.Flags().StringToStringVar(&mcpAddToolPermissionRef, "tool-permission", nil, "force safe or dangerous for one tool by name (tool=safe|dangerous), repeatable")
+
+	mcpCmd.AddCommand(mcpListCmd, mcpShowCmd, mcpAddCmd, mcpRemoveCmd, mcpEnableCmd, mcpDisableCmd)
+}
 
 func mcpFind(name string) int {
 	var index int
 
-	for index = range modules.MCP.Servers {
-		if modules.MCP.Servers[index].Name != name {
-			continue
+	for index = range mcp.Loaded.Servers {
+		if mcp.Loaded.Servers[index].Name == name {
+			return index
 		}
-
-		return index
 	}
 
 	return -1
 }
 
-func mcpLoadExecute(cmd *cobra.Command, args []string) error {
-	return modules.MCPLoad()
-}
-
-func mcpStatusOf(all []modules.MCPStatus, name string) (modules.MCPStatus, bool) {
+func mcpStatusOf(all []mcp.Status, name string) mcp.Status {
 	var index int
 
 	for index = range all {
-		if all[index].Name != name {
-			continue
+		if all[index].Name == name {
+			return all[index]
 		}
-
-		return all[index], true
 	}
 
-	return modules.MCPStatus{}, false
+	return mcp.Status{Name: name}
+}
+
+func mcpState(status mcp.Status) string {
+	if !status.Enabled {
+		return "disabled"
+	}
+	if status.Connected {
+		return "connected"
+	}
+
+	return "failed"
+}
+
+func printMcpRow(entry mcp.Server, status mcp.Status) {
+	var tools string
+
+	tools = "-"
+	if status.Enabled {
+		tools = strconv.Itoa(status.Tools)
+	}
+
+	fmt.Printf("%-16s %-10s %-10s %-6s %s\n", entry.Name, entry.Transport, mcpState(status), tools, status.Error)
 }
 
 func mcpListExecute(cmd *cobra.Command, args []string) error {
-	var all []modules.MCPStatus
-	var status modules.MCPStatus
-	var entry modules.MCPServer
-	var rows *uiRows
-	var state string
-	var tools string
-	var known bool
+	var all []mcp.Status
+	var entry mcp.Server
 
 	var err error
 
-	if len(modules.MCP.Servers) == 0 {
-		uiEmpty("no mcp servers yet, add one with `mininaru mcp add <name> --stdio <command>`")
-
-		return nil
-	}
-
-	err = withProgress(cmd.Context(), "connecting to mcp servers", func() error {
-		return modules.MCPInit(cmd.Context())
-	})
+	err = mcp.Load()
 	if err != nil {
 		return err
 	}
 
-	all = modules.MCPStatusAll()
-
-	rows = uiTable("NAME", "TRANSPORT", "STATE", "TOOLS", "ERROR")
-
-	for _, entry = range modules.MCP.Servers {
-		status, known = mcpStatusOf(all, entry.Name)
-
-		state = "disabled"
-		tools = "-"
-
-		if known {
-			state = "failed"
-			if status.Connected {
-				state = "connected"
-			}
-
-			tools = strconv.Itoa(status.Tools)
-		}
-
-		rows.row(entry.Name, entry.Transport, state, tools, status.Error)
+	if len(mcp.Loaded.Servers) == 0 {
+		fmt.Println("no mcp servers configured")
+		return nil
 	}
 
-	rows.flush()
+	fmt.Println("connecting to mcp servers...")
+
+	err = mcp.Init(cmd.Context())
+	if err != nil {
+		return err
+	}
+	defer mcp.Close()
+
+	all = mcp.StatusAll()
+
+	fmt.Printf("%-16s %-10s %-10s %-6s %s\n", "NAME", "TRANSPORT", "STATE", "TOOLS", "ERROR")
+	for _, entry = range mcp.Loaded.Servers {
+		printMcpRow(entry, mcpStatusOf(all, entry.Name))
+	}
 
 	return nil
 }
 
-func mcpAddAsk() error {
-	var transport string
+func printMcpServer(entry mcp.Server, status mcp.Status) {
+	var key string
+	var value string
+
+	fmt.Printf("%s  [%s]\n", entry.Name, mcpState(status))
+	fmt.Printf("  transport      %s\n", entry.Transport)
+
+	if entry.Transport == mcp.TransportStdio {
+		fmt.Printf("  command        %s %s\n", entry.Command, entry.Args)
+		if entry.Dir != "" {
+			fmt.Printf("  dir            %s\n", entry.Dir)
+		}
+	} else {
+		fmt.Printf("  url            %s\n", entry.URL)
+	}
+
+	for key, value = range entry.Env {
+		fmt.Printf("  env            %s=%s\n", key, value)
+	}
+	for key, value = range entry.Headers {
+		fmt.Printf("  header         %s=%s\n", key, value)
+	}
+	if entry.TimeoutSeconds > 0 {
+		fmt.Printf("  timeout        %ds\n", entry.TimeoutSeconds)
+	}
+	if entry.Permission != "" {
+		fmt.Printf("  permission     %s\n", entry.Permission)
+	}
+	for key, value = range entry.ToolPermission {
+		fmt.Printf("  tool_permission %s=%s\n", key, value)
+	}
+
+	fmt.Printf("  tools          %d\n", status.Tools)
+	if status.Error != "" {
+		fmt.Printf("  error          %s\n", status.Error)
+	}
+}
+
+func mcpShowExecute(cmd *cobra.Command, args []string) error {
+	var index int
 
 	var err error
 
-	if mcpCommandRef != "" || mcpUrlRef != "" {
-		return nil
-	}
-
-	transport, err = askChoice("transport", []string{modules.TransportStdio, modules.TransportHTTP}, modules.TransportStdio)
+	err = mcp.Load()
 	if err != nil {
 		return err
 	}
 
-	if transport == modules.TransportHTTP {
-		mcpUrlRef, err = askRequired("endpoint url")
-
-		return err
+	index = mcpFind(args[0])
+	if index < 0 {
+		return fmt.Errorf("mcp server %q not found", args[0])
 	}
 
-	mcpCommandRef, err = askRequired("command")
+	fmt.Println("connecting to mcp server...")
+
+	err = mcp.Init(cmd.Context())
 	if err != nil {
 		return err
 	}
+	defer mcp.Close()
 
-	mcpDirRef, err = askText("working directory", "")
+	printMcpServer(mcp.Loaded.Servers[index], mcpStatusOf(mcp.StatusAll(), args[0]))
 
-	return err
+	return nil
 }
 
 func mcpAdd(name string) error {
-	var entry modules.MCPServer
-	var daemon bool
+	var entry mcp.Server
 
 	var err error
+
+	err = mcp.Load()
+	if err != nil {
+		return err
+	}
 
 	if mcpFind(name) >= 0 {
 		return fmt.Errorf("mcp server %q already exists", name)
 	}
 
-	if askInteractive() {
-		err = mcpAddAsk()
-		if err != nil {
-			return err
-		}
-	}
-
 	entry.Name = name
-	entry.Command = mcpCommandRef
-	entry.Args = mcpArgsRef
-	entry.Env = mcpEnvRef
-	entry.Dir = mcpDirRef
-	entry.URL = mcpUrlRef
-	entry.Headers = mcpHeaderRef
-	entry.Permission = mcpPermissionRef
-	entry.TimeoutSeconds = mcpTimeoutRef
+	entry.Command = mcpAddStdioRef
+	entry.Args = mcpAddArgsRef
+	entry.Env = mcpAddEnvRef
+	entry.Dir = mcpAddDirRef
+	entry.URL = mcpAddUrlRef
+	entry.Headers = mcpAddHeaderRef
+	entry.Permission = mcpAddPermissionRef
+	entry.TimeoutSeconds = mcpAddTimeoutRef
+	entry.ToolPermission = mcpAddToolPermissionRef
 
-	entry.Transport = modules.TransportStdio
-	if mcpCommandRef == "" {
-		entry.Transport = modules.TransportHTTP
+	entry.Transport = mcp.TransportStdio
+	if mcpAddStdioRef == "" {
+		entry.Transport = mcp.TransportHTTP
 	}
 
-	if mcpNoDaemonRef {
-		daemon = false
-		entry.Daemon = &daemon
-	}
-
-	err = modules.MCPValidate(&entry)
+	err = mcp.Validate(&entry)
 	if err != nil {
 		return err
 	}
 
-	modules.MCP.Servers = append(modules.MCP.Servers, entry)
+	mcp.Loaded.Servers = append(mcp.Loaded.Servers, entry)
 
-	err = modules.MCPSave()
+	err = mcp.Save()
 	if err != nil {
 		return err
 	}
 
-	uiOk("added mcp server %s", name)
+	fmt.Printf("added mcp server %s\n", name)
 
 	return nil
+}
+
+func mcpAddExecute(cmd *cobra.Command, args []string) error {
+	return mcpAdd(args[0])
 }
 
 func mcpRemove(name string) error {
@@ -254,21 +297,30 @@ func mcpRemove(name string) error {
 
 	var err error
 
+	err = mcp.Load()
+	if err != nil {
+		return err
+	}
+
 	index = mcpFind(name)
 	if index < 0 {
 		return fmt.Errorf("mcp server %q not found", name)
 	}
 
-	modules.MCP.Servers = append(modules.MCP.Servers[:index], modules.MCP.Servers[index+1:]...)
+	mcp.Loaded.Servers = append(mcp.Loaded.Servers[:index], mcp.Loaded.Servers[index+1:]...)
 
-	err = modules.MCPSave()
+	err = mcp.Save()
 	if err != nil {
 		return err
 	}
 
-	uiOk("removed mcp server %s", name)
+	fmt.Printf("removed mcp server %s\n", name)
 
 	return nil
+}
+
+func mcpRemoveExecute(cmd *cobra.Command, args []string) error {
+	return mcpRemove(args[0])
 }
 
 func mcpToggleLabel(enabled bool) string {
@@ -284,29 +336,26 @@ func mcpToggle(name string, enabled bool) error {
 
 	var err error
 
+	err = mcp.Load()
+	if err != nil {
+		return err
+	}
+
 	index = mcpFind(name)
 	if index < 0 {
 		return fmt.Errorf("mcp server %q not found", name)
 	}
 
-	modules.MCP.Servers[index].Enabled = &enabled
+	mcp.Loaded.Servers[index].Enabled = &enabled
 
-	err = modules.MCPSave()
+	err = mcp.Save()
 	if err != nil {
 		return err
 	}
 
-	uiOk("%s mcp server %s", mcpToggleLabel(enabled), name)
+	fmt.Printf("%s mcp server %s\n", mcpToggleLabel(enabled), name)
 
 	return nil
-}
-
-func mcpAddExecute(cmd *cobra.Command, args []string) error {
-	return mcpAdd(args[0])
-}
-
-func mcpRemoveExecute(cmd *cobra.Command, args []string) error {
-	return mcpRemove(args[0])
 }
 
 func mcpEnableExecute(cmd *cobra.Command, args []string) error {
@@ -315,22 +364,4 @@ func mcpEnableExecute(cmd *cobra.Command, args []string) error {
 
 func mcpDisableExecute(cmd *cobra.Command, args []string) error {
 	return mcpToggle(args[0], false)
-}
-
-func init() {
-	mcpAddCmd.Flags().StringVar(&mcpCommandRef, "stdio", "", "command to run for a stdio mcp server")
-	mcpAddCmd.Flags().StringArrayVar(&mcpArgsRef, "arg", nil, "argument for the stdio command, repeatable")
-	mcpAddCmd.Flags().StringToStringVar(&mcpEnvRef, "env", nil, "extra environment variable for the stdio command, repeatable")
-	mcpAddCmd.Flags().StringVar(&mcpDirRef, "dir", "", "working directory for the stdio command")
-	mcpAddCmd.Flags().StringVar(&mcpUrlRef, "url", "", "endpoint of a streamable http mcp server")
-	mcpAddCmd.Flags().StringToStringVar(&mcpHeaderRef, "header", nil, "extra http header, repeatable")
-	mcpAddCmd.Flags().BoolVar(&mcpNoDaemonRef, "no-daemon", false, "hide this server from the api server and bots")
-	mcpAddCmd.Flags().StringVar(&mcpPermissionRef, "permission", "", "force safe or dangerous for every tool of this server")
-	mcpAddCmd.Flags().IntVar(&mcpTimeoutRef, "timeout", 0, "seconds to wait while connecting, defaults to 10")
-
-	mcpConfig.AddCommand(mcpListCmd)
-	mcpConfig.AddCommand(mcpAddCmd)
-	mcpConfig.AddCommand(mcpRemoveCmd)
-	mcpConfig.AddCommand(mcpEnableCmd)
-	mcpConfig.AddCommand(mcpDisableCmd)
 }
