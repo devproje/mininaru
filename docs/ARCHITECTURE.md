@@ -454,9 +454,9 @@ dim (the default) for `off`. The prompt is two lines —
 `[user][mode] agent-name [effort] ──── git:(branch)` (branch right-aligned
 to the terminal width via `promptLine1`, a dim fill of `─` computed from
 `termWidth()` minus the `displayWidth` of both sides, floored at
-`promptFillMin` so it never collapses to nothing on a narrow terminal; the
-line is just `[user][mode]` with no filler outside a git repo) then
-`path ✗<code> caret` — built as one string
+`promptFillMin` so it never collapses to nothing on a narrow terminal;
+outside a git repo the fill still runs the full width, just with nothing
+after it) then `path ✗<code> caret` — built as one string
 with an embedded `\n` (`prompt()` returns it that way; `write()` already
 turns `\n` into `\r\n` for every other multi-line output, so nothing
 downstream needed a separate code path). `rowsFor` (`redraw.go`) splits on

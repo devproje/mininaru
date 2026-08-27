@@ -238,15 +238,21 @@ func exitCodeSegment(sh *state) string {
 }
 
 func promptLine1(left, right string) string {
+	var pad int
 	var fill int
 
+	pad = 2
 	if right == "" {
-		return left
+		pad = 1
 	}
 
-	fill = termWidth() - displayWidth(stripAnsi(left)) - displayWidth(stripAnsi(right)) - 2
+	fill = termWidth() - displayWidth(stripAnsi(left)) - displayWidth(stripAnsi(right)) - pad
 	if fill < promptFillMin {
 		fill = promptFillMin
+	}
+
+	if right == "" {
+		return fmt.Sprintf("%s %s%s%s", left, DIM, strings.Repeat("─", fill), RESET)
 	}
 
 	return fmt.Sprintf("%s %s%s%s %s", left, DIM, strings.Repeat("─", fill), RESET, right)
