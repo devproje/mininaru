@@ -35,6 +35,7 @@ type state struct {
 	apiKey        string
 	name          string
 	thinkingLevel string
+	agentId       string
 	user          string
 	root          bool
 	cwd           string

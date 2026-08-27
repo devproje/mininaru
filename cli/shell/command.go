@@ -84,6 +84,10 @@ func resetSessionCommand(sh *state, args []string) (commandResult, error) {
 
 	var err error
 
+	if sh.session == "" {
+		return commandResult{Message: "no session yet — one starts automatically with your first message"}, nil
+	}
+
 	base, err = apiBase(sh.url)
 	if err != nil {
 		return commandResult{}, err
@@ -102,14 +106,14 @@ func resetSessionCommand(sh *state, args []string) (commandResult, error) {
 		}
 	}
 
-	err = apiPost(base+"/sessions", sh.apiKey, map[string]string{"agent_id": agentId, "name": "shell"}, &created)
+	err = apiPost(base+"/sessions", sh.apiKey, map[string]string{"agent_id": agentId}, &created)
 	if err != nil {
 		return commandResult{}, err
 	}
 
 	sh.session = created.Id
 
-	return commandResult{Message: "started a new session " + created.Id}, nil
+	return commandResult{Message: "started a new session " + created.Name}, nil
 }
 
 func agentCommand(sh *state, args []string) (commandResult, error) {
@@ -158,6 +162,10 @@ func showSessionCommand(sh *state, args []string) (commandResult, error) {
 
 	var err error
 
+	if sh.session == "" {
+		return commandResult{Message: "no session yet — one starts automatically with your first message"}, nil
+	}
+
 	base, err = apiBase(sh.url)
 	if err != nil {
 		return commandResult{}, err
@@ -168,7 +176,7 @@ func showSessionCommand(sh *state, args []string) (commandResult, error) {
 		return commandResult{}, err
 	}
 
-	return commandResult{Message: fmt.Sprintf("session %s\n  agent   %s\n  created %s", session.Id, agentLabel(sh), session.CreatedAt)}, nil
+	return commandResult{Message: fmt.Sprintf("session %s\n  name    %s\n  agent   %s\n  created %s", session.Id, session.Name, agentLabel(sh), session.CreatedAt)}, nil
 }
 
 func clearScreenCommand(sh *state, args []string) (commandResult, error) {

@@ -54,6 +54,7 @@ type dialResult struct {
 	session       string
 	name          string
 	thinkingLevel string
+	agentId       string
 	err           error
 }
 
@@ -282,38 +283,32 @@ func seedAgent(cfg dialConfig, base string) (*core.Agent, error) {
 	return &agent, nil
 }
 
-func openSession(cfg dialConfig) (string, string, string, error) {
+func openSession(cfg dialConfig) (string, string, string, string, error) {
 	var base string
 	var agent *core.Agent
-	var session core.Session
 
 	var err error
 
 	base, err = apiBase(cfg.url)
 	if err != nil {
-		return "", "", "", err
+		return "", "", "", "", err
 	}
 
 	if cfg.seed != "" {
 		agent, err = seedAgent(cfg, base)
 		if err != nil {
-			return "", "", "", err
+			return "", "", "", "", err
 		}
 
-		return cfg.seed, agent.Name, agent.ThinkingLevel, nil
+		return cfg.seed, agent.Name, agent.ThinkingLevel, agent.Id, nil
 	}
 
 	agent, err = pickAgent(cfg, base)
 	if err != nil {
-		return "", "", "", err
+		return "", "", "", "", err
 	}
 
-	err = apiPost(base+"/sessions", cfg.apiKey, map[string]string{"agent_id": agent.Id, "name": "shell"}, &session)
-	if err != nil {
-		return "", "", "", err
-	}
-
-	return session.Id, agent.Name, agent.ThinkingLevel, nil
+	return "", agent.Name, agent.ThinkingLevel, agent.Id, nil
 }
 
 func shellDialConfig(sh *state) dialConfig {
@@ -335,7 +330,7 @@ func dialAgent(cfg dialConfig) dialResult {
 
 	result.session = cfg.session
 	if result.session == "" {
-		result.session, result.name, result.thinkingLevel, result.err = openSession(cfg)
+		result.session, result.name, result.thinkingLevel, result.agentId, result.err = openSession(cfg)
 		if result.err != nil {
 			return result
 		}
@@ -405,6 +400,10 @@ func adoptConn(sh *state, result dialResult) {
 		sh.thinkingLevel = result.thinkingLevel
 	}
 
+	if result.agentId != "" {
+		sh.agentId = result.agentId
+	}
+
 	sh.conn.SetReadDeadline(time.Now().Add(pongWait))
 	sh.conn.SetPongHandler(func(string) error {
 		return result.conn.SetReadDeadline(time.Now().Add(pongWait))
@@ -413,9 +412,11 @@ func adoptConn(sh *state, result dialResult) {
 	ensureReader(sh)
 	go pingLoop(sh, sh.conn)
 
-	err = writeJSON(sh, frame{Type: "attach", SessionId: sh.session})
-	if err != nil {
-		util.Log.Debug("shell attach frame failed", "error", err)
+	if sh.session != "" {
+		err = writeJSON(sh, frame{Type: "attach", SessionId: sh.session})
+		if err != nil {
+			util.Log.Debug("shell attach frame failed", "error", err)
+		}
 	}
 }
 
@@ -978,6 +979,35 @@ func awaitMirror(sh *state) {
 	}
 }
 
+func ensureSession(sh *state) error {
+	var base string
+	var created core.Session
+
+	var err error
+
+	if sh.session != "" {
+		return nil
+	}
+
+	if sh.agentId == "" {
+		return fmt.Errorf("no agent to start a session with")
+	}
+
+	base, err = apiBase(sh.url)
+	if err != nil {
+		return err
+	}
+
+	err = apiPost(base+"/sessions", sh.apiKey, map[string]string{"agent_id": sh.agentId}, &created)
+	if err != nil {
+		return err
+	}
+
+	sh.session = created.Id
+
+	return writeJSON(sh, frame{Type: "attach", SessionId: sh.session})
+}
+
 func sendAgent(sh *state, content string) error {
 	var stop func()
 	var watch *interruptWatch
@@ -990,6 +1020,11 @@ func sendAgent(sh *state, content string) error {
 
 	if sh.conn == nil {
 		return fmt.Errorf("not connected")
+	}
+
+	err = ensureSession(sh)
+	if err != nil {
+		return err
 	}
 
 	sh.mirror = &renderState{}

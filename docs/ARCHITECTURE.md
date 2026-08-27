@@ -802,7 +802,26 @@ itself couldn't start, for instance) gets the notice.
 
 ### Agent mode
 
-`sendAgent()` (`client.go`) posts `{session_id, content, cwd}` over the
+**Session creation is lazy.** `connect()`/`openSession()` (`client.go`)
+resolve *which agent* a fresh shell talks to (so the prompt's agent-name/
+effort badge shows immediately) but no longer `POST /sessions` themselves —
+`openSession` returns the resolved agent's `Id`/`Name`/`ThinkingLevel` and
+leaves `state.session` empty, `adoptConn` stores the id into
+`state.agentId` and skips the `attach` frame when there's no session to
+attach to yet. The session row is created by `ensureSession(sh)`, called
+from `sendAgent()` right before the first chat frame goes out — it's a
+no-op once `state.session` is set. This only changes the *first* message of
+a fresh launch; `--session <id>` (resuming) and every message after the
+first are unaffected. `core.SessionCreate` (`core/session.go`) fills in a
+random `adjective-noun` name (`core/sessionname.go`,
+`math/rand/v2`, no uniqueness check — it's a friendly label, not a key) for
+any session created without an explicit one, so this isn't shell-specific:
+every session gets a real name now, which also means the model-facing
+`session_list` tool (`core/sessiontools.go`) — which already returned each
+session's `Name` — finally has something useful in that field for picking a
+`session_send` target.
+
+`sendAgent()` posts `{session_id, content, cwd}` over the
 websocket and streams the reply back, rendering `reply.Reasoning` — dimmed,
 under a "thinking" heading — ahead of the answer text. `isReasoningFiller`
 drops any reasoning delta that's nothing but dots and whitespace before
@@ -812,9 +831,10 @@ delta back until there's real content; the header only appears once real
 text arrives. While a turn is in flight, a
 background goroutine (`watchInterrupt`) polls stdin so pressing Esc cancels
 the wait: it closes the websocket, then reconnects **reusing the existing
-session id** (`connect()` only calls `openSession()` — which creates a new
-session — when `state.session` is still empty), and hands control back to
-the prompt. Polling is used instead of `SetReadDeadline` because raw-mode
+session id** (harmless even before the first message — `state.session` is
+still empty at that point, so the reconnect's `openSession` call resolves
+the agent again but still doesn't create anything), and hands control back
+to the prompt. Polling is used instead of `SetReadDeadline` because raw-mode
 stdin does not support read deadlines on this platform; the poll goes
 through `golang.org/x/sys/unix.Poll` on the raw fd instead.
 

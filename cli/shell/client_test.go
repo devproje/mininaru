@@ -306,29 +306,25 @@ func TestRemoveToolNameDropsTheMostRecentMatch(t *testing.T) {
 	}
 }
 
-func TestConnectSendsAnAttachFrameForTheSession(t *testing.T) {
+func TestConnectDoesNotCreateASessionUntilTheFirstMessage(t *testing.T) {
 	var upgrader websocket.Upgrader
 	var mux *http.ServeMux
 	var server *httptest.Server
 	var sh state
-	var raw []byte
-	var got frame
-	var received chan []byte
+	var sessionsHit bool
 
 	var err error
-
-	received = make(chan []byte, 1)
 
 	mux = http.NewServeMux()
 	mux.HandleFunc("/api/agents", func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode([]map[string]string{{"id": "a1", "name": "naru"}})
 	})
 	mux.HandleFunc("/api/sessions", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]string{"id": "s1", "agent_id": "a1"})
+		sessionsHit = true
+		json.NewEncoder(w).Encode(map[string]string{"id": "s1", "agent_id": "a1", "name": "quiet-otter"})
 	})
 	mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
 		var conn *websocket.Conn
-		var body []byte
 		var handlerErr error
 
 		conn, handlerErr = upgrader.Upgrade(w, r, nil)
@@ -337,10 +333,7 @@ func TestConnectSendsAnAttachFrameForTheSession(t *testing.T) {
 		}
 		defer conn.Close()
 
-		_, body, handlerErr = conn.ReadMessage()
-		if handlerErr == nil {
-			received <- body
-		}
+		conn.ReadMessage()
 	})
 
 	server = httptest.NewServer(mux)
@@ -353,6 +346,68 @@ func TestConnectSendsAnAttachFrameForTheSession(t *testing.T) {
 		t.Fatalf("connect: %v", err)
 	}
 	defer sh.conn.Close()
+
+	if sh.session != "" {
+		t.Fatalf("sh.session = %q, want empty until the first message", sh.session)
+	}
+	if sh.agentId != "a1" {
+		t.Fatalf("sh.agentId = %q, want %q", sh.agentId, "a1")
+	}
+	if sessionsHit {
+		t.Fatal("connect posted to /sessions before any message was sent")
+	}
+}
+
+func TestEnsureSessionCreatesOneOnFirstUseAndSendsAttach(t *testing.T) {
+	var upgrader websocket.Upgrader
+	var server *httptest.Server
+	var client *websocket.Conn
+	var sh state
+	var raw []byte
+	var got frame
+	var received chan []byte
+
+	var err error
+
+	received = make(chan []byte, 1)
+
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]string
+
+		if r.URL.Path == "/api/sessions" {
+			json.NewDecoder(r.Body).Decode(&body)
+			json.NewEncoder(w).Encode(map[string]string{"id": "s1", "agent_id": body["agent_id"], "name": "quiet-otter"})
+			return
+		}
+
+		var conn *websocket.Conn
+		var handlerErr error
+
+		conn, handlerErr = upgrader.Upgrade(w, r, nil)
+		if handlerErr != nil {
+			return
+		}
+		defer conn.Close()
+
+		_, raw, handlerErr = conn.ReadMessage()
+		if handlerErr == nil {
+			received <- raw
+		}
+	}))
+	defer server.Close()
+
+	client, _, err = websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(server.URL, "http")+"/", nil)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer client.Close()
+
+	sh = state{conn: client, url: server.URL, agentId: "a1"}
+
+	err = ensureSession(&sh)
+	if err != nil {
+		t.Fatalf("ensureSession: %v", err)
+	}
 
 	if sh.session != "s1" {
 		t.Fatalf("sh.session = %q, want %q", sh.session, "s1")

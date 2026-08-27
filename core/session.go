@@ -29,13 +29,12 @@ func SessionCreate(session *Session) error {
 
 	var err error
 
-	opts = []string{"id", "agent_id"}
-	values = []any{session.Id, session.AgentId}
-
-	if session.Name != "" {
-		opts = append(opts, "name")
-		values = append(values, session.Name)
+	if session.Name == "" {
+		session.Name = randomSessionName()
 	}
+
+	opts = []string{"id", "agent_id", "name"}
+	values = []any{session.Id, session.AgentId, session.Name}
 
 	if session.Id == "" || session.AgentId == "" {
 		err = fmt.Errorf("session id or agent_id is required")

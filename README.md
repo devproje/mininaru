@@ -222,6 +222,13 @@ and when it lands it re-attaches to the same session and puts you back in
 whichever mode you were in. Restarting the server looks like a short pause.
 Shift+Tab still retries immediately if you don't want to wait.
 
+No session is created just by starting the shell — it picks an agent right
+away (so the prompt shows its name and reasoning effort immediately), but
+the session itself only comes into existence when you send your first
+agent-mode message, named at that point with a random `adjective-noun`
+pair (`quiet-otter`, `still-meadow`, ...) rather than anything you have to
+pick yourself.
+
 | Key | Bash mode | Agent mode |
 |---|---|---|
 | `Tab` | complete commands and paths | complete `/`-commands and `@`-file references |
@@ -250,7 +257,7 @@ that doesn't resolve is left as plain text with nothing attached, no error.
 ```
 /help       list available commands
 /reset      start a fresh session with the same agent
-/session    show the current session id, agent, and creation time
+/session    show the current session id, name, agent, and creation time
 /agent      global <id-or-name> persists as the default; current <id-or-name> is this shell only
 /model      change the connected agent's model
 /effort     change the connected agent's reasoning effort (off|low|medium|high|max)
