@@ -312,7 +312,7 @@ func init() {
 	registerCommand("session", "show the current session id and agent", showSessionCommand)
 	registerCommand("clear", "clear the terminal screen", clearScreenCommand)
 	registerCommand("exit", "quit mininaru shell", quitShellCommand)
-	registerCommand("bash", "leave agent mode, back to bash", leaveAgentCommand)
+	registerCommand("bash", "leave agent mode, back to shell mode", leaveAgentCommand)
 	registerCommand("yolo", "set dangerous-tool trust for this directory (off|persist|on)", yoloCommand)
 	registerCommand("agent", "switch agent now: global <id-or-name> persists, current <id-or-name> is this shell only", agentCommand)
 	registerCommand("model", "change the connected agent's model", modelCommand)
@@ -356,7 +356,7 @@ func dispatchCommand(sh *state, line string) error {
 	}
 
 	if result.Exit {
-		sh.mode = MODE_BASH
+		sh.mode = MODE_SHELL
 	}
 
 	if result.Quit {

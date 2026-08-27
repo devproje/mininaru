@@ -60,7 +60,7 @@ type state struct {
 }
 
 const (
-	MODE_BASH mode = iota
+	MODE_SHELL mode = iota
 	MODE_AGENT
 )
 
@@ -165,7 +165,7 @@ func Run(opts Options) error {
 		}
 	}
 
-	sh.mode = MODE_BASH
+	sh.mode = MODE_SHELL
 	sh.root = os.Geteuid() == 0
 	sh.user = currentUser()
 
@@ -229,7 +229,7 @@ func Run(opts Options) error {
 			continue
 		}
 
-		if sh.mode == MODE_BASH {
+		if sh.mode == MODE_SHELL {
 			line, err = continueLine(&sh, line)
 			if errors.Is(err, io.EOF) {
 				write("\n")

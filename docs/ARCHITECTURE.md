@@ -3,7 +3,7 @@
 mininaru is a single Go binary: a stateless-per-request OpenAI-compatible HTTP
 API backed by SQLite, a matching websocket for streaming chat, and two CLI
 front ends — an admin CLI for providers/agents/sessions, and `mininaru shell`,
-an interactive terminal that runs a bash prompt and an agent chat over one
+an interactive terminal that runs a shell prompt and an agent chat over one
 line editor. `make build`/`make dist` also produce `narush`, a symlinked
 (local build) or copied (`dist`) alias binary — `invokedAs` in `cli/main.go`
 checks `filepath.Base(os.Args[0])` and, when invoked under that name,
@@ -30,7 +30,7 @@ See "Tool calling" below for all four.
 
 ```
 cli/            cobra root, `serve`, `shell`, and the provider/agent/session admin subcommands
-cli/shell/      the `mininaru shell` line editor — bash mode, agent mode, slash commands
+cli/shell/      the `mininaru shell` line editor — shell mode, agent mode, slash commands
 core/           Provider, Agent, Session, Message, ToolCall CRUD, the tool-calling chat loop, and yolo trust state
 modules/          the Tool/Permission type — a leaf package, imports only util + the MCP SDK
 modules/bash/     the bash_exec builtin tool
@@ -549,7 +549,7 @@ downstream needed a separate code path). `rowsFor` (`redraw.go`) splits on
 `\n` and sums wrapped-row counts per line rather than treating the whole
 string as one wrapped line, which is what makes `redraw()`'s up-then-clear
 cursor math still land correctly with a multi-row prompt above the input
-line. The `git:(branch)` segment and, in bash mode, the `✗ <code>` segment
+line. The `git:(branch)` segment and, in shell mode, the `✗ <code>` segment
 after a non-zero exit both read from cached `state` fields (`gitBranch`,
 `lastExitCode`) refreshed only when `cwd` actually changes or a command
 finishes, never from `prompt()` itself, since `prompt()` runs on nearly
@@ -817,9 +817,9 @@ conversation survives a server restart), re-reads yolo mode, and prints one
 `reconnected` line.
 
 `disconnect` records whether the drop happened in agent mode
-(`state.wasAgent`) before dropping to bash mode, and `adoptDial` restores
+(`state.wasAgent`) before dropping to shell mode, and `adoptDial` restores
 that mode on success — a `mininaru serve` restart reads as a pause rather
-than as being kicked back to a bash prompt. An explicit Shift+Tab while a
+than as being kicked back to a shell prompt. An explicit Shift+Tab while a
 background dial is in flight waits for that dial instead of starting a
 second one.
 
@@ -854,7 +854,7 @@ second one.
   reprinting. A plain `\r\x1b[2K` (clear only the current row) leaves stale
   wrapped content on screen once a line is longer than the terminal width —
   that was a real, reported bug before this existed.
-- Tab completion (`complete.go`): bash-mode, word-start position offers the
+- Tab completion (`complete.go`): shell-mode, word-start position offers the
   builtins (`cd`, `exit`, `quit`, `history`) plus everything executable on
   `$PATH`; agent-mode completion, when the word starts with `/`, offers the
   registered slash-command names, and, when any word (not just at word-start
@@ -877,7 +877,7 @@ Two independent triggers feed the same continuation loop in `Run()`
 (`shell.go`), both signaled from `readLine` as a sentinel error rather than a
 normal return:
 
-- **Automatic, bash mode only** — after Enter, `continueLine()`
+- **Automatic, shell mode only** — after Enter, `continueLine()`
   (`multiline.go`) shells out to `bash -n -c <accumulated text>` and checks
   stderr for `unexpected EOF`/`unexpected end of file`, or checks for an
   unescaped trailing backslash; either one means "not done yet," and it keeps
@@ -900,7 +900,7 @@ aborts the whole in-progress multi-line entry, not just the current segment.
 `-i` so `~/.bashrc` actually loads — a plain `-c` line never sourced it,
 which silently dropped every rc-file alias, `alias ls='ls --color=auto'`
 being the near-universal one; this was reported as "colors get stripped in
-bash mode," but nothing was ever stripping anything, the alias just never
+shell mode," but nothing was ever stripping anything, the alias just never
 existed in that process) — or, for `su`/`sudo`,
 re-exec `mininaru shell` itself as the target user, carrying `--session` and
 `--agent` over so a privilege switch does not lose the conversation — through
@@ -921,7 +921,7 @@ simply returned non-zero (`false`, a no-match `grep`) is silent, the way a
 real shell is; only a genuine failure to run the command at all (bash
 itself couldn't start, for instance) gets the notice.
 
-**Bash mode is not a persistent process** — every line is still its own
+**Shell mode is not a persistent process** — every line is still its own
 fresh `bash -i -c` invocation (a genuinely persistent pty-attached bash was
 scoped and explicitly turned down as too large for the benefit). `-i`
 already restores rc-file aliases, but anything set up *interactively*
@@ -948,7 +948,7 @@ user — no state to share across that boundary).
 
 **None of this is safe to assume for every `$SHELL` by construction** —
 `bashPath()` resolves `$SHELL`, falling back to `/bin/bash` only when it's
-unset, so on a machine where the login shell is zsh or fish, "bash mode"
+unset, so on a machine where the login shell is zsh or fish, "shell mode"
 launches *that* binary, not necessarily bash at all. `-i`'s exact
 rc-loading semantics, and definitely `stateWrappedLine`'s `export -p`/
 `declare -f`/`alias -p`/`$?` syntax and `multiline.go`'s `bash -n -c`
@@ -957,7 +957,7 @@ syntax-probe wording (`bashIncomplete`, grepping stderr for bash's specific
 flag at all (fails quietly, since stderr is already redirected to
 `/dev/null`, silently dropping only alias-persistence while exports and
 functions still work), and fish's syntax is different enough that the
-whole wrapped script would likely fail to parse, breaking bash-mode
+whole wrapped script would likely fail to parse, breaking shell-mode
 command execution generally rather than just the newer features.
 `isBash(path string) bool` (`exec.go`, `filepath.Base(path) == "bash"`)
 gates all three: `shellInvokeFlags(path)` only adds `-i` when
@@ -978,9 +978,9 @@ whenever `cmd.Env` is left `nil`, which every spawn site here does — no
 per-call plumbing needed). It exists purely so a user can safely add an
 `exec narush`-on-interactive-shell hook to their `~/.bashrc`/`~/.zshrc`
 (README's "Using narush as your interactive shell") without it recursing:
-bash mode's own `-i` per-command child is itself an interactive shell that
+shell mode's own `-i` per-command child is itself an interactive shell that
 sources the same rc file, so without this guard such a hook would
-re-launch narush on every single bash-mode command instead of running it.
+re-launch narush on every single shell-mode command instead of running it.
 Nothing else in this codebase reads `MININARU_ACTIVE` — it's a signal for
 the user's own shell config, not consumed internally.
 
@@ -1057,9 +1057,9 @@ session under a stale agent. Both scopes do this for the running process;
 next `mininaru shell` launch whenever `--agent` wasn't passed explicitly,
 while `current` leaves that file alone so the change doesn't outlive this
 shell), `/clear`,
-`/bash` (back to bash mode), `/exit` (quit the shell — `quitShellCommand`
+`/bash` (back to shell mode), `/exit` (quit the shell — `quitShellCommand`
 returns `commandResult{Quit: true}`, and `dispatchCommand` turns that into
-`io.EOF`, the same sentinel bash-mode `exit`/`quit` return to break
+`io.EOF`, the same sentinel shell-mode `exit`/`quit` return to break
 `Run()`'s loop), `/yolo <off|persist|on>` (set the dangerous-tool trust mode
 for the shell's current directory — see "Tool calling" above), `/model
 <model>` and `/effort <off|low|medium|high|max>` (PATCH the connected

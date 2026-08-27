@@ -210,7 +210,7 @@ func candidates(sh *state, line string) []string {
 
 	word = line[wordStart(line):]
 
-	if sh.mode == MODE_BASH && wordStart(line) == 0 && !strings.Contains(word, "/") {
+	if sh.mode == MODE_SHELL && wordStart(line) == 0 && !strings.Contains(word, "/") {
 		return commandCandidates(word)
 	}
 
@@ -222,7 +222,7 @@ func candidates(sh *state, line string) []string {
 		return atCandidates(sh, word)
 	}
 
-	if sh.mode == MODE_BASH {
+	if sh.mode == MODE_SHELL {
 		fields = strings.Fields(line[:wordStart(line)])
 		if len(fields) == 1 {
 			items = subcommandCandidates(fields[0], word)

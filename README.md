@@ -77,8 +77,8 @@ From a local checkout, `make install` installs `out/mininaru` (plus the
 Don't set `$SHELL`/your login shell to `narush` directly — it has no
 non-interactive `-c` mode, so anything that invokes `$SHELL -c '...'`
 (`ssh host 'command'`, git hooks, editor/terminal integrations, cron) would
-break, and `bashPath()` (what bash mode itself execs commands through)
-falls back to `$SHELL` too, so it would try to run every bash-mode command
+break, and `bashPath()` (what shell mode itself execs commands through)
+falls back to `$SHELL` too, so it would try to run every shell-mode command
 through `narush` instead of an actual shell.
 
 The safe way to get "narush opens automatically in every terminal" is an
@@ -93,10 +93,10 @@ fi
 
 `$SHELL` stays your real shell — `-c` invocations never hit this line at
 all, since it only runs for interactive shells. The `$MININARU_ACTIVE`
-check matters because bash mode itself launches an interactive
+check matters because shell mode itself launches an interactive
 `bash -i -c` per command (so `.bashrc` aliases/functions work, see
 [The interactive shell](#the-interactive-shell)) — without the guard,
-every single bash-mode command would immediately re-launch narush instead
+every single shell-mode command would immediately re-launch narush instead
 of running. `mininaru shell` sets `MININARU_ACTIVE=1` in its own
 environment as one of the first things it does, which every process it
 spawns inherits, so the guard only ever suppresses the hook while already
@@ -314,9 +314,9 @@ mininaru shell --session <id>                     # resume an existing conversat
 mininaru shell --agent coder                       # pick an agent by name for a new session
 ```
 
-`mininaru shell` runs a bash prompt and an agent chat over the same line
+`mininaru shell` runs a shell prompt and an agent chat over the same line
 editor. **Shift+Tab** switches between them; if the server is unreachable it
-starts in bash mode, so a running `mininaru serve` is optional for local
+starts in shell mode, so a running `mininaru serve` is optional for local
 shell use. The connection is not something you have to manage: whenever
 there isn't one, the shell keeps retrying in the background with a backoff,
 and when it lands it re-attaches to the same session and puts you back in
@@ -330,17 +330,17 @@ agent-mode message, named at that point with a random `adjective-noun`
 pair (`quiet-otter`, `still-meadow`, ...) rather than anything you have to
 pick yourself.
 
-| Key | Bash mode | Agent mode |
+| Key | Shell mode | Agent mode |
 |---|---|---|
-| `Tab` | complete commands and paths | complete `/`-commands and `@`-file references |
-| `↑` / `↓` | recall bash history | recall agent history (kept separate) |
+| `Tab` | complete commands, arguments, and paths | complete `/`-commands and `@`-file references |
+| `↑` / `↓` | recall shell history | recall agent history (kept separate) |
 | `Ctrl+J` | insert a newline, keep typing | same — compose a multi-line message |
 | `Ctrl+A` / `Ctrl+E` | start / end of line | same |
 | `Ctrl+K` / `Ctrl+U` / `Ctrl+W` | kill to end / kill to start / kill word back | same |
 | `Ctrl+Y` | yank the last kill back in | same |
 | `Ctrl+L` | clear the screen | same |
 | `Ctrl+←` / `Ctrl+→`, `Home` / `End` | word-wise and line-edge cursor movement | same |
-| `Esc` / `Ctrl+C` | interrupt bash's own subshell input | interrupt the response in flight |
+| `Esc` / `Ctrl+C` | interrupt the shell's own subshell input | interrupt the response in flight |
 | `Ctrl+D` | exit the shell | same |
 
 Typing an incomplete bash construct (an open `for`/`if`, an unclosed quote,
@@ -349,7 +349,7 @@ the same way an interactive `bash` does. `su` and `sudo` re-exec the shell
 itself as the target user, carrying the session over, so the prompt and
 history survive a privilege switch.
 
-Each bash-mode line still runs as its own process — this isn't a single
+Each shell-mode line still runs as its own process — this isn't a single
 persistent shell — but `export`ed variables, functions, and aliases you
 define at the prompt carry over to the next line anyway; only things like
 `cd` already worked this way before.
@@ -368,12 +368,12 @@ that doesn't resolve is left as plain text with nothing attached, no error.
 /model      change the connected agent's model
 /effort     change the connected agent's reasoning effort (off|low|medium|high|max)
 /clear      clear the terminal screen
-/bash       back to bash mode
+/bash       back to shell mode
 /exit       quit mininaru shell
 /yolo       set dangerous-tool trust for this directory (off|persist|on)
 ```
 
-`history` is a GNU-bash-compatible builtin in bash mode: `history N`,
+`history` is a GNU-bash-compatible builtin in shell mode: `history N`,
 `history -c` (clear), `history -d offset` (delete one entry, a negative
 offset counts from the end), `history -w`/`-r` (write/read the history
 file). `HISTSIZE`, `HISTFILESIZE`, and `HISTFILE` are honored the way bash
