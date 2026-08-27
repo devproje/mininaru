@@ -392,27 +392,41 @@ delegation blurb) is printed once, plainly, right before its spinner starts.
 
 `session_send` is `agent_spawn`'s sibling: instead of creating a fresh
 session for a fresh agent, it injects a message into a session that already
-exists, gated to sessions owned by the *same* agent as the caller
-(`target.AgentId != caller.Id` is refused, as is targeting the caller's own
-session — that would deadlock on its own session lock below). It reuses
-`agentSpawnTool`'s `lastAssistantMessage` helper and the same
-`depth < maxSpawnDepth` gate in `buildTools`, and — like `agent_spawn` —
-runs the nested `SendChatMessage` with the caller's own `anchor`/`approve`
-rather than building a second approval path.
+exists — **any** session, not just one owned by the same agent as the
+caller (the only remaining restriction is the caller's own session, refused
+because that would deadlock on its own session lock below). This was
+originally gated to same-agent sessions only; that restriction was removed
+on request, so a message can now cross from one agent's conversation into
+a completely different agent's. It reuses `agentSpawnTool`'s
+`lastAssistantMessage` helper and the same `depth < maxSpawnDepth` gate in
+`buildTools`, and — like `agent_spawn` — runs the nested `SendChatMessage`
+with the caller's own `anchor`/`approve` rather than building a second
+approval path.
+
+Because a cross-agent injection would otherwise look, from the receiving
+session's own history, indistinguishable from that agent's own user typing
+a message, `markSenderAgent` (`sessionconnect.go`) prefixes the content
+with `[message from agent "<caller>" via session_send]` whenever
+`target.AgentId != caller.Id` — a same-agent send (still the common case)
+is left untouched, byte for byte. The mirrored copy a live viewer sees
+(`mirrorMessage`, below) carries the same marked text the target agent
+actually received, not the raw un-marked input, so what a person watching
+sees matches what was delivered.
 
 Its `session` argument accepts an id **or a name** — `resolveSessionRef`
 tries `SessionRead` first and, only on `sql.ErrNoRows`, falls back to a
-name match against `SessionList(caller.Id)` (own sessions only, same scope
-`session_list`'s tool output is already limited to). This matters because
-`session_list` shows the model each session's `Name`, not just its id, and
-every session gets a real random name now (`core/sessionname.go`) instead
-of the old hardcoded `"shell"` — before that, resolving a session by name
-had no real use, but a model that's just been shown `quiet-otter` in
-`session_list`'s output has every reason to pass that back verbatim rather
-than the id next to it, and the raw `SessionRead`/`AgentRead` errors this
-tool returned on a miss were unwrapped `sql: no rows in result set` with no
-indication of what went wrong — both paths now report a proper "no session
-%q — check session_list" message instead.
+name match against `SessionListAll()` (every session, not just the
+caller's own — matching `session_list`'s own now-unscoped output, below in
+this same section). This matters because `session_list` shows the
+model each session's `Name`, not just its id, and every session gets a real
+random name now (`core/sessionname.go`) instead of the old hardcoded
+`"shell"` — before that, resolving a session by name had no real use, but a
+model that's just been shown `quiet-otter` in `session_list`'s output has
+every reason to pass that back verbatim rather than the id next to it, and
+the raw `SessionRead`/`AgentRead` errors this tool returned on a miss were
+unwrapped `sql: no rows in result set` with no indication of what went
+wrong — both paths now report a proper "no session %q — check session_list"
+message instead.
 
 Because the target session may have a person watching it live over another
 `/ws` connection, two extra pieces exist purely to serve that case:

@@ -129,6 +129,80 @@ func TestSessionSendDeliversAndReturnsTheReply(t *testing.T) {
 	}
 }
 
+func TestSessionSendDeliversAcrossAgentsWithASenderMarker(t *testing.T) {
+	var caller *Agent
+	var other *Agent
+	var session *Session
+	var target *Session
+	var history []*Message
+
+	var err error
+
+	setupTestDB(t)
+	setupTestSessionSendRoundtrip(t)
+
+	caller = &Agent{Id: "a1", Name: "caller", Model: "gpt-4o-mini"}
+	err = AgentCreate(caller)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	other = &Agent{Id: "a2", Name: "other", Model: "gpt-4o-mini"}
+	err = AgentCreate(other)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	session = &Session{Id: "s1", AgentId: "a1"}
+	err = SessionCreate(session)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	target = &Session{Id: "s2", AgentId: "a2"}
+	err = SessionCreate(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = MessageCreate(&Message{Id: "m1", SessionId: "s1", Role: "user", Content: "ask the other session"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = SendChatMessage(t.Context(), caller, session, t.TempDir(), 0, func(chunk openai.ChatCompletionChunk) {},
+		func(name, status, message string) {},
+		func(ctx context.Context, name, arguments string) (string, error) { return "once", nil })
+	if err != nil {
+		t.Fatalf("SendChatMessage failed: %v", err)
+	}
+
+	history, err = MessageList("s2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(history) != 2 || !strings.Contains(history[0].Content, `agent "caller"`) || !strings.Contains(history[0].Content, "ping") {
+		t.Fatalf("target session history = %+v, want a sender-marked message from caller", history)
+	}
+}
+
+func TestMarkSenderAgentOnlyAnnotatesCrossAgentMessages(t *testing.T) {
+	var caller *Agent
+	var marked string
+
+	caller = &Agent{Id: "a1", Name: "caller"}
+
+	marked = markSenderAgent(caller, "a1", "hi")
+	if marked != "hi" {
+		t.Fatalf("same-agent content = %q, want it unmodified", marked)
+	}
+
+	marked = markSenderAgent(caller, "a2", "hi")
+	if marked == "hi" || !strings.Contains(marked, `agent "caller"`) || !strings.Contains(marked, "hi") {
+		t.Fatalf("cross-agent content = %q, want it marked with the sender's name", marked)
+	}
+}
+
 func TestSessionSendRefusesItsOwnSession(t *testing.T) {
 	var caller *Agent
 	var tool modules.Tool
@@ -170,55 +244,19 @@ func TestResolveSessionRefFindsByIdThenByName(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	found, err = resolveSessionRef("a1", "s2")
+	found, err = resolveSessionRef("s2")
 	if err != nil || found.Id != "s2" {
 		t.Fatalf("resolve by id: got %+v, err %v", found, err)
 	}
 
-	found, err = resolveSessionRef("a1", "quiet-otter")
+	found, err = resolveSessionRef("quiet-otter")
 	if err != nil || found.Id != "s2" {
 		t.Fatalf("resolve by name: got %+v, err %v", found, err)
 	}
 
-	_, err = resolveSessionRef("a1", "does-not-exist")
+	_, err = resolveSessionRef("does-not-exist")
 	if err == nil || !strings.Contains(err.Error(), "no session") {
 		t.Fatalf("resolve unknown: err = %v, want a friendly no-session message", err)
-	}
-}
-
-func TestSessionSendRefusesADifferentAgentsSession(t *testing.T) {
-	var caller *Agent
-	var other *Agent
-	var target *Session
-	var tool modules.Tool
-
-	var err error
-
-	setupTestDB(t)
-
-	caller = &Agent{Id: "a1", Name: "caller", Model: "gpt-4o-mini"}
-	err = AgentCreate(caller)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	other = &Agent{Id: "a2", Name: "other", Model: "gpt-4o-mini"}
-	err = AgentCreate(other)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	target = &Session{Id: "s2", AgentId: "a2"}
-	err = SessionCreate(target)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	tool = sessionSendTool(caller, "s1", t.TempDir(), 0, nil, nil)
-
-	_, err = tool.Execute(t.Context(), `{"session":"s2","content":"hi"}`)
-	if err == nil || !strings.Contains(err.Error(), "not owned by agent") {
-		t.Fatalf("error = %v, want an ownership refusal", err)
 	}
 }
 

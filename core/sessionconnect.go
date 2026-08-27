@@ -18,7 +18,7 @@ import (
 
 const SessionSendToolName = "session_send"
 
-func resolveSessionRef(callerId, ref string) (*Session, error) {
+func resolveSessionRef(ref string) (*Session, error) {
 	var target *Session
 	var list []*Session
 	var item *Session
@@ -33,7 +33,7 @@ func resolveSessionRef(callerId, ref string) (*Session, error) {
 		return nil, err
 	}
 
-	list, err = SessionList(callerId)
+	list, err = SessionListAll()
 	if err != nil {
 		return nil, err
 	}
@@ -47,12 +47,20 @@ func resolveSessionRef(callerId, ref string) (*Session, error) {
 	return nil, fmt.Errorf("no session %q — check session_list for a valid id or name", ref)
 }
 
+func markSenderAgent(caller *Agent, targetAgentId, content string) string {
+	if targetAgentId == caller.Id {
+		return content
+	}
+
+	return fmt.Sprintf("[message from agent %q via session_send]\n%s", caller.Name, content)
+}
+
 func sessionSendTool(caller *Agent, callerSessionId, anchor string, depth int, onTool func(name, status, message string), approve ApproveFunc) modules.Tool {
 	return modules.Tool{
 		Name: SessionSendToolName,
-		Description: "Inject a message into another already-running session owned by the same agent, and " +
-			"return its reply. If a person is currently connected to that session, they see the round stream " +
-			"in live, the same as any other turn.",
+		Description: "Inject a message into another already-running session, even one owned by a different " +
+			"agent, and return its reply. If a person is currently connected to that session, they see the " +
+			"round stream in live, the same as any other turn.",
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -70,6 +78,7 @@ func sessionSendTool(caller *Agent, callerSessionId, anchor string, depth int, o
 			}
 			var target *Session
 			var targetAgent *Agent
+			var content string
 			var msg Message
 			var unlock func()
 			var childOnTool func(name, status, message string)
@@ -95,12 +104,9 @@ func sessionSendTool(caller *Agent, callerSessionId, anchor string, depth int, o
 				return "", fmt.Errorf("session_send cannot target its own session")
 			}
 
-			target, err = resolveSessionRef(caller.Id, payload.Session)
+			target, err = resolveSessionRef(payload.Session)
 			if err != nil {
 				return "", err
-			}
-			if target.AgentId != caller.Id {
-				return "", fmt.Errorf("session %s is not owned by agent %s", target.Id, caller.Name)
 			}
 
 			targetAgent, err = AgentRead(target.AgentId)
@@ -115,14 +121,15 @@ func sessionSendTool(caller *Agent, callerSessionId, anchor string, depth int, o
 			unlock = SessionLock(target.Id)
 			defer unlock()
 
-			msg = Message{Id: uuid.NewString(), SessionId: target.Id, Role: "user", Content: payload.Content}
+			content = markSenderAgent(caller, target.AgentId, payload.Content)
+			msg = Message{Id: uuid.NewString(), SessionId: target.Id, Role: "user", Content: content}
 			err = MessageCreate(&msg)
 			if err != nil {
 				return "", err
 			}
 
 			if mirrorMessage != nil {
-				mirrorMessage(target.Id, callerSessionId, payload.Content)
+				mirrorMessage(target.Id, callerSessionId, content)
 			}
 
 			childOnTool = func(name, status, message string) {

@@ -173,18 +173,20 @@ needs a Chrome or Chromium binary reachable via `$PATH` or
 `MININARU_CHROME`; nothing else has an external dependency. `agent_spawn`
 runs the delegate as a real session (it shows up in `session list` like any
 other), starts it with no memory of the calling conversation; `session_send`
-targets a session that already exists (owned by the same agent, never the
-caller's own), and if a person is connected to it live, the injected message
-appears on their screen straight away — marked with the session it came
-from — and the reply streams in under it, whether or not they were typing at
-the time. Neither tool can be handed to whatever it delegates to or
+targets any session that already exists, including one owned by a
+completely different agent — the only session it refuses is the caller's
+own — and if a person is connected to it live, the injected message appears
+on their screen straight away — marked with the session it came from — and
+the reply streams in under it, whether or not they were typing at the time.
+A message sent into a different agent's session is prefixed with which
+agent it came from, so that agent's history doesn't read as if its own user
+just said it. Neither tool can be handed to whatever it delegates to or
 messages — one level of delegation, no chains. Two read-only discovery tools
 round these out and always run with no approval needed: `agent_list` (every
 configured agent, for picking an `agent_spawn` target) and `session_list`
 (every session, across every agent, that currently has a live viewer
-connected — marks which one is the current conversation; only the entries
-owned by the calling agent are valid `session_send` targets, the rest are
-shown for awareness of what else is active right now).
+connected — marks which one is the current conversation, and any of them is
+a valid `session_send` target).
 
 Every agent also has persistent memory, `memory_save`/`memory_read`/
 `memory_forget`. Memory is scoped to the agent (not the directory or
