@@ -12,6 +12,10 @@
   Release tag to install. Defaults to the newest release (prereleases included).
 .PARAMETER BinDir
   Target directory. Defaults to $env:MININARU_BINDIR, then $env:LOCALAPPDATA\mininaru\bin.
+.PARAMETER Path
+  Data directory / NARU_PATH (default: %USERPROFILE%\.mininaru), pinned as a
+  persistent user environment variable so mininaru uses one data directory
+  regardless of the working directory it starts from.
 .PARAMETER Uninstall
   Remove the installed executables instead of installing them.
 #>
@@ -20,6 +24,7 @@
 param(
 	[string]$Tag,
 	[string]$BinDir,
+	[string]$Path,
 	[switch]$Uninstall
 )
 
@@ -37,6 +42,9 @@ if (-not $BinDir) {
 		$BinDir = Join-Path $env:LOCALAPPDATA 'mininaru\bin'
 	}
 }
+if (-not $Path) {
+	$Path = if ($env:NARU_PATH) { $env:NARU_PATH } else { Join-Path $env:USERPROFILE '.mininaru' }
+}
 
 $names = @('mininaru.exe', 'narush.exe')
 
@@ -45,8 +53,15 @@ if ($Uninstall) {
 		$path = Join-Path $BinDir $name
 		if (Test-Path $path) { Remove-Item $path -Force }
 	}
+	[Environment]::SetEnvironmentVariable('NARU_PATH', $null, 'User')
 	Write-Host "removed mininaru from $BinDir"
 	return
+}
+
+if (($env:NARU_PATH) -ne $Path) {
+	[Environment]::SetEnvironmentVariable('NARU_PATH', $Path, 'User')
+	$env:NARU_PATH = $Path
+	Write-Host "pinned NARU_PATH=$Path as a user environment variable"
 }
 
 if (-not $Tag -and (Get-Command mininaru -ErrorAction SilentlyContinue)) {
@@ -75,11 +90,10 @@ if (-not $Tag) {
 if ($Tag -match '^v?0\.') {
 	if (-not $requestedTag) {
 		throw @"
-the newest release is $Tag, from the pre-1.0 architecture that this rewrite
-is not compatible with. Versioning restarts at v1.0.0-alpha.1 and no such
-release exists yet, so there is nothing to install from a release right now --
-build from source (make build) instead. Pass -Tag explicitly only if you
-specifically want an old 0.x build.
+the newest release resolved to $Tag, from the pre-1.0 architecture this
+rewrite is not compatible with. Versioning restarts at v1.0.0-alpha.1; pass
+-Tag v1.0.0-alpha.1 (or later) to install one of those, or -Tag $Tag if you
+really want this old 0.x build.
 "@
 	}
 	Write-Warning "installing $Tag, a pre-1.0 build incompatible with the current architecture"

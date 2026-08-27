@@ -7,6 +7,8 @@ set -eu
 UNIT="mininaru.service"
 HOOK_BEGIN='# >>> mininaru shell hook >>>'
 HOOK_END='# <<< mininaru shell hook <<<'
+ENV_BEGIN='# >>> mininaru env >>>'
+ENV_END='# <<< mininaru env <<<'
 
 usage() {
 	cat <<'EOF'
@@ -19,10 +21,13 @@ Usage:
 Options:
   --host <addr>   address to bind (default: 127.0.0.1)
   --port <n>      port to bind (default: 8223)
-  --path <dir>    set NARU_PATH for the service (default: inherit / unset)
+  --path <dir>    data directory / NARU_PATH (default: ~/.mininaru), written
+                  into the unit and, with --shell, exported from your rc file
   --linger        run `loginctl enable-linger` so the service survives logout
-  --shell         also add the `exec narush` hook to your shell rc file
-  --disable       stop and remove the unit, and remove the shell hook
+  --shell         add the `exec narush` hook and the NARU_PATH export to your
+                  shell rc file, so an interactive shell shares the service's
+                  data directory
+  --disable       stop and remove the unit, and undo the rc-file changes
 
 Environment:
   MININARU_BIN    path to the mininaru binary to run (default: search BINDIR,
@@ -72,9 +77,38 @@ remove_hook() {
 	log "removed the narush shell hook from $rc"
 }
 
+ensure_env_block() {
+	rc="$(rc_file)"
+	if [ -f "$rc" ] && grep -qF "$ENV_BEGIN" "$rc"; then
+		return 0
+	fi
+	tmp="$(mktemp)"
+	{
+		printf '%s\n' "$ENV_BEGIN"
+		printf 'export NARU_PATH="%s"\n' "$1"
+		printf '%s\n' "$ENV_END"
+		if [ -f "$rc" ]; then
+			cat "$rc"
+		fi
+	} >"$tmp"
+	cat "$tmp" >"$rc"
+	rm -f "$tmp"
+	log "pinned NARU_PATH=$1 in $rc"
+}
+
+remove_env_block() {
+	rc="$(rc_file)"
+	{ [ -f "$rc" ] && grep -qF "$ENV_BEGIN" "$rc"; } || return 0
+	tmp="$(mktemp)"
+	sed "/^${ENV_BEGIN}\$/,/^${ENV_END}\$/d" "$rc" >"$tmp"
+	cat "$tmp" >"$rc"
+	rm -f "$tmp"
+	log "removed the NARU_PATH pin from $rc"
+}
+
 host="127.0.0.1"
 port="8223"
-naru_path=""
+naru_path="$HOME/.mininaru"
 linger=0
 shell_hook=0
 disable=0
@@ -137,6 +171,7 @@ if [ "$disable" -eq 1 ]; then
 	fi
 	log "removed $UNIT"
 	remove_hook
+	remove_env_block
 	exit 0
 fi
 
@@ -173,9 +208,7 @@ mkdir -p "$unit_dir"
 	printf 'Type=simple\n'
 	printf 'ExecStart=%s serve --host %s --port %s\n' "$binary" "$host" "$port"
 	printf 'Environment=MININARU_NO_UPDATE_CHECK=1\n'
-	if [ -n "$naru_path" ]; then
-		printf 'Environment=NARU_PATH=%s\n' "$naru_path"
-	fi
+	printf 'Environment=NARU_PATH=%s\n' "$naru_path"
 	printf 'Restart=on-failure\n'
 	printf 'RestartSec=3\n'
 	printf '\n'
@@ -193,8 +226,9 @@ fi
 
 if [ "$shell_hook" -eq 1 ]; then
 	install_hook
+	ensure_env_block "$naru_path"
 fi
 
 log "mininaru serve is running on $host:$port"
 log "  systemctl --user status $UNIT"
-log "  cat \"\${NARU_PATH:-\$HOME/.mininaru}/mininaru.key\"   # bearer token for the API"
+log "  cat \"$naru_path/mininaru.key\"   # bearer token for the API"
