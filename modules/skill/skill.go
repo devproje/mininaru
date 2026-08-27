@@ -261,7 +261,6 @@ func scanAll() []Skill {
 	return accepted
 }
 
-// CreateRoot resolves the on-disk root a given scope writes to.
 func CreateRoot(scope string) (string, string, error) {
 	switch scope {
 	case "", ScopeProject:

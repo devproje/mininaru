@@ -357,6 +357,7 @@ func writeJSON(sh *state, v any) error {
 
 func pingLoop(sh *state, conn *websocket.Conn) {
 	var tick *time.Ticker
+	var err error
 
 	tick = time.NewTicker(pingPeriod)
 	defer tick.Stop()
@@ -369,7 +370,7 @@ func pingLoop(sh *state, conn *websocket.Conn) {
 		}
 
 		conn.SetWriteDeadline(time.Now().Add(writeWait))
-		err := conn.WriteControl(websocket.PingMessage, nil, time.Now().Add(writeWait))
+		err = conn.WriteControl(websocket.PingMessage, nil, time.Now().Add(writeWait))
 		sh.connMu.Unlock()
 
 		if err != nil {

@@ -32,7 +32,15 @@ const (
 	ROOT_BG     string = "\x1b[48;5;203m\x1b[38;5;231m\x1b[1m"
 )
 
-var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+const (
+	barWidth     int = 10
+	barSegment   int = 3
+	barStepTicks int = 2
+)
+
+const spinnerWordPeriod time.Duration = 2 * time.Second
+
+var thinkingWords = []string{"thinking…", "pondering…", "percolating…", "mulling…", "noodling…"}
 
 func displayWidth(text string) int {
 	var letter rune
@@ -69,9 +77,25 @@ func notice(color string, mark string, format string, args ...any) {
 	write("%s%s%s %s\n", color, mark, RESET, fmt.Sprintf(format, args...))
 }
 
-const spinnerWordPeriod time.Duration = 2 * time.Second
+func barFrame(tick int) string {
+	var span int
+	var pos int
+	var i int
+	var b strings.Builder
 
-var thinkingWords = []string{"thinking…", "pondering…", "percolating…", "mulling…", "noodling…"}
+	span = barWidth - barSegment + 1
+	pos = (tick / barStepTicks) % span
+
+	for i = 0; i < barWidth; i++ {
+		if i >= pos && i < pos+barSegment {
+			b.WriteString("█")
+		} else {
+			b.WriteString("░")
+		}
+	}
+
+	return b.String()
+}
 
 func runSpinner(label func(tick int) string) func() {
 	var stop chan struct{}
@@ -94,7 +118,7 @@ func runSpinner(label func(tick int) string) func() {
 			case <-stop:
 				return
 			case <-tick.C:
-				write("\r\x1b[2K%s%s%s %s%s%s", PURPLE, spinnerFrames[i%len(spinnerFrames)], RESET, DIM, label(i), RESET)
+				write("\r\x1b[2K%s%s%s %s%s%s", PURPLE, barFrame(i), RESET, DIM, label(i), RESET)
 				i++
 			}
 		}
@@ -113,8 +137,6 @@ func spinner(label string) func() {
 	return runSpinner(func(int) string { return label })
 }
 
-// spinnerWords rotates through words every spinnerWordPeriod, Claude-Code-style,
-// alongside the usual glyph spin.
 func spinnerWords(words []string) func() {
 	var wordTicks int
 
