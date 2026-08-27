@@ -190,6 +190,19 @@ func subcommandCandidates(command, word string) []string {
 	return items
 }
 
+func atCandidates(sh *state, word string) []string {
+	var raw []string
+	var item string
+	var items []string
+
+	raw = fileCandidates(sh, word[1:])
+	for _, item = range raw {
+		items = append(items, "@"+item)
+	}
+
+	return items
+}
+
 func candidates(sh *state, line string) []string {
 	var word string
 	var fields []string
@@ -203,6 +216,10 @@ func candidates(sh *state, line string) []string {
 
 	if sh.mode == MODE_AGENT && wordStart(line) == 0 && strings.HasPrefix(word, "/") {
 		return agentCommandCandidates(word)
+	}
+
+	if sh.mode == MODE_AGENT && strings.HasPrefix(word, "@") {
+		return atCandidates(sh, word)
 	}
 
 	if sh.mode == MODE_BASH {

@@ -29,6 +29,8 @@ type commandEntry struct {
 
 var commands map[string]commandEntry
 
+var thinkingLevels = map[string]bool{"off": true, "low": true, "medium": true, "high": true, "max": true}
+
 func registerCommand(name string, description string, handler commandHandler) {
 	if commands == nil {
 		commands = make(map[string]commandEntry)
@@ -218,6 +220,80 @@ func yoloCommand(sh *state, args []string) (commandResult, error) {
 	return commandResult{Message: fmt.Sprintf("yolo mode set to %s for %v", mode, resp["root"])}, nil
 }
 
+func currentAgent(sh *state, base string) (*core.Agent, error) {
+	if sh.name != "" {
+		return resolveAgentByIdOrName(sh, base, sh.name)
+	}
+
+	return resolveAgentByIdOrName(sh, base, sh.agent)
+}
+
+func modelCommand(sh *state, args []string) (commandResult, error) {
+	var base string
+	var target *core.Agent
+	var updated core.Agent
+
+	var err error
+
+	if len(args) == 0 {
+		return commandResult{}, fmt.Errorf("usage: /model <model>")
+	}
+
+	base, err = apiBase(sh.url)
+	if err != nil {
+		return commandResult{}, err
+	}
+
+	target, err = currentAgent(sh, base)
+	if err != nil {
+		return commandResult{}, err
+	}
+
+	err = apiPatch(base+"/agents/"+target.Id, sh.apiKey, map[string]string{"model": args[0]}, &updated)
+	if err != nil {
+		return commandResult{}, err
+	}
+
+	return commandResult{Message: "model set to " + updated.Model}, nil
+}
+
+func effortCommand(sh *state, args []string) (commandResult, error) {
+	var level string
+	var base string
+	var target *core.Agent
+	var updated core.Agent
+
+	var err error
+
+	if len(args) == 0 {
+		return commandResult{}, fmt.Errorf("usage: /effort <off|low|medium|high|max>")
+	}
+
+	level = strings.ToLower(args[0])
+	if !thinkingLevels[level] {
+		return commandResult{}, fmt.Errorf("effort must be one of off, low, medium, high, max")
+	}
+
+	base, err = apiBase(sh.url)
+	if err != nil {
+		return commandResult{}, err
+	}
+
+	target, err = currentAgent(sh, base)
+	if err != nil {
+		return commandResult{}, err
+	}
+
+	err = apiPatch(base+"/agents/"+target.Id, sh.apiKey, map[string]string{"thinking_level": level}, &updated)
+	if err != nil {
+		return commandResult{}, err
+	}
+
+	sh.thinkingLevel = updated.ThinkingLevel
+
+	return commandResult{Message: "reasoning effort set to " + updated.ThinkingLevel}, nil
+}
+
 func init() {
 	registerCommand("help", "list available commands", helpCommand)
 	registerCommand("reset", "start a fresh session with the same agent", resetSessionCommand)
@@ -227,6 +303,8 @@ func init() {
 	registerCommand("bash", "leave agent mode, back to bash", leaveAgentCommand)
 	registerCommand("yolo", "set dangerous-tool trust for this directory (off|persist|on)", yoloCommand)
 	registerCommand("agent", "set the agent: global <id-or-name> persists, current <id-or-name> is this shell only", agentCommand)
+	registerCommand("model", "change the connected agent's model", modelCommand)
+	registerCommand("effort", "change the connected agent's reasoning effort (off|low|medium|high|max)", effortCommand)
 }
 
 func dispatchCommand(sh *state, line string) error {

@@ -144,7 +144,7 @@ func apiGet(endpoint string, apiKey string, out any) error {
 	return json.Unmarshal(body, out)
 }
 
-func apiPost(endpoint string, apiKey string, payload any, out any) error {
+func apiSend(method string, endpoint string, apiKey string, payload any, out any) error {
 	var body []byte
 	var req *http.Request
 	var res *http.Response
@@ -156,7 +156,7 @@ func apiPost(endpoint string, apiKey string, payload any, out any) error {
 		return err
 	}
 
-	req, err = http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(body))
+	req, err = http.NewRequest(method, endpoint, bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
@@ -180,6 +180,14 @@ func apiPost(endpoint string, apiKey string, payload any, out any) error {
 	}
 
 	return json.Unmarshal(body, out)
+}
+
+func apiPost(endpoint string, apiKey string, payload any, out any) error {
+	return apiSend(http.MethodPost, endpoint, apiKey, payload, out)
+}
+
+func apiPatch(endpoint string, apiKey string, payload any, out any) error {
+	return apiSend(http.MethodPatch, endpoint, apiKey, payload, out)
 }
 
 func refreshYoloMode(sh *state) {

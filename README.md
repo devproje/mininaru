@@ -224,11 +224,15 @@ Shift+Tab still retries immediately if you don't want to wait.
 
 | Key | Bash mode | Agent mode |
 |---|---|---|
-| `Tab` | complete commands and paths | complete `/`-commands |
+| `Tab` | complete commands and paths | complete `/`-commands and `@`-file references |
 | `↑` / `↓` | recall bash history | recall agent history (kept separate) |
 | `Ctrl+J` | insert a newline, keep typing | same — compose a multi-line message |
-| `Ctrl+U` | clear the current line | same |
-| `Esc` | — | interrupt the response in flight |
+| `Ctrl+A` / `Ctrl+E` | start / end of line | same |
+| `Ctrl+K` / `Ctrl+U` / `Ctrl+W` | kill to end / kill to start / kill word back | same |
+| `Ctrl+Y` | yank the last kill back in | same |
+| `Ctrl+L` | clear the screen | same |
+| `Ctrl+←` / `Ctrl+→`, `Home` / `End` | word-wise and line-edge cursor movement | same |
+| `Esc` / `Ctrl+C` | interrupt bash's own subshell input | interrupt the response in flight |
 | `Ctrl+D` | exit the shell | same |
 
 Typing an incomplete bash construct (an open `for`/`if`, an unclosed quote,
@@ -237,13 +241,19 @@ the same way an interactive `bash` does. `su` and `sudo` re-exec the shell
 itself as the target user, carrying the session over, so the prompt and
 history survive a privilege switch.
 
-Inside agent mode:
+Inside agent mode, `@path/to/file` anywhere in a message pulls that file's
+content into what gets sent to the agent (path resolved relative to the
+shell's cwd, `~` expanded, tab-completes like a path) — the `@` is stripped
+from the message text itself and the content is appended after it; a path
+that doesn't resolve is left as plain text with nothing attached, no error.
 
 ```
 /help       list available commands
 /reset      start a fresh session with the same agent
 /session    show the current session id, agent, and creation time
 /agent      global <id-or-name> persists as the default; current <id-or-name> is this shell only
+/model      change the connected agent's model
+/effort     change the connected agent's reasoning effort (off|low|medium|high|max)
 /clear      clear the terminal screen
 /bash       back to bash mode
 /exit       quit mininaru shell

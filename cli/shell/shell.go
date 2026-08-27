@@ -84,7 +84,7 @@ func dispatch(sh *state, line string, restore func() error, raw func() error) er
 			return dispatchCommand(sh, line)
 		}
 
-		err = sendAgent(sh, line)
+		err = sendAgent(sh, expandFileReferences(sh, line))
 		if err != nil {
 			disconnect(sh, err)
 		}

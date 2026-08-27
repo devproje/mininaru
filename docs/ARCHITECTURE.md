@@ -741,7 +741,10 @@ second one.
 - Tab completion (`complete.go`): bash-mode, word-start position offers the
   builtins (`cd`, `exit`, `quit`, `history`) plus everything executable on
   `$PATH`; agent-mode completion, when the word starts with `/`, offers the
-  registered slash-command names. Completing the **second** word in bash
+  registered slash-command names, and, when any word (not just at word-start
+  — a mention can sit mid-sentence) starts with `@`, offers path completion
+  under that `@` via `atCandidates` (see "`@path/to/file` references"
+  below). Completing the **second** word in bash
   mode, when the first word is a key in `subcommandSets` (a small hardcoded
   map — `git`, `go`, `npm`, `docker`, `cargo`), offers that program's known
   subcommands instead of falling into path completion — e.g. `git ` + Tab
@@ -849,13 +852,46 @@ so the change doesn't outlive this shell), `/clear`,
 returns `commandResult{Quit: true}`, and `dispatchCommand` turns that into
 `io.EOF`, the same sentinel bash-mode `exit`/`quit` return to break
 `Run()`'s loop), `/yolo <off|persist|on>` (set the dangerous-tool trust mode
-for the shell's current directory — see "Tool calling" above) — a small
-name-keyed registry (`command.go`), dispatched only in agent mode when a line
-starts with `/`.
+for the shell's current directory — see "Tool calling" above), `/model
+<model>` and `/effort <off|low|medium|high|max>` (PATCH the connected
+agent's settings on the server) — a small name-keyed registry (`command.go`),
+dispatched only in agent mode when a line starts with `/`.
 Handlers take `*state` directly and read/write it in place; there is no
 adapter interface here, because there used to be — this lived in a separate
 `cli/cmd` package for a short time and was folded back into `cli/shell` once
 the indirection was not paying for itself.
+
+`/model`/`effortCommand` (`command.go`) share `currentAgent(sh, base)`,
+which resolves the *actually connected* agent via `resolveAgentByIdOrName`
+using `state.name` (falling back to `state.agent` if that's somehow still
+empty) — not `state.agent` first, since that field only holds a requested
+override and can be blank when `pickAgent` picked the default. Both PATCH
+`base+"/agents/"+target.Id` through a new `apiPatch` (`client.go`, a thin
+wrapper over the same body-building/error-handling `apiSend` helper
+`apiPost` was refactored onto, `http.MethodPatch` instead of `POST`) against
+`AgentUpdate`'s "only touch non-empty fields" semantics (`core/agent.go`) —
+a request with just `{"model": "..."}` or `{"thinking_level": "..."}`
+leaves everything else on the agent untouched. `effortCommand` writes the
+response's `ThinkingLevel` straight into `state.thinkingLevel` so the
+prompt's effort badge (see the prompt paragraph above) updates immediately,
+without reconnecting.
+
+**`@path/to/file` references** — typing `@` anywhere in an agent-mode
+message tab-completes like a path (`atCandidates`, `complete.go`, a thin
+wrapper around `fileCandidates` that re-prepends the `@`) and, on submit,
+gets expanded before the message becomes the outgoing frame content
+(`expandFileReferences`, `fileref.go`, called from `dispatch()`'s agent
+branch right before `sendAgent`). `fileRefPattern` (a regexp anchored on a
+leading space-or-start boundary so it doesn't match an `@` mid-word) finds
+every `@token` in the line; the message text sent to the model has the `@`
+stripped but the path left in place, and each referenced file's content
+(capped at 64KB, same truncation convention as `modules/skill`/
+`modules/memory`) is appended after the message as `<file path="...">...
+</file>` blocks. A path that can't be read (typo, doesn't exist) is left as
+plain text with the `@` still stripped — no error, no attachment; this
+mirrors `fileCandidates`' own resolution rules (relative to `state.cwd`,
+`~` expansion via the same `expandUser` helper) so what completes is what
+resolves.
 
 ## Development
 
