@@ -148,6 +148,7 @@ case "$(uname -m)" in
 	*) fail "unsupported architecture: $(uname -m)" ;;
 esac
 
+requested_tag="$tag"
 if [ -z "$tag" ]; then
 	log "resolving the latest release"
 	tag="$(fetch "$API_BASE/repos/$REPO/releases" |
@@ -156,6 +157,19 @@ if [ -z "$tag" ]; then
 		sed -e 's/.*"tag_name"[[:space:]]*:[[:space:]]*"//' -e 's/".*//')"
 	[ -n "$tag" ] || fail "could not resolve the latest release tag"
 fi
+
+case "$tag" in
+	v0.* | 0.*)
+		if [ -z "$requested_tag" ]; then
+			fail "the newest release is $tag, from the pre-1.0 architecture that this
+rewrite is not compatible with. Versioning restarts at v1.0.0-alpha.1 and
+no such release exists yet, so there is nothing to install from a release
+right now -- build from source (\`make build\`) instead. Pass --tag
+explicitly only if you specifically want an old 0.x build."
+		fi
+		log "warning: installing $tag, a pre-1.0 build incompatible with the current architecture"
+		;;
+esac
 
 asset="mininaru_${tag}_${os}_${arch}.tar.gz"
 base="https://github.com/$REPO/releases/download/$tag"

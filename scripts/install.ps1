@@ -64,11 +64,25 @@ $arch = switch ($env:PROCESSOR_ARCHITECTURE) {
 $headers = @{ 'Accept' = 'application/vnd.github+json' }
 if ($env:GITHUB_TOKEN) { $headers['Authorization'] = "Bearer $($env:GITHUB_TOKEN)" }
 
+$requestedTag = $Tag
 if (-not $Tag) {
 	Write-Host 'resolving the latest release'
 	$releases = Invoke-RestMethod -Headers $headers -Uri "$apiBase/repos/$repo/releases"
 	if (-not $releases) { throw 'repository has no releases' }
 	$Tag = $releases[0].tag_name
+}
+
+if ($Tag -match '^v?0\.') {
+	if (-not $requestedTag) {
+		throw @"
+the newest release is $Tag, from the pre-1.0 architecture that this rewrite
+is not compatible with. Versioning restarts at v1.0.0-alpha.1 and no such
+release exists yet, so there is nothing to install from a release right now --
+build from source (make build) instead. Pass -Tag explicitly only if you
+specifically want an old 0.x build.
+"@
+	}
+	Write-Warning "installing $Tag, a pre-1.0 build incompatible with the current architecture"
 }
 
 $asset = "mininaru_${Tag}_windows_${arch}.zip"

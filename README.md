@@ -16,6 +16,14 @@ is actually here.
 
 ## Install
 
+> **No compatible release yet.** This rewrite restarts versioning at
+> `v1.0.0-alpha.1` and shares nothing with the pre-refactor `0.x` line — its
+> database schema, API, and on-disk layout are different, and a `0.x` binary
+> will not run against this project's data. Until a `v1.0.0-alpha` release is
+> tagged, the only way in is **build from source**. `install.sh` / `install.ps1`
+> refuse to auto-install a `0.x` release for this reason — pass `--tag` to
+> override, at your own risk.
+
 ```sh
 curl -fsSL https://raw.githubusercontent.com/devproje/mininaru/master/scripts/install.sh | sh
 ```
