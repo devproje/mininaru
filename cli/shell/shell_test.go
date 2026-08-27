@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -175,15 +176,17 @@ func TestBashPathWindowsPrefersComspec(t *testing.T) {
 	}
 }
 
-func TestShellInvokeFlagMatchesTheHostShellSyntax(t *testing.T) {
-	var want string
+func TestShellInvokeFlagsMatchTheHostShellSyntax(t *testing.T) {
+	var want []string
+	var got []string
 
-	want = "-c"
+	want = []string{"-i", "-c"}
 	if runtime.GOOS == "windows" {
-		want = "/C"
+		want = []string{"/C"}
 	}
 
-	if shellInvokeFlag() != want {
-		t.Fatalf("shellInvokeFlag() = %q, want %q for %s", shellInvokeFlag(), want, runtime.GOOS)
+	got = shellInvokeFlags()
+	if !slices.Equal(got, want) {
+		t.Fatalf("shellInvokeFlags() = %q, want %q for %s", got, want, runtime.GOOS)
 	}
 }
