@@ -33,6 +33,36 @@ pushed `v*` tag, and it is currently the only way to get a mininaru binary;
 there is no install script yet. `dist/` carries the same `narush` alias
 alongside `mininaru`.
 
+### Using narush as your interactive shell
+
+Don't set `$SHELL`/your login shell to `narush` directly — it has no
+non-interactive `-c` mode, so anything that invokes `$SHELL -c '...'`
+(`ssh host 'command'`, git hooks, editor/terminal integrations, cron) would
+break, and `bashPath()` (what bash mode itself execs commands through)
+falls back to `$SHELL` too, so it would try to run every bash-mode command
+through `narush` instead of an actual shell.
+
+The safe way to get "narush opens automatically in every terminal" is an
+`exec` hook at the *end* of `~/.bashrc`/`~/.zshrc`, guarded against both
+non-interactive shells and recursion:
+
+```sh
+if [[ $- == *i* ]] && [ -z "$MININARU_ACTIVE" ]; then
+    exec narush
+fi
+```
+
+`$SHELL` stays your real shell — `-c` invocations never hit this line at
+all, since it only runs for interactive shells. The `$MININARU_ACTIVE`
+check matters because bash mode itself launches an interactive
+`bash -i -c` per command (so `.bashrc` aliases/functions work, see
+[The interactive shell](#the-interactive-shell)) — without the guard,
+every single bash-mode command would immediately re-launch narush instead
+of running. `mininaru shell` sets `MININARU_ACTIVE=1` in its own
+environment as one of the first things it does, which every process it
+spawns inherits, so the guard only ever suppresses the hook while already
+inside a narush-owned shell tree.
+
 ### Verifying a release download
 
 Every tagged release publishes `SHA256SUMS` and a signed build provenance

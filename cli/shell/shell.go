@@ -72,6 +72,8 @@ const (
 	RETRY_MAX    time.Duration = 30 * time.Second
 )
 
+const activeEnvVar string = "MININARU_ACTIVE"
+
 func dispatch(sh *state, line string, restore func() error, raw func() error) error {
 	var args []string
 	var nested *exec.Cmd
@@ -137,6 +139,11 @@ func Run(opts Options) error {
 	fd = int(os.Stdin.Fd())
 	if !term.IsTerminal(fd) {
 		return fmt.Errorf("shell requires a terminal")
+	}
+
+	err = os.Setenv(activeEnvVar, "1")
+	if err != nil {
+		util.Log.Debug("could not set the active-shell marker env var", "error", err)
 	}
 
 	sh.cwd, err = os.Getwd()

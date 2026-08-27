@@ -941,6 +941,19 @@ back to the shell-agnostic trailing-backslash check only. A non-bash
 bash-aware multi-line continuation detection — but command execution
 itself never breaks.
 
+**`MININARU_ACTIVE`** (`activeEnvVar`, `shell.go`) — set to `"1"` via
+`os.Setenv` near the very top of `Run()`, so every process this session
+spawns afterward inherits it (`exec.Cmd` inherits the parent's environment
+whenever `cmd.Env` is left `nil`, which every spawn site here does — no
+per-call plumbing needed). It exists purely so a user can safely add an
+`exec narush`-on-interactive-shell hook to their `~/.bashrc`/`~/.zshrc`
+(README's "Using narush as your interactive shell") without it recursing:
+bash mode's own `-i` per-command child is itself an interactive shell that
+sources the same rc file, so without this guard such a hook would
+re-launch narush on every single bash-mode command instead of running it.
+Nothing else in this codebase reads `MININARU_ACTIVE` — it's a signal for
+the user's own shell config, not consumed internally.
+
 ### Agent mode
 
 **Session creation is lazy.** `connect()`/`openSession()` (`client.go`)
