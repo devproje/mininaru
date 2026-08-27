@@ -42,7 +42,7 @@ fail() {
 	exit 1
 }
 
-script_dir="$(cd -- "$(dirname -- "$0")" 2>/dev/null && pwd || echo .)"
+script_dir="$(dirname -- "$0")"
 
 maybe_register_daemon() {
 	[ -t 0 ] || return 0

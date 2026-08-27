@@ -157,7 +157,10 @@ else
 fi
 case "$binary" in
 	/*) ;;
-	*) binary="$(cd "$(dirname "$binary")" && pwd)/$(basename "$binary")" ;;
+	*)
+		bindir_abs="$(cd "$(dirname "$binary")" && pwd)" || fail "cannot resolve $binary"
+		binary="$bindir_abs/$(basename "$binary")"
+		;;
 esac
 
 mkdir -p "$unit_dir"
