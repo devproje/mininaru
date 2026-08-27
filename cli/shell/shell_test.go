@@ -68,7 +68,7 @@ func TestStateWrappedLineSourcesDumpsAndPreservesExitStatus(t *testing.T) {
 
 	got = stateWrappedLine("/tmp/it's.state", "false")
 	want = `source '/tmp/it'\''s.state' 2>/dev/null; false; __mininaru_status=$?; ` +
-		`{ export -p; declare -f; alias -p; } > '/tmp/it'\''s.state' 2>/dev/null; exit $__mininaru_status`
+		`{ export -p; declare -f; alias -p; } > '/tmp/it'\''s.state' 2>/dev/null; ( exit $__mininaru_status )`
 	if got != want {
 		t.Fatalf("stateWrappedLine =\n%q\nwant\n%q", got, want)
 	}

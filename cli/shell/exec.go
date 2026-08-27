@@ -132,7 +132,7 @@ func stateWrappedLine(statePath, line string) string {
 
 	return fmt.Sprintf(
 		"source %s 2>/dev/null; %s; __mininaru_status=$?; "+
-			"{ export -p; declare -f; alias -p; } > %s 2>/dev/null; exit $__mininaru_status",
+			"{ export -p; declare -f; alias -p; } > %s 2>/dev/null; ( exit $__mininaru_status )",
 		quote([]string{statePath}), line, quote([]string{statePath}),
 	)
 }
