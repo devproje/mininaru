@@ -5,9 +5,9 @@
 An OpenAI-compatible chat server backed by SQLite, plus an admin CLI and an
 interactive terminal shell — one Go binary, no external dependencies.
 
-This is a rewrite in progress (`refactor/1.0.0-alpha`). An earlier version of
-this project had skills, memory, subagent delegation, a Discord front end,
-and a paired gRPC client. Discord and gRPC do not exist in this branch; they
+This is a from-scratch rewrite, currently in the `1.0.0-alpha` series. An
+earlier version of this project had skills, memory, subagent delegation, a
+Discord front end, and a paired gRPC client. Discord and gRPC are gone; they
 were dropped on purpose to rebuild the server and CLI from a small core.
 Tool calling (bash, file read/write/edit, browser automation, MCP),
 delegation (`agent_spawn`, `session_send`), persistent memory, and skills
@@ -16,13 +16,11 @@ is actually here.
 
 ## Install
 
-> **No compatible release yet.** This rewrite restarts versioning at
-> `v1.0.0-alpha.1` and shares nothing with the pre-refactor `0.x` line — its
-> database schema, API, and on-disk layout are different, and a `0.x` binary
-> will not run against this project's data. Until a `v1.0.0-alpha` release is
-> tagged, the only way in is **build from source**. `install.sh` / `install.ps1`
-> refuse to auto-install a `0.x` release for this reason — pass `--tag` to
-> override, at your own risk.
+> **Alpha.** Releases start at `v1.0.0-alpha.1` and share nothing with the
+> pre-refactor `0.x` line — the database schema, API, and on-disk layout are
+> different, and a `0.x` binary will not run against this project's data.
+> `install.sh` / `install.ps1` refuse to auto-install a release that resolves
+> to a `0.x` tag (pass `--tag` to override, at your own risk).
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/devproje/mininaru/master/scripts/install.sh | sh
@@ -104,7 +102,7 @@ attestation alongside the archives:
 
 ```sh
 sha256sum -c SHA256SUMS --ignore-missing
-gh attestation verify mininaru_v0.2.0_linux_amd64.tar.gz --repo devproje/mininaru
+gh attestation verify mininaru_v1.0.0-alpha.1_linux_amd64.tar.gz --repo devproje/mininaru
 ```
 
 The attestation proves the archive came out of this repository's release
@@ -115,7 +113,7 @@ workflow, which a checksum alone cannot tell you.
 ```sh
 mininaru update                 # install the latest release
 mininaru update --check         # print the installed and latest versions only
-mininaru update --tag v1.0.0-alpha.2   # install a specific release
+mininaru update --tag v1.0.0-alpha.1   # install a specific release
 mininaru update --force         # reinstall the version already running
 ```
 

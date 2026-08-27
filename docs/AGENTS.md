@@ -10,9 +10,9 @@ The rules that decide whether a change is acceptable live elsewhere:
 [ARCHITECTURE.md](ARCHITECTURE.md) is the package layout. Read both before
 the first edit. This document does not repeat them.
 
-## This is a rewrite in progress
+## This is a from-scratch rewrite
 
-`refactor/1.0.0-alpha` dropped a lot of what an earlier version of this
+The `1.0.0-alpha` rewrite dropped a lot of what an earlier version of this
 project had: skills, memory, subagent delegation, a Discord front end, a
 paired gRPC client, a full-screen TUI. (Tool calling, MCP, delegation — the
 `agent_spawn` and `session_send` tools — persistent memory, and skills all

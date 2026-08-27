@@ -11,11 +11,11 @@ rewrites `os.Args` to inject `shell` before cobra parses it, so `narush
 --url ...` behaves exactly like `mininaru shell --url ...` with no separate
 `main` package to maintain.
 
-This is a rewrite in progress (`refactor/1.0.0-alpha`). An earlier version of
-this project had skills, memory, subagent delegation, a Discord front end, a
-paired gRPC client, and a full-screen TUI. Most of that still does not exist
-in this branch; it was deliberately dropped in favor of starting the server
-and CLI over from a small, well-understood core. If you are looking for
+This is a from-scratch rewrite, currently in the `1.0.0-alpha` series. An
+earlier version of this project had skills, memory, subagent delegation, a
+Discord front end, a paired gRPC client, and a full-screen TUI. Most of that
+still does not exist; it was deliberately dropped in favor of starting the
+server and CLI over from a small, well-understood core. If you are looking for
 the Discord front end, the gRPC client, or the TUI, they are not merely
 undocumented — they are not built yet. Four things have come back, all under
 a lighter design than the old one: tool calling (bash, file read/write/edit,
@@ -714,6 +714,28 @@ wired into `root.PersistentPreRunE` in `cli/main.go`, runs a TTL-gated
 banner are usually a command or two behind rather than triggering a network
 call on every invocation.
 
+### `scripts/` — install and daemon helpers
+
+Not built or imported by anything; hand-run, and `make install`/`uninstall`
+shell out to `install-binary.sh`. Each has a `.sh` (POSIX, for
+Linux/macOS) and a `.ps1` sibling.
+
+- `install.sh` / `install.ps1` — resolve the newest release the same way
+  `cli/update.go` does (`GET /repos/devproje/mininaru/releases`, first
+  entry), download `mininaru_<tag>_<os>_<arch>.{tar.gz,zip}` + `SHA256SUMS`,
+  verify, and unpack into `~/.local/bin` (`$BINDIR`/`$PREFIX` to change).
+  When `mininaru` is already on `PATH` they hand off to `mininaru update`
+  instead. A tag that resolves to `0.x` is refused unless `--tag` names it
+  — the one guard the in-binary updater does **not** have.
+- `install-binary.sh` / `.ps1` — install the local `out/` build; the
+  target of `make install`.
+- `register-daemon.sh` / `.ps1` — write a `systemd --user` unit (a per-user
+  Scheduled Task on Windows) running `mininaru serve`, optionally add the
+  `exec narush` rc hook (`--shell`), and undo all of it (`--disable`).
+
+`ci.yml`'s `scripts` job shellchecks the `.sh` files and parse-checks the
+`.ps1` files.
+
 ## `cli/shell/` — the interactive shell
 
 `mininaru shell` is a line editor and terminal front end built from scratch
@@ -1082,13 +1104,16 @@ make test       # fmt + vet + go test ./... -v
 make test-race  # the same suite under the race detector
 make test-cover # race + coverage, writes out/coverage.out
 make dist GOOS=linux GOARCH=arm64   # cross-compile a release layout into dist/
+make install    # out/mininaru -> $BINDIR (default ~/.local/bin); make uninstall to undo
 ```
 
 `make test-race` is what CI (`.github/workflows/ci.yml`) runs on every push
-and pull request, alongside a plain `make build` and a cross-compile check
-for `linux/amd64`, `linux/arm64`, and `darwin/arm64`. `.github/workflows/release.yml`
-runs `make dist` for six `GOOS/GOARCH` pairs on a pushed `v*` tag, archives
-each, writes `SHA256SUMS`, and attests build provenance.
+and pull request, alongside a plain `make build`, a cross-compile check for
+`linux/amd64`, `linux/arm64`, and `darwin/arm64`, and a `scripts` job that
+shellchecks `scripts/*.sh` and parse-checks `scripts/*.ps1`.
+`.github/workflows/release.yml` runs `make dist` for six `GOOS/GOARCH` pairs
+on a pushed `v*` tag, archives each, writes `SHA256SUMS`, and attests build
+provenance.
 
 Follow [CONVENTION.md](CONVENTION.md) for code style — it is enforced by
 `make fmt`/`make test` where it can be, and by review where it can't.
