@@ -451,11 +451,12 @@ without changing anything — `mininaru shell` polls this (`refreshYoloMode` in
 redraw) and colors the path segment of its prompt by the result
 (`pathColor` in `cli/shell/style.go`): yellow for `persist`, red for `on`,
 dim (the default) for `off`. The prompt is two lines —
-`[user][mode] ──── git:(branch)` (branch right-aligned to the terminal width
-via `promptLine1`, a dim fill of `─` computed from `termWidth()` minus the
-`displayWidth` of both sides, floored at `promptFillMin` so it never
-collapses to nothing on a narrow terminal; the line is just `[user][mode]`
-with no filler outside a git repo) then `path ✗<code> caret` — built as one string
+`[user][mode] agent-name [effort] ──── git:(branch)` (branch right-aligned
+to the terminal width via `promptLine1`, a dim fill of `─` computed from
+`termWidth()` minus the `displayWidth` of both sides, floored at
+`promptFillMin` so it never collapses to nothing on a narrow terminal; the
+line is just `[user][mode]` with no filler outside a git repo) then
+`path ✗<code> caret` — built as one string
 with an embedded `\n` (`prompt()` returns it that way; `write()` already
 turns `\n` into `\r\n` for every other multi-line output, so nothing
 downstream needed a separate code path). `rowsFor` (`redraw.go`) splits on
@@ -474,6 +475,18 @@ resolves the branch by reading `.git/HEAD` directly (following a `.git`
 commit hash when `HEAD` is detached. There is deliberately no dirty/staged
 indicator — that needs `git status`, a subprocess call, which the
 per-keystroke redraw budget can't afford.
+
+In agent mode, line one also carries the connected agent's name and its
+`ThinkingLevel` (`agentSegment`/`effortColor`, `cli/shell/style.go`) — e.g.
+`agent-name [high]`, colored by level (dim for `off`, blue `low`, default
+gray `medium`, yellow `high`, red `max`). `state.thinkingLevel` is filled in
+the same place `state.name` already was: `openSession`
+(`cli/shell/client.go`) now returns the resolved `*core.Agent`'s
+`ThinkingLevel` alongside its `Name`, threaded through `dialResult` and
+applied in `adoptConn` — no new API call, `resolveAgentByIdOrName`/
+`pickAgent`/`seedAgent` already fetch the full `core.Agent` (including
+`thinking_level`) via `GET /api/agents/:id`, that value was just being
+discarded before.
 
 ### The HIL round-trip
 

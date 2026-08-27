@@ -252,6 +252,35 @@ func promptLine1(left, right string) string {
 	return fmt.Sprintf("%s %s%s%s %s", left, DIM, strings.Repeat("─", fill), RESET, right)
 }
 
+func effortColor(level string) string {
+	switch level {
+	case "off":
+		return DIM
+	case "low":
+		return BLUE
+	case "high":
+		return YELLOW
+	case "max":
+		return RED
+	default:
+		return GRAY
+	}
+}
+
+func agentSegment(sh *state) string {
+	var effort string
+
+	if sh.mode != MODE_AGENT {
+		return ""
+	}
+
+	if sh.thinkingLevel != "" {
+		effort = fmt.Sprintf(" %s[%s]%s", effortColor(sh.thinkingLevel), sh.thinkingLevel, RESET)
+	}
+
+	return fmt.Sprintf(" %s%s%s%s", PURPLE, agentLabel(sh), RESET, effort)
+}
+
 func prompt(sh *state) string {
 	var badge string
 	var caret string
@@ -275,7 +304,7 @@ func prompt(sh *state) string {
 		caret = RED + "#" + RESET
 	}
 
-	left = fmt.Sprintf("%s%s%s", userBadge(sh), badge, RESET)
+	left = fmt.Sprintf("%s%s%s%s", userBadge(sh), badge, RESET, agentSegment(sh))
 	line1 = promptLine1(left, gitSegment(sh))
 	line2 = fmt.Sprintf("%s%s%s%s %s ", pathColor(sh), shortPath(sh.cwd), RESET, exitCodeSegment(sh), caret)
 

@@ -28,32 +28,33 @@ type Options struct {
 }
 
 type state struct {
-	mode         mode
-	url          string
-	seed         string
-	agent        string
-	apiKey       string
-	name         string
-	user         string
-	root         bool
-	cwd          string
-	yoloMode     string
-	conn         *websocket.Conn
-	connMu       sync.Mutex
-	session      string
-	history      []string
-	agentHistory []string
-	continuation bool
-	mirror       *renderState
-	frames       chan inbound
-	dial         chan dialResult
-	retryAt      time.Time
-	retryDelay   time.Duration
-	wasAgent     bool
-	pendingInput []byte
-	killBuffer   []rune
-	gitBranch    string
-	lastExitCode int
+	mode          mode
+	url           string
+	seed          string
+	agent         string
+	apiKey        string
+	name          string
+	thinkingLevel string
+	user          string
+	root          bool
+	cwd           string
+	yoloMode      string
+	conn          *websocket.Conn
+	connMu        sync.Mutex
+	session       string
+	history       []string
+	agentHistory  []string
+	continuation  bool
+	mirror        *renderState
+	frames        chan inbound
+	dial          chan dialResult
+	retryAt       time.Time
+	retryDelay    time.Duration
+	wasAgent      bool
+	pendingInput  []byte
+	killBuffer    []rune
+	gitBranch     string
+	lastExitCode  int
 }
 
 const (

@@ -50,10 +50,11 @@ type dialConfig struct {
 }
 
 type dialResult struct {
-	conn    *websocket.Conn
-	session string
-	name    string
-	err     error
+	conn          *websocket.Conn
+	session       string
+	name          string
+	thinkingLevel string
+	err           error
 }
 
 type renderState struct {
@@ -273,7 +274,7 @@ func seedAgent(cfg dialConfig, base string) (*core.Agent, error) {
 	return &agent, nil
 }
 
-func openSession(cfg dialConfig) (string, string, error) {
+func openSession(cfg dialConfig) (string, string, string, error) {
 	var base string
 	var agent *core.Agent
 	var session core.Session
@@ -282,29 +283,29 @@ func openSession(cfg dialConfig) (string, string, error) {
 
 	base, err = apiBase(cfg.url)
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
 
 	if cfg.seed != "" {
 		agent, err = seedAgent(cfg, base)
 		if err != nil {
-			return "", "", err
+			return "", "", "", err
 		}
 
-		return cfg.seed, agent.Name, nil
+		return cfg.seed, agent.Name, agent.ThinkingLevel, nil
 	}
 
 	agent, err = pickAgent(cfg, base)
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
 
 	err = apiPost(base+"/sessions", cfg.apiKey, map[string]string{"agent_id": agent.Id, "name": "shell"}, &session)
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
 
-	return session.Id, agent.Name, nil
+	return session.Id, agent.Name, agent.ThinkingLevel, nil
 }
 
 func shellDialConfig(sh *state) dialConfig {
@@ -326,7 +327,7 @@ func dialAgent(cfg dialConfig) dialResult {
 
 	result.session = cfg.session
 	if result.session == "" {
-		result.session, result.name, result.err = openSession(cfg)
+		result.session, result.name, result.thinkingLevel, result.err = openSession(cfg)
 		if result.err != nil {
 			return result
 		}
@@ -390,6 +391,10 @@ func adoptConn(sh *state, result dialResult) {
 
 	if result.name != "" {
 		sh.name = result.name
+	}
+
+	if result.thinkingLevel != "" {
+		sh.thinkingLevel = result.thinkingLevel
 	}
 
 	sh.conn.SetReadDeadline(time.Now().Add(pongWait))
