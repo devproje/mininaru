@@ -92,12 +92,18 @@ func main() {
 		panic(err)
 	}
 
+	err = util.NewLog(util.LogOptions{})
+	if err != nil {
+		panic(err)
+	}
+
 	root.Flags().BoolVar(&versionRef, "version", false, "checking mininaru version")
 
 	root.AddCommand(serve)
 	root.AddCommand(shellCmd)
 	root.AddCommand(providerCmd)
 	root.AddCommand(agentCmd)
+	root.AddCommand(mcpCmd)
 	root.AddCommand(skillCmd)
 	root.AddCommand(sessionCmd)
 	root.AddCommand(updateCmd)

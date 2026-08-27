@@ -4,8 +4,13 @@
 package main
 
 import (
+	"context"
 	"fmt"
+	"os"
+	"os/signal"
+	"syscall"
 
+	"github.com/devproje/mininaru/modules/mcp"
 	"github.com/devproje/mininaru/server"
 	"github.com/devproje/mininaru/util"
 	"github.com/spf13/cobra"
@@ -37,6 +42,32 @@ func init() {
 	serve.Flags().BoolVar(&util.AppDebug, "debug", false, "running mininaru debug mode")
 }
 
+func watchReload(ctx context.Context) {
+	var hangups chan os.Signal
+	var err error
+
+	hangups = make(chan os.Signal, 1)
+	signal.Notify(hangups, syscall.SIGHUP)
+	defer signal.Stop(hangups)
+
+	for {
+		select {
+		case <-hangups:
+			util.Log.Info("reloading mcp servers on SIGHUP")
+
+			err = mcp.Reload(ctx)
+			if err != nil {
+				util.Log.Error("mcp reload failed", "error", err)
+				continue
+			}
+
+			util.Log.Info("mcp reload complete")
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
 func serveExecute(cmd *cobra.Command, args []string) error {
 	var key string
 
@@ -46,6 +77,13 @@ func serveExecute(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+
+	err = mcp.Init(cmd.Context())
+	if err != nil {
+		util.Log.Warn("loading mcp.json failed, no mcp tools available", "error", err)
+	}
+
+	go watchReload(cmd.Context())
 
 	server.App = server.NewAppServer(serverHostRef, serverPortRef, key)
 

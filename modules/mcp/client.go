@@ -37,6 +37,15 @@ type manager struct {
 	order    []string
 }
 
+type Status struct {
+	Name      string `json:"name"`
+	Transport string `json:"transport"`
+	Enabled   bool   `json:"enabled"`
+	Connected bool   `json:"connected"`
+	Tools     int    `json:"tools"`
+	Error     string `json:"error"`
+}
+
 var shared = manager{sessions: make(map[string]*session)}
 
 var reloadMu sync.Mutex
@@ -231,6 +240,39 @@ func Tools() []modules.Tool {
 	}
 
 	return tools
+}
+
+func statusOf(entry *Server, current *session) Status {
+	var errText string
+
+	if current == nil {
+		return Status{Name: entry.Name, Transport: entry.Transport, Enabled: false}
+	}
+
+	if current.err != nil {
+		errText = current.err.Error()
+	}
+
+	return Status{
+		Name: entry.Name, Transport: entry.Transport, Enabled: true,
+		Connected: current.err == nil, Tools: len(current.tools), Error: errText,
+	}
+}
+
+func StatusAll() []Status {
+	var result []Status
+	var index int
+	var current *session
+
+	shared.mu.RLock()
+	defer shared.mu.RUnlock()
+
+	for index = range Loaded.Servers {
+		current = shared.sessions[Loaded.Servers[index].Name]
+		result = append(result, statusOf(&Loaded.Servers[index], current))
+	}
+
+	return result
 }
 
 func Close() {

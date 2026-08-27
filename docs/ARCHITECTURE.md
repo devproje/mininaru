@@ -36,7 +36,7 @@ modules/          the Tool/Permission type — a leaf package, imports only util
 modules/bash/     the bash_exec builtin tool
 modules/file/     the file_read/file_write/file_edit builtin tools
 modules/browser/  the browser_* computer-use tools (chromedp), the one tool package with cross-call state
-modules/mcp/      the MCP client (stdio + streamable-HTTP transports, mcp.json config)
+modules/mcp/      the MCP client (stdio + streamable-HTTP transports, mcp.json config, `cli/mcp.go` admin CLI)
 server/           gin HTTP API — OpenAI-compatible /api/v1, REST admin routes under /api, and /ws
 util/             data directory layout, SQLite handle + migrations, logging, version/banner
 ```
@@ -160,6 +160,55 @@ per-tool override in `mcp.json` says otherwise. `executeTool` only consults
 unconditionally; a `Dangerous` one calls `approve(ctx, name, arguments)` and
 runs only if the decision isn't `"deny"`. `core` itself has no opinion on
 *when* to ask — that policy lives one layer up, in `server/sock`.
+
+### MCP servers — `modules/mcp`
+
+`mcp.Init(ctx)`/`mcp.Reload(ctx)` (`client.go`, `Init` is a plain alias for
+`Reload`) are what actually dial every enabled server in `mcp.json` and
+populate the in-memory `shared` manager `mcp.Tools()` reads from — until
+this session, **nothing called either one**, anywhere in `cli/`/`server/`,
+so `mcp.Tools()` always returned empty regardless of what was configured.
+Two call sites fix that: `cli/serve.go`'s `serveExecute` calls `mcp.Init`
+once at startup (a failure is logged as a warning, not fatal — one broken
+server shouldn't take the HTTP API down), and a new `watchReload` goroutine
+started alongside it calls `mcp.Reload(ctx)` on `SIGHUP`
+(`signal.Notify(syscall.SIGHUP)`), so a running server picks up config
+changes without restarting. Making those log lines actually visible
+surfaced a second dormant gap: `util.NewLog` (`util/logging.go`) was never
+called anywhere either, so `util.Log` stayed the zero-value `slog.Logger`
+writing to `io.Discard` for every command, always — `cli/main.go`'s
+`main()` now calls `util.NewLog(util.LogOptions{})` once at startup (default
+level `info`, text-or-JSON auto-picked by whether stderr is a terminal, both
+already implemented in `logging.go` and simply unused). Every existing
+`util.Log.*` call site in `cli/shell/*.go` is `Debug`-level, below that
+default threshold, so this doesn't change the shell's interactive output.
+`Reload` itself already did the reuse-if-
+unchanged work this needed — a live session is kept as-is when
+`fingerprint(&existing.entry) == fingerprint(&reloaded.entry)` (a JSON
+marshal of the whole `Server` struct), only genuinely-changed or newly-added
+servers get redialed, and servers dropped from the config (or now disabled)
+have their client closed.
+
+`mcp.StatusAll() []Status` (`client.go`, next to `Tools()`) reports, per
+*configured* server (`Loaded.Servers`, not just the currently-live ones —
+this is what lets `cli/mcp.go show`/`list` display a disabled or
+never-successfully-dialed server too): `Enabled`, `Connected`, `Tools`
+(count), and `Error` (the live session's dial error, if any). This didn't
+exist before either; `cli/mcp.go`'s `list`/`show` call `mcp.Init(ctx)`
+themselves (so a one-off `mininaru mcp list` invocation — a separate
+process from any running `serve` — dials fresh rather than showing a stale
+cached state it has no way to see) and `defer mcp.Close()` afterward, since
+an MCP CLI subcommand process exiting mid-connection without a clean
+`client.Close()` produces a `write EPIPE` on the child stdio process's side
+otherwise.
+
+`cli/mcp.go` mirrors `cli/agent.go`/`cli/provider.go`'s admin-command shape
+(`add`/`list`/`show`/`remove`/`enable`/`disable`) but resolves servers by
+**name only** (`mcpFind`, a linear scan over `mcp.Loaded.Servers`) since
+`Server` has no id, unlike the SQLite-backed `Agent`/`Provider`. `add`'s
+`--tool-permission <tool>=safe|dangerous` (repeatable) is new — it exposes
+`Server.ToolPermission` (`config.go`), which had no CLI flag before this
+even in the prior, pre-refactor version of this command.
 
 ### Persistent memory — `modules/memory`
 

@@ -92,7 +92,8 @@ text file (`.mininaru/shell_history` by default, or `$HISTFILE`); the server's
 API key is `.mininaru/mininaru.key` (mode `0600`, generated the first time
 anything needs it); yolo trust state is `.mininaru/directory.json`, managed
 through `/yolo` rather than hand-edited; MCP servers are configured in
-`.mininaru/mcp.json`, which you do edit by hand; each agent's persistent
+`.mininaru/mcp.json`, hand-editable or managed with `mininaru mcp` (see
+[MCP servers](#mcp-servers)); each agent's persistent
 memory (see [Tools](#tools)) lives under
 `.mininaru/memory/<agent-id>/`, an `MEMORY.md` index plus one markdown
 file per saved memory, managed entirely by the agent itself through the
@@ -166,7 +167,8 @@ browser (`browser_navigate`/`browser_click`/`browser_type`/`browser_read`/
 `browser_screenshot`/`browser_close`), delegate one self-contained task to
 another of your configured agents with `agent_spawn`, and inject a message
 into one of its own already-running sessions with `session_send` — plus
-whatever MCP servers you configure in `NARU_PATH/mcp.json`. `browser_*`
+whatever MCP servers you configure (see [MCP servers](#mcp-servers) below).
+`browser_*`
 needs a Chrome or Chromium binary reachable via `$PATH` or
 `MININARU_CHROME`; nothing else has an external dependency. `agent_spawn`
 runs the delegate as a real session (it shows up in `session list` like any
@@ -179,8 +181,10 @@ the time. Neither tool can be handed to whatever it delegates to or
 messages — one level of delegation, no chains. Two read-only discovery tools
 round these out and always run with no approval needed: `agent_list` (every
 configured agent, for picking an `agent_spawn` target) and `session_list`
-(the calling agent's own sessions that currently have a live viewer
-connected, for picking a `session_send` target).
+(every session, across every agent, that currently has a live viewer
+connected — marks which one is the current conversation; only the entries
+owned by the calling agent are valid `session_send` targets, the rest are
+shown for awareness of what else is active right now).
 
 Every agent also has persistent memory, `memory_save`/`memory_read`/
 `memory_forget`. Memory is scoped to the agent (not the directory or
@@ -203,6 +207,26 @@ Every dangerous tool above is gated by **yolo mode**, set per directory with
 
 When a call needs asking, the shell shows the tool name and arguments and
 you answer once / for the rest of the session / no.
+
+## MCP servers
+
+`.mininaru/mcp.json` can be hand-edited, or managed with `mininaru mcp`:
+
+```sh
+mininaru mcp add files --stdio npx --arg -y --arg @modelcontextprotocol/server-filesystem
+mininaru mcp add remote --url https://example.com/mcp --header Authorization="Bearer token"
+mininaru mcp list                 # dials every enabled server and reports connected/tool count/error
+mininaru mcp show files
+mininaru mcp disable files        # keeps its configuration, just stops connecting to it
+mininaru mcp remove files
+```
+
+`--permission safe|dangerous` forces every tool on a server to one tier
+regardless of the server's own `readOnlyHint` annotations; `--tool-permission
+<tool>=safe|dangerous` (repeatable) overrides one tool by name — a per-tool
+override always wins over a per-server one. A running `mininaru serve`
+reloads its MCP connections on `SIGHUP` (`kill -HUP <pid>`), so changes made
+with `mininaru mcp` take effect without restarting it.
 
 ## The interactive shell
 

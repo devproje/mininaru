@@ -6,6 +6,7 @@ package mcp
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -122,6 +123,46 @@ func TestManagerQualifiesAndClassifiesTools(t *testing.T) {
 	}
 	if output != "write_page" {
 		t.Fatalf("Execute = %q, want the qualified tool's underlying name", output)
+	}
+}
+
+func TestStatusAllReportsConnectedDisabledAndFailedServers(t *testing.T) {
+	var disabled bool
+	var all []Status
+	var byName map[string]Status
+	var one Status
+
+	disabled = false
+
+	attachTestServer(t, Server{Name: "notion", Transport: TransportStdio, Command: "fake"}, fakeServer())
+
+	shared.mu.Lock()
+	shared.sessions["broken"] = &session{entry: Server{Name: "broken", Transport: TransportStdio}, err: fmt.Errorf("dial failed")}
+	shared.order = append(shared.order, "broken")
+	shared.mu.Unlock()
+
+	Loaded = Config{Servers: []Server{
+		{Name: "notion", Transport: TransportStdio},
+		{Name: "broken", Transport: TransportStdio},
+		{Name: "off", Transport: TransportStdio, Enabled: &disabled},
+	}}
+	t.Cleanup(func() { Loaded = Config{} })
+
+	all = StatusAll()
+
+	byName = make(map[string]Status, len(all))
+	for _, one = range all {
+		byName[one.Name] = one
+	}
+
+	if !byName["notion"].Connected || byName["notion"].Tools != 2 {
+		t.Fatalf("notion = %+v, want connected with 2 tools", byName["notion"])
+	}
+	if byName["broken"].Connected || byName["broken"].Error == "" {
+		t.Fatalf("broken = %+v, want not connected with an error", byName["broken"])
+	}
+	if byName["off"].Enabled {
+		t.Fatalf("off = %+v, want enabled=false", byName["off"])
 	}
 }
 
