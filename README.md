@@ -258,7 +258,7 @@ that doesn't resolve is left as plain text with nothing attached, no error.
 /help       list available commands
 /reset      start a fresh session with the same agent
 /session    show the current session id, name, agent, and creation time
-/agent      global <id-or-name> persists as the default; current <id-or-name> is this shell only
+/agent      switch agent now: global <id-or-name> also persists as the default; current <id-or-name> is this shell only
 /model      change the connected agent's model
 /effort     change the connected agent's reasoning effort (off|low|medium|high|max)
 /clear      clear the terminal screen

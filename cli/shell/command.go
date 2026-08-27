@@ -143,9 +143,13 @@ func agentCommand(sh *state, args []string) (commandResult, error) {
 	}
 
 	sh.agent = target.Name
+	sh.name = target.Name
+	sh.thinkingLevel = target.ThinkingLevel
+	sh.agentId = target.Id
+	sh.session = ""
 
 	if scope == "current" {
-		return commandResult{Message: "agent for this session set to " + target.Name + " — used for /reset until this shell exits"}, nil
+		return commandResult{Message: "switched to " + target.Name + " — starting a new session on your next message"}, nil
 	}
 
 	err = savePreferences(&preferences{Agent: target.Name})
@@ -153,7 +157,7 @@ func agentCommand(sh *state, args []string) (commandResult, error) {
 		return commandResult{}, err
 	}
 
-	return commandResult{Message: "default agent set to " + target.Name + " — used for new shells and /reset from now on"}, nil
+	return commandResult{Message: "switched to " + target.Name + " and set as the default for new shells"}, nil
 }
 
 func showSessionCommand(sh *state, args []string) (commandResult, error) {
@@ -310,7 +314,7 @@ func init() {
 	registerCommand("exit", "quit mininaru shell", quitShellCommand)
 	registerCommand("bash", "leave agent mode, back to bash", leaveAgentCommand)
 	registerCommand("yolo", "set dangerous-tool trust for this directory (off|persist|on)", yoloCommand)
-	registerCommand("agent", "set the agent: global <id-or-name> persists, current <id-or-name> is this shell only", agentCommand)
+	registerCommand("agent", "switch agent now: global <id-or-name> persists, current <id-or-name> is this shell only", agentCommand)
 	registerCommand("model", "change the connected agent's model", modelCommand)
 	registerCommand("effort", "change the connected agent's reasoning effort (off|low|medium|high|max)", effortCommand)
 }

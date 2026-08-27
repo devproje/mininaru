@@ -237,6 +237,32 @@ func TestAgentCommandGlobalPersistsTheDefaultAcrossShellRestarts(t *testing.T) {
 	}
 }
 
+func TestAgentCommandSwitchesTheRunningStateImmediately(t *testing.T) {
+	var server *httptest.Server
+	var sh state
+
+	var err error
+
+	setupTestNaruPath(t)
+	server, _ = newAgentTestServer(t)
+	sh = state{url: server.URL, name: "naru", agentId: "a-naru", session: "s1"}
+
+	_, err = agentCommand(&sh, []string{"current", "worker"})
+	if err != nil {
+		t.Fatalf("/agent current worker failed: %v", err)
+	}
+
+	if sh.name != "worker" {
+		t.Fatalf("sh.name = %q, want %q", sh.name, "worker")
+	}
+	if sh.agentId != "a-worker" {
+		t.Fatalf("sh.agentId = %q, want %q", sh.agentId, "a-worker")
+	}
+	if sh.session != "" {
+		t.Fatalf("sh.session = %q, want it cleared so the next message starts a fresh one", sh.session)
+	}
+}
+
 func TestAgentCommandCurrentSetsSessionAgentWithoutPersisting(t *testing.T) {
 	var server *httptest.Server
 	var sh state

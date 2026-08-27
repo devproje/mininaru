@@ -857,17 +857,22 @@ approval prompt has fired in it.
 ### Slash commands
 
 `/help`, `/reset` (start a fresh session against the same agent, or the one
-set with `/agent` if any), `/session` (show the current session id, agent,
-and creation time), `/agent <global|current> <id-or-name>` (set
-`state.agent` — the default agent `/reset` and a freshly opened connection
-pick; `resolveAgentByIdOrName` in `client.go` tries `GET /agents/<id>`
-first, then falls back to a name match against `GET /agents`, the same list
-`pickAgent` already used. Both scopes set `state.agent` for the running
-process; `global` additionally persists the choice via
-`cli/shell/preferences.go` to `.mininaru/shell.json`, so `Run()` loads it
-back into `state.agent` on the next `mininaru shell` launch whenever
-`--agent` wasn't passed explicitly, while `current` leaves that file alone
-so the change doesn't outlive this shell), `/clear`,
+set with `/agent` if any), `/session` (show the current session id, name,
+agent, and creation time), `/agent <global|current> <id-or-name>` (switch
+agent **immediately**, not just for the next `/reset`: it resolves the
+target the same way `resolveAgentByIdOrName` in `client.go` always has —
+`GET /agents/<id>` first, then a name match against `GET /agents`, the same
+list `pickAgent` uses — then sets `state.agent`/`state.name`/
+`state.thinkingLevel`/`state.agentId` from it right away, so the prompt's
+agent-name/effort badge updates on the spot, and clears `state.session` so
+the *next* message lazily starts a fresh session against the new agent
+(`ensureSession`, see "Agent mode" below) rather than continuing the old
+session under a stale agent. Both scopes do this for the running process;
+`global` additionally persists the choice via `cli/shell/preferences.go` to
+`.mininaru/shell.json`, so `Run()` loads it back into `state.agent` on the
+next `mininaru shell` launch whenever `--agent` wasn't passed explicitly,
+while `current` leaves that file alone so the change doesn't outlive this
+shell), `/clear`,
 `/bash` (back to bash mode), `/exit` (quit the shell — `quitShellCommand`
 returns `commandResult{Quit: true}`, and `dispatchCommand` turns that into
 `io.EOF`, the same sentinel bash-mode `exit`/`quit` return to break
