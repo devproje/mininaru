@@ -14,6 +14,15 @@ import (
 	"github.com/chromedp/chromedp"
 )
 
+type session struct {
+	ctx      context.Context
+	cancel   context.CancelFunc
+	lastUsed time.Time
+}
+
+const idleTimeout = 5 * time.Minute
+const reaperInterval = 1 * time.Minute
+
 var chromeCandidates = []string{
 	"headless-shell", "headless_shell", "chromium-headless-shell",
 	"google-chrome", "google-chrome-stable", "chromium", "chromium-browser", "chrome",
@@ -25,6 +34,10 @@ var chromeAbsolutePaths = []string{
 	"/usr/lib64/chromium/headless_shell",
 	"/usr/lib/chromium/headless_shell",
 }
+
+var mu sync.Mutex
+var sessions = make(map[string]*session)
+var reaperOnce sync.Once
 
 func chromePath() string {
 	var path string
@@ -59,19 +72,6 @@ func chromePath() string {
 func Available() bool {
 	return chromePath() != ""
 }
-
-const idleTimeout = 5 * time.Minute
-const reaperInterval = 1 * time.Minute
-
-type session struct {
-	ctx      context.Context
-	cancel   context.CancelFunc
-	lastUsed time.Time
-}
-
-var mu sync.Mutex
-var sessions = make(map[string]*session)
-var reaperOnce sync.Once
 
 func allocatorOptions() []chromedp.ExecAllocatorOption {
 	var opts []chromedp.ExecAllocatorOption

@@ -9,10 +9,10 @@ import (
 )
 
 func apiRoutes(api *gin.RouterGroup) {
-	var sessions *gin.RouterGroup
-	var messages *gin.RouterGroup
 	var agents *gin.RouterGroup
 	var providers *gin.RouterGroup
+	var sessions *gin.RouterGroup
+	var messages *gin.RouterGroup
 
 	agents = api.Group("/agents")
 	agents.POST("", controller.AgentCreate)

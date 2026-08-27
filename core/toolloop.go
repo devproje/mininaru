@@ -15,6 +15,8 @@ import (
 	"github.com/openai/openai-go/shared"
 )
 
+type ApproveFunc func(ctx context.Context, name, arguments string) (string, error)
+
 const maxToolRounds = 50
 
 const screenshotDataPrefix = "data:image/"
@@ -23,8 +25,6 @@ const screenshotPlaceholder = "screenshot captured"
 func isScreenshotResult(result string) bool {
 	return strings.HasPrefix(result, screenshotDataPrefix)
 }
-
-type ApproveFunc func(ctx context.Context, name, arguments string) (string, error)
 
 func toolParams(tools []modules.Tool) []openai.ChatCompletionToolParam {
 	var tool modules.Tool

@@ -11,6 +11,11 @@ import (
 	"github.com/openai/openai-go"
 )
 
+type approvalRouter struct {
+	mu      sync.Mutex
+	pending map[string]chan string
+}
+
 var sessionAutoApprove sync.Map
 
 var liveConns sync.Map
@@ -119,11 +124,6 @@ func sessionApproved(sessionId string) bool {
 
 func setSessionApproved(sessionId string) {
 	sessionAutoApprove.Store(sessionId, true)
-}
-
-type approvalRouter struct {
-	mu      sync.Mutex
-	pending map[string]chan string
 }
 
 func newApprovalRouter() *approvalRouter {

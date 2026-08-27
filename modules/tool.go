@@ -9,6 +9,14 @@ import (
 
 type Permission int
 
+type Tool struct {
+	Name        string
+	Description string
+	Parameters  map[string]any
+	Permission  Permission
+	Execute     func(ctx context.Context, arguments string) (string, error)
+}
+
 const (
 	PermissionSafe Permission = iota
 	PermissionDangerous
@@ -21,12 +29,4 @@ func (p Permission) String() string {
 	default:
 		return "safe"
 	}
-}
-
-type Tool struct {
-	Name        string
-	Description string
-	Parameters  map[string]any
-	Permission  Permission
-	Execute     func(ctx context.Context, arguments string) (string, error)
 }

@@ -73,6 +73,14 @@ type inbound struct {
 	err   error
 }
 
+type interruptWatch struct {
+	done        chan struct{}
+	interrupted <-chan struct{}
+	exited      <-chan struct{}
+	captured    *[]byte
+	stopped     bool
+}
+
 type reply struct {
 	Type      string                      `json:"type"`
 	SessionId string                      `json:"session_id"`
@@ -589,14 +597,6 @@ func watchInterrupt(done <-chan struct{}) (<-chan struct{}, <-chan struct{}, *[]
 	}()
 
 	return interrupted, exited, &captured
-}
-
-type interruptWatch struct {
-	done        chan struct{}
-	interrupted <-chan struct{}
-	exited      <-chan struct{}
-	captured    *[]byte
-	stopped     bool
 }
 
 func newInterruptWatch() *interruptWatch {

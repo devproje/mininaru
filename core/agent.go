@@ -41,6 +41,11 @@ func AgentCreate(agent *Agent) error {
 
 	var err error
 
+	if agent.Id == "" || agent.Name == "" || agent.Model == "" {
+		err = fmt.Errorf("Agent id or name, model is required")
+		return err
+	}
+
 	opts = []string{"id", "name", "model"}
 	values = []any{agent.Id, agent.Name, agent.Model}
 
@@ -57,11 +62,6 @@ func AgentCreate(agent *Agent) error {
 	if agent.MaxContext != 0 {
 		opts = append(opts, "max_context")
 		values = append(values, agent.MaxContext)
-	}
-
-	if agent.Id == "" || agent.Name == "" || agent.Model == "" {
-		err = fmt.Errorf("Agent id or name, model is required")
-		return err
 	}
 
 	for i = 0; i < len(opts); i++ {

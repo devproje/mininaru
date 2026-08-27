@@ -23,6 +23,16 @@ var (
 	versionRef bool
 )
 
+var root *cobra.Command = &cobra.Command{
+	RunE:         execute,
+	SilenceUsage: true,
+	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		updateCheckStart(cmd)
+
+		return nil
+	},
+}
+
 func showVersion() {
 	var notice string
 
@@ -45,16 +55,6 @@ func execute(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
-}
-
-var root *cobra.Command = &cobra.Command{
-	RunE:         execute,
-	SilenceUsage: true,
-	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-		updateCheckStart(cmd)
-
-		return nil
-	},
 }
 
 func invokedAs(name string) bool {
