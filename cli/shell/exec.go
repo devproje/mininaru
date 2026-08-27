@@ -4,6 +4,7 @@
 package shell
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"runtime"
@@ -39,6 +40,8 @@ func changeDir(sh *state, args []string) {
 		notice(RED, "✖", "cd: %v", err)
 		return
 	}
+
+	refreshGitBranch(sh)
 
 	if sh.conn != nil {
 		refreshYoloMode(sh)
@@ -83,8 +86,17 @@ func shellInvokeFlag() string {
 	return "-c"
 }
 
+func exitCode(cmd *exec.Cmd) int {
+	if cmd.ProcessState == nil {
+		return -1
+	}
+
+	return cmd.ProcessState.ExitCode()
+}
+
 func runBash(sh *state, line string) {
 	var cmd *exec.Cmd
+	var exitErr *exec.ExitError
 
 	var err error
 
@@ -95,7 +107,9 @@ func runBash(sh *state, line string) {
 	cmd.Stderr = os.Stderr
 
 	err = runForeground(cmd)
-	if err != nil {
+	sh.lastExitCode = exitCode(cmd)
+
+	if err != nil && !errors.As(err, &exitErr) {
 		notice(RED, "✖", "%s%v%s", DIM, err, RESET)
 	}
 }

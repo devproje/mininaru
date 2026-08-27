@@ -51,6 +51,9 @@ type state struct {
 	retryDelay   time.Duration
 	wasAgent     bool
 	pendingInput []byte
+	killBuffer   []rune
+	gitBranch    string
+	lastExitCode int
 }
 
 const (
@@ -137,6 +140,8 @@ func Run(opts Options) error {
 	if err != nil {
 		return err
 	}
+
+	refreshGitBranch(&sh)
 
 	sh.url = opts.Url
 	sh.seed = opts.Session

@@ -219,6 +219,22 @@ func pathColor(sh *state) string {
 	}
 }
 
+func gitSegment(sh *state) string {
+	if sh.gitBranch == "" {
+		return ""
+	}
+
+	return fmt.Sprintf(" %sgit:(%s)%s", GREEN, sh.gitBranch, RESET)
+}
+
+func exitCodeSegment(sh *state) string {
+	if sh.mode != MODE_BASH || sh.lastExitCode == 0 {
+		return ""
+	}
+
+	return fmt.Sprintf(" %s✗ %d%s", RED, sh.lastExitCode, RESET)
+}
+
 func prompt(sh *state) string {
 	var badge string
 	var caret string
@@ -239,7 +255,7 @@ func prompt(sh *state) string {
 		caret = RED + "#" + RESET
 	}
 
-	return fmt.Sprintf("%s%s%s %s%s%s %s ", userBadge(sh), badge, RESET, pathColor(sh), shortPath(sh.cwd), RESET, caret)
+	return fmt.Sprintf("%s%s%s %s%s%s%s%s %s ", userBadge(sh), badge, RESET, pathColor(sh), shortPath(sh.cwd), RESET, gitSegment(sh), exitCodeSegment(sh), caret)
 }
 
 func banner(sh *state) {
@@ -248,7 +264,8 @@ func banner(sh *state) {
 	write("\n%s\n\n", util.NaruLogoWithPad("  "))
 	write("  %smininaru shell%s %s%s%s\n", BOLD, RESET, DIM, util.AppVersion, RESET)
 	write("  %sShift+Tab%s switch mode   %s↑/↓%s history   %sCtrl+J%s newline   %sEsc/Ctrl+C%s interrupt agent\n", GRAY, RESET, GRAY, RESET, GRAY, RESET, GRAY, RESET)
-	write("  %sCtrl+D%s exit   %sCtrl+U%s clear line   %s/help%s agent commands\n\n", GRAY, RESET, GRAY, RESET, GRAY, RESET)
+	write("  %sCtrl+A/E%s line start/end   %sCtrl+K/U/W%s kill   %sCtrl+Y%s yank   %sCtrl+L%s clear screen\n", GRAY, RESET, GRAY, RESET, GRAY, RESET, GRAY, RESET)
+	write("  %sCtrl+D%s exit   %s/help%s agent commands\n\n", GRAY, RESET, GRAY, RESET)
 
 	if sh.conn != nil {
 		notice(GREEN, "●", "%sconnected%s %s", GREEN, RESET, DIM+sh.url+" · agent "+agentLabel(sh)+" · session "+sh.session+RESET)

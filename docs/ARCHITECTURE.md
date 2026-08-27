@@ -445,7 +445,18 @@ without changing anything — `mininaru shell` polls this (`refreshYoloMode` in
 `cli/shell/client.go`, called on connect and on `cd`, not on every prompt
 redraw) and colors the path segment of its prompt by the result
 (`pathColor` in `cli/shell/style.go`): yellow for `persist`, red for `on`,
-dim (the default) for `off`.
+dim (the default) for `off`. The prompt also shows a `git:(branch)` segment
+and, in bash mode, a `✗ <code>` segment after a non-zero exit — both read
+from cached `state` fields (`gitBranch`, `lastExitCode`) refreshed only when
+`cwd` actually changes or a command finishes, never from `prompt()` itself,
+since `prompt()` runs on nearly every keystroke redraw and shelling out to
+`git` or `stat`-walking on every one would be a stutter. `cli/shell/git.go`
+resolves the branch by reading `.git/HEAD` directly (following a `.git`
+*file*'s `gitdir:` pointer for worktrees/submodules) rather than running
+`git`; it reports the branch name, or the first 7 hex characters of the
+commit hash when `HEAD` is detached. There is deliberately no dirty/staged
+indicator — that needs `git status`, a subprocess call, which the
+per-keystroke redraw budget can't afford.
 
 ### The HIL round-trip
 
@@ -668,8 +679,18 @@ second one.
 
 ### Line editing
 
-- Left/Right move the cursor; typing and backspace act at the cursor
-  position, not just at the end of the line.
+- Left/Right move the cursor by one character; Ctrl+Left/Right (`ESC [
+  1;5 D/C`) and Home/End (`ESC [ H/F`, or the VT220-style `ESC [ 1~`/`ESC [
+  4~`) move by word or to the start/end of the line. Typing and backspace
+  act at the cursor position, not just at the end of the line.
+- Ctrl+A/E jump to the start/end of the line. Ctrl+K kills from the cursor
+  to end-of-line, Ctrl+U kills from start-of-line to the cursor (readline
+  semantics — it used to unconditionally clear the whole line regardless of
+  cursor position; that changed), Ctrl+W kills the word behind the cursor,
+  and Ctrl+Y yanks whatever the last kill put in `state.killBuffer` back in
+  at the cursor. Ctrl+L clears the screen and reprints the current line.
+  `wordBoundaryLeft`/`wordBoundaryRight` (`input.go`) share the same
+  whitespace-boundary logic between word-movement and Ctrl+W.
 - Up/Down recall history, and recall is **kept separate per mode** —
   `state.history` for bash, `state.agentHistory` for agent
   (`historyFor(sh)` picks the right one) — so bash commands and chat lines
@@ -689,9 +710,16 @@ second one.
   that was a real, reported bug before this existed.
 - Tab completion (`complete.go`): bash-mode, word-start position offers the
   builtins (`cd`, `exit`, `quit`, `history`) plus everything executable on
-  `$PATH`; anything containing `/`, or not at word-start, is path
-  completion. Agent-mode completion, when the word starts with `/`, offers
-  the registered slash-command names. Multi-candidate columns are sized with
+  `$PATH`; agent-mode completion, when the word starts with `/`, offers the
+  registered slash-command names. Completing the **second** word in bash
+  mode, when the first word is a key in `subcommandSets` (a small hardcoded
+  map — `git`, `go`, `npm`, `docker`, `cargo`), offers that program's known
+  subcommands instead of falling into path completion — e.g. `git ` + Tab
+  lists `add`/`commit`/`push`/etc. This is deliberately shallow: first-level
+  subcommand names only, no flags, no argument-aware completion like
+  branch names for `git checkout`; anything past that falls through to
+  ordinary path completion. Everything else containing `/`, or not at
+  word-start, is path completion. Multi-candidate columns are sized with
   `displayWidth`, which is East-Asian-width aware, not raw byte/rune count.
 
 ### Multiline input
@@ -729,6 +757,15 @@ practice), then the shell reclaims the foreground group when the child
 exits. Without this, a `Ctrl+C` meant for a running child would land on the
 whole process group and kill the mininaru shell along with it, since both
 would otherwise share one group.
+
+`runBash` records the child's exit code into `state.lastExitCode`
+(`exitCode()`, reading `cmd.ProcessState.ExitCode()` after `Wait` returns)
+for the prompt's `✗ <code>` segment, and only prints its own red error
+notice when the failure is **not** a plain non-zero exit
+(`errors.As(err, &exitErr)` against `*exec.ExitError`) — a command that
+simply returned non-zero (`false`, a no-match `grep`) is silent, the way a
+real shell is; only a genuine failure to run the command at all (bash
+itself couldn't start, for instance) gets the notice.
 
 ### Agent mode
 

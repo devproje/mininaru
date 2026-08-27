@@ -12,6 +12,21 @@ import (
 	"golang.org/x/term"
 )
 
+var subcommandSets = map[string][]string{
+	"git": {"add", "branch", "checkout", "clone", "commit", "diff", "fetch",
+		"init", "log", "merge", "pull", "push", "rebase", "remote",
+		"reset", "restore", "revert", "rm", "show", "stash", "status",
+		"switch", "tag", "worktree"},
+	"go": {"build", "clean", "doc", "env", "fmt", "generate", "get",
+		"install", "list", "mod", "run", "test", "tool", "vet", "work"},
+	"npm": {"install", "ci", "run", "start", "test", "build", "publish",
+		"init", "update", "uninstall", "list", "outdated", "audit"},
+	"docker": {"build", "run", "ps", "images", "pull", "push", "exec", "logs",
+		"stop", "start", "rm", "rmi", "compose", "network", "volume"},
+	"cargo": {"build", "run", "test", "check", "clean", "doc", "new", "init",
+		"add", "remove", "update", "publish"},
+}
+
 func wordStart(line string) int {
 	var i int
 
@@ -160,8 +175,25 @@ func agentCommandCandidates(word string) []string {
 	return items
 }
 
+func subcommandCandidates(command, word string) []string {
+	var name string
+	var items []string
+
+	for _, name = range subcommandSets[command] {
+		if strings.HasPrefix(name, word) {
+			items = append(items, name)
+		}
+	}
+
+	sort.Strings(items)
+
+	return items
+}
+
 func candidates(sh *state, line string) []string {
 	var word string
+	var fields []string
+	var items []string
 
 	word = line[wordStart(line):]
 
@@ -171,6 +203,16 @@ func candidates(sh *state, line string) []string {
 
 	if sh.mode == MODE_AGENT && wordStart(line) == 0 && strings.HasPrefix(word, "/") {
 		return agentCommandCandidates(word)
+	}
+
+	if sh.mode == MODE_BASH {
+		fields = strings.Fields(line[:wordStart(line)])
+		if len(fields) == 1 {
+			items = subcommandCandidates(fields[0], word)
+			if len(items) > 0 {
+				return items
+			}
+		}
 	}
 
 	return fileCandidates(sh, word)

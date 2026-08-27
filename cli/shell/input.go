@@ -8,12 +8,16 @@ import (
 	"io"
 	"os"
 	"time"
+	"unicode"
 	"unicode/utf8"
 )
 
 const escapeTimeout time.Duration = 50 * time.Millisecond
 const idlePollInterval time.Duration = 100 * time.Millisecond
 const shiftEnterParams string = "13;2"
+const ctrlArrowParams string = "1;5"
+const homeKeyParams string = "1"
+const endKeyParams string = "4"
 
 var errSoftNewline error = errors.New("soft newline")
 
@@ -69,6 +73,38 @@ func readEscape(sh *state, buf []byte) (string, byte) {
 	}
 }
 
+func wordBoundaryLeft(line []rune, pos int) int {
+	var i int
+
+	i = pos
+
+	for i > 0 && unicode.IsSpace(line[i-1]) {
+		i--
+	}
+
+	for i > 0 && !unicode.IsSpace(line[i-1]) {
+		i--
+	}
+
+	return i
+}
+
+func wordBoundaryRight(line []rune, pos int) int {
+	var i int
+
+	i = pos
+
+	for i < len(line) && unicode.IsSpace(line[i]) {
+		i++
+	}
+
+	for i < len(line) && !unicode.IsSpace(line[i]) {
+		i++
+	}
+
+	return i
+}
+
 func readLine(sh *state) (string, error) {
 	var buf []byte
 	var line []rune
@@ -76,6 +112,7 @@ func readLine(sh *state) (string, error) {
 	var count int
 	var pending []byte
 	var letter rune
+	var killFrom int
 	var completed string
 	var listed bool
 	var repeated bool
@@ -132,6 +169,12 @@ func readLine(sh *state) (string, error) {
 				redraw(sh, before, line, pos)
 			}
 			continue
+		case 0x01:
+			if pos > 0 {
+				pos = 0
+				redraw(sh, string(line), line, pos)
+			}
+			continue
 		case 0x03:
 			write("%s^C%s\n", GRAY, RESET)
 
@@ -145,10 +188,57 @@ func readLine(sh *state) (string, error) {
 			continue
 		case 0x04:
 			return "", io.EOF
-		case 0x15:
+		case 0x05:
+			if pos < len(line) {
+				pos = len(line)
+				redraw(sh, string(line), line, pos)
+			}
+			continue
+		case 0x0b:
+			if pos == len(line) {
+				continue
+			}
+
+			sh.killBuffer = append([]rune{}, line[pos:]...)
 			before = string(line)
-			line = nil
+			line = line[:pos]
+			redraw(sh, before, line, pos)
+			continue
+		case 0x0c:
+			write("\x1b[H\x1b[2J")
+			redraw(sh, "", line, pos)
+			continue
+		case 0x15:
+			if pos == 0 {
+				continue
+			}
+
+			sh.killBuffer = append([]rune{}, line[:pos]...)
+			before = string(line)
+			line = append([]rune{}, line[pos:]...)
 			pos = 0
+			redraw(sh, before, line, pos)
+			continue
+		case 0x17:
+			if pos == 0 {
+				continue
+			}
+
+			killFrom = wordBoundaryLeft(line, pos)
+			sh.killBuffer = append([]rune{}, line[killFrom:pos]...)
+			before = string(line)
+			line = append(line[:killFrom:killFrom], line[pos:]...)
+			pos = killFrom
+			redraw(sh, before, line, pos)
+			continue
+		case 0x19:
+			if len(sh.killBuffer) == 0 {
+				continue
+			}
+
+			before = string(line)
+			line = append(line[:pos:pos], append(append([]rune{}, sh.killBuffer...), line[pos:]...)...)
+			pos = pos + len(sh.killBuffer)
 			redraw(sh, before, line, pos)
 			continue
 		case '\r':
@@ -183,14 +273,43 @@ func readLine(sh *state) (string, error) {
 					return string(line), errSoftNewline
 				}
 			case 'D':
-				if pos > 0 {
+				if params == ctrlArrowParams {
+					pos = wordBoundaryLeft(line, pos)
+					redraw(sh, string(line), line, pos)
+				} else if pos > 0 {
 					pos--
 					redraw(sh, string(line), line, pos)
 				}
 			case 'C':
-				if pos < len(line) {
+				if params == ctrlArrowParams {
+					pos = wordBoundaryRight(line, pos)
+					redraw(sh, string(line), line, pos)
+				} else if pos < len(line) {
 					pos++
 					redraw(sh, string(line), line, pos)
+				}
+			case 'H':
+				if pos > 0 {
+					pos = 0
+					redraw(sh, string(line), line, pos)
+				}
+			case 'F':
+				if pos < len(line) {
+					pos = len(line)
+					redraw(sh, string(line), line, pos)
+				}
+			case '~':
+				switch params {
+				case homeKeyParams:
+					if pos > 0 {
+						pos = 0
+						redraw(sh, string(line), line, pos)
+					}
+				case endKeyParams:
+					if pos < len(line) {
+						pos = len(line)
+						redraw(sh, string(line), line, pos)
+					}
 				}
 			case 'A':
 				if histPos > 0 {
