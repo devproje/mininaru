@@ -5,7 +5,9 @@ package core
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -16,6 +18,35 @@ import (
 
 const SessionSendToolName = "session_send"
 
+func resolveSessionRef(callerId, ref string) (*Session, error) {
+	var target *Session
+	var list []*Session
+	var item *Session
+
+	var err error
+
+	target, err = SessionRead(ref)
+	if err == nil {
+		return target, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return nil, err
+	}
+
+	list, err = SessionList(callerId)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, item = range list {
+		if item.Name == ref {
+			return item, nil
+		}
+	}
+
+	return nil, fmt.Errorf("no session %q — check session_list for a valid id or name", ref)
+}
+
 func sessionSendTool(caller *Agent, callerSessionId, anchor string, depth int, onTool func(name, status, message string), approve ApproveFunc) modules.Tool {
 	return modules.Tool{
 		Name: SessionSendToolName,
@@ -25,7 +56,7 @@ func sessionSendTool(caller *Agent, callerSessionId, anchor string, depth int, o
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"session": map[string]any{"type": "string"},
+				"session": map[string]any{"type": "string", "description": "A session id or name from session_list."},
 				"content": map[string]any{"type": "string"},
 			},
 			"required":             []string{"session", "content"},
@@ -64,7 +95,7 @@ func sessionSendTool(caller *Agent, callerSessionId, anchor string, depth int, o
 				return "", fmt.Errorf("session_send cannot target its own session")
 			}
 
-			target, err = SessionRead(payload.Session)
+			target, err = resolveSessionRef(caller.Id, payload.Session)
 			if err != nil {
 				return "", err
 			}
@@ -74,6 +105,10 @@ func sessionSendTool(caller *Agent, callerSessionId, anchor string, depth int, o
 
 			targetAgent, err = AgentRead(target.AgentId)
 			if err != nil {
+				if errors.Is(err, sql.ErrNoRows) {
+					return "", fmt.Errorf("agent for session %s no longer exists", target.Id)
+				}
+
 				return "", err
 			}
 

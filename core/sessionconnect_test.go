@@ -151,6 +151,41 @@ func TestSessionSendRefusesItsOwnSession(t *testing.T) {
 	}
 }
 
+func TestResolveSessionRefFindsByIdThenByName(t *testing.T) {
+	var target *Session
+	var found *Session
+
+	var err error
+
+	setupTestDB(t)
+
+	err = AgentCreate(&Agent{Id: "a1", Name: "caller", Model: "gpt-4o-mini"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	target = &Session{Id: "s2", AgentId: "a1", Name: "quiet-otter"}
+	err = SessionCreate(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	found, err = resolveSessionRef("a1", "s2")
+	if err != nil || found.Id != "s2" {
+		t.Fatalf("resolve by id: got %+v, err %v", found, err)
+	}
+
+	found, err = resolveSessionRef("a1", "quiet-otter")
+	if err != nil || found.Id != "s2" {
+		t.Fatalf("resolve by name: got %+v, err %v", found, err)
+	}
+
+	_, err = resolveSessionRef("a1", "does-not-exist")
+	if err == nil || !strings.Contains(err.Error(), "no session") {
+		t.Fatalf("resolve unknown: err = %v, want a friendly no-session message", err)
+	}
+}
+
 func TestSessionSendRefusesADifferentAgentsSession(t *testing.T) {
 	var caller *Agent
 	var other *Agent

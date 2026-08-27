@@ -351,6 +351,20 @@ session — that would deadlock on its own session lock below). It reuses
 runs the nested `SendChatMessage` with the caller's own `anchor`/`approve`
 rather than building a second approval path.
 
+Its `session` argument accepts an id **or a name** — `resolveSessionRef`
+tries `SessionRead` first and, only on `sql.ErrNoRows`, falls back to a
+name match against `SessionList(caller.Id)` (own sessions only, same scope
+`session_list`'s tool output is already limited to). This matters because
+`session_list` shows the model each session's `Name`, not just its id, and
+every session gets a real random name now (`core/sessionname.go`) instead
+of the old hardcoded `"shell"` — before that, resolving a session by name
+had no real use, but a model that's just been shown `quiet-otter` in
+`session_list`'s output has every reason to pass that back verbatim rather
+than the id next to it, and the raw `SessionRead`/`AgentRead` errors this
+tool returned on a miss were unwrapped `sql: no rows in result set` with no
+indication of what went wrong — both paths now report a proper "no session
+%q — check session_list" message instead.
+
 Because the target session may have a person watching it live over another
 `/ws` connection, two extra pieces exist purely to serve that case:
 
