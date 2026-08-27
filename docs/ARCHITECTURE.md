@@ -726,12 +726,20 @@ Linux/macOS) and a `.ps1` sibling.
   verify, and unpack into `~/.local/bin` (`$BINDIR`/`$PREFIX` to change).
   When `mininaru` is already on `PATH` they hand off to `mininaru update`
   instead. A tag that resolves to `0.x` is refused unless `--tag` names it
-  — the one guard the in-binary updater does **not** have.
+  — the one guard the in-binary updater does **not** have. They also pin
+  `export NARU_PATH` in the user's shell rc (a `User` env var on Windows),
+  since the Go default is working-directory-relative and never re-exported
+  (`cli/main.go` reads it, resolves to `util.RootDir`, and stops there).
 - `install-binary.sh` / `.ps1` — install the local `out/` build; the
-  target of `make install`.
+  target of `make install`. Does not touch `NARU_PATH`.
 - `register-daemon.sh` / `.ps1` — write a `systemd --user` unit (a per-user
-  Scheduled Task on Windows) running `mininaru serve`, optionally add the
-  `exec narush` rc hook (`--shell`), and undo all of it (`--disable`).
+  Scheduled Task on Windows) running `mininaru serve`, always with
+  `Environment=NARU_PATH=` (default `~/.mininaru`). `--shell` also adds the
+  `exec narush` rc hook and the matching `NARU_PATH` export so an
+  interactive shell shares the service's data dir; `--disable` undoes all of
+  it. The rc edits are sentinel-delimited blocks (`# >>> mininaru env >>>`,
+  `# >>> mininaru shell hook >>>`) shared with `install.sh`, so adding one
+  from either script is idempotent and removal is exact.
 
 `ci.yml`'s `scripts` job shellchecks the `.sh` files and parse-checks the
 `.ps1` files.

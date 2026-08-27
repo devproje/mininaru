@@ -33,15 +33,22 @@ pin a version; if `mininaru` is already on `PATH` the script hands off to
 `mininaru update` instead. On Windows run `scripts/install.ps1` from
 PowerShell. Building from a checkout instead is covered below.
 
+It also pins `export NARU_PATH=~/.mininaru` in your shell rc (a `User`
+environment variable on Windows), so `mininaru` uses one data directory no
+matter which working directory you start it from — see [Storage](#storage).
+`--path <dir>` to choose another; `--uninstall` removes both the binary and
+the pin.
+
 Run interactively (not piped) it also offers to set up the background
 service described next, unless one is already registered.
 
 To keep a server up, `scripts/register-daemon.sh` installs a
 `systemd --user` unit that runs `mininaru serve` — `--host`, `--port`,
-`--path` to configure it, `--linger` to survive logout, `--shell` to also
-drop the `exec narush` hook into your shell rc, `--disable` to undo all of
-it. On Windows `scripts/register-daemon.ps1` registers a per-user Scheduled
-Task that starts it at logon.
+`--path` to set the data directory, `--linger` to survive logout, `--shell`
+to also drop the `exec narush` hook and the `NARU_PATH` export into your
+shell rc so an interactive shell shares the service's data directory,
+`--disable` to undo all of it. On Windows `scripts/register-daemon.ps1`
+registers a per-user Scheduled Task that starts it at logon.
 
 ## Build from source
 
@@ -147,7 +154,13 @@ check off entirely.
 ## Storage
 
 Everything lives under `.mininaru/` by default; set `NARU_PATH` to use
-another directory. The directory is created at mode `0700`, and an existing
+another directory. The default is resolved **relative to the working
+directory** each process starts in, so running `mininaru` from different
+places gives you different data directories — and a shell talking to a
+loopback server won't find its key unless both sides agree. `NARU_PATH` is
+never re-exported, so pin it yourself for a stable location; the installers
+do this (`export NARU_PATH=~/.mininaru` in your shell rc, a `User` variable
+on Windows). The directory is created at mode `0700`, and an existing
 one is tightened to `0700` on every start. Chat history is SQLite
 (`.mininaru/data.db`, WAL mode); the shell's bash command history is a plain
 text file (`.mininaru/shell_history` by default, or `$HISTFILE`); the server's

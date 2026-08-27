@@ -13,15 +13,17 @@ install.sh - install mininaru from a GitHub release
 
 Usage:
   curl -fsSL https://raw.githubusercontent.com/devproje/mininaru/master/scripts/install.sh | sh
-  scripts/install.sh [--tag <tag>] [--bindir <dir>] [--uninstall]
+  scripts/install.sh [--tag <tag>] [--bindir <dir>] [--path <dir>] [--uninstall]
 
 When mininaru is already on PATH this hands off to `mininaru update`, which
 verifies and replaces the running executable in place. Otherwise the latest
 release archive is downloaded, checked against SHA256SUMS, and installed.
 
-On an interactive terminal, after a fresh install it offers to register the
-`mininaru serve` systemd --user service; it stays silent when one already
-exists or when there is no tty (`curl | sh`).
+It also pins `export NARU_PATH=<dir>` (default ~/.mininaru) in your shell rc
+file so mininaru uses one data directory regardless of the working directory
+it is started from. On an interactive terminal, after a fresh install it
+offers to register the `mininaru serve` systemd --user service; it stays
+silent when one already exists or when there is no tty (`curl | sh`).
 
 Directory resolution (first match wins):
   --bindir <dir> / $BINDIR
@@ -44,6 +46,45 @@ fail() {
 
 script_dir="$(dirname -- "$0")"
 
+ENV_BEGIN='# >>> mininaru env >>>'
+ENV_END='# <<< mininaru env <<<'
+
+rc_file() {
+	case "$(basename "${SHELL:-sh}")" in
+		zsh) printf '%s\n' "${ZDOTDIR:-$HOME}/.zshrc" ;;
+		*) printf '%s\n' "$HOME/.bashrc" ;;
+	esac
+}
+
+ensure_env_block() {
+	rc="$(rc_file)"
+	if [ -f "$rc" ] && grep -qF "$ENV_BEGIN" "$rc"; then
+		return 0
+	fi
+	tmp="$(mktemp)"
+	{
+		printf '%s\n' "$ENV_BEGIN"
+		printf 'export NARU_PATH="%s"\n' "$1"
+		printf '%s\n' "$ENV_END"
+		if [ -f "$rc" ]; then
+			cat "$rc"
+		fi
+	} >"$tmp"
+	cat "$tmp" >"$rc"
+	rm -f "$tmp"
+	log "pinned NARU_PATH=$1 in $rc"
+}
+
+remove_env_block() {
+	rc="$(rc_file)"
+	{ [ -f "$rc" ] && grep -qF "$ENV_BEGIN" "$rc"; } || return 0
+	tmp="$(mktemp)"
+	sed "/^${ENV_BEGIN}\$/,/^${ENV_END}\$/d" "$rc" >"$tmp"
+	cat "$tmp" >"$rc"
+	rm -f "$tmp"
+	log "removed the NARU_PATH pin from $rc"
+}
+
 maybe_register_daemon() {
 	[ -t 0 ] || return 0
 	command -v systemctl >/dev/null 2>&1 || return 0
@@ -53,13 +94,14 @@ maybe_register_daemon() {
 	printf 'register the "mininaru serve" systemd --user service now? [y/N] '
 	read -r ans || return 0
 	case "$ans" in
-		[yY] | [yY][eE][sS]) BINDIR="$bindir" sh "$script_dir/register-daemon.sh" ;;
+		[yY] | [yY][eE][sS]) BINDIR="$bindir" sh "$script_dir/register-daemon.sh" --path "$naru_path" ;;
 		*) log "skipped; run scripts/register-daemon.sh later to set it up" ;;
 	esac
 }
 
 tag=""
 bindir_arg=""
+path_arg=""
 uninstall=0
 while [ $# -gt 0 ]; do
 	case "$1" in
@@ -79,6 +121,14 @@ while [ $# -gt 0 ]; do
 			bindir_arg="${1#*=}"
 			shift
 			;;
+		--path)
+			path_arg="${2:-}"
+			shift 2
+			;;
+		--path=*)
+			path_arg="${1#*=}"
+			shift
+			;;
 		--uninstall)
 			uninstall=1
 			shift
@@ -93,15 +143,19 @@ done
 
 prefix="${PREFIX:-$HOME/.local}"
 bindir="${bindir_arg:-${BINDIR:-$prefix/bin}}"
+naru_path="${path_arg:-${NARU_PATH:-$HOME/.mininaru}}"
 
 if [ "$uninstall" -eq 1 ]; then
 	rm -f "$bindir/mininaru"
 	if [ -L "$bindir/narush" ] && [ "$(readlink "$bindir/narush")" = "mininaru" ]; then
 		rm -f "$bindir/narush"
 	fi
+	remove_env_block
 	log "removed mininaru from $bindir"
 	exit 0
 fi
+
+ensure_env_block "$naru_path"
 
 if [ -z "$tag" ] && command -v mininaru >/dev/null 2>&1; then
 	log "mininaru is already installed, delegating to \`mininaru update\`"
@@ -161,11 +215,10 @@ fi
 case "$tag" in
 	v0.* | 0.*)
 		if [ -z "$requested_tag" ]; then
-			fail "the newest release is $tag, from the pre-1.0 architecture that this
-rewrite is not compatible with. Versioning restarts at v1.0.0-alpha.1 and
-no such release exists yet, so there is nothing to install from a release
-right now -- build from source (\`make build\`) instead. Pass --tag
-explicitly only if you specifically want an old 0.x build."
+			fail "the newest release resolved to $tag, from the pre-1.0 architecture
+this rewrite is not compatible with. Versioning restarts at v1.0.0-alpha.1;
+pass --tag v1.0.0-alpha.1 (or later) to install one of those, or --tag $tag
+if you really want this old 0.x build."
 		fi
 		log "warning: installing $tag, a pre-1.0 build incompatible with the current architecture"
 		;;
