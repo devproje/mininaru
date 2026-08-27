@@ -21,6 +21,9 @@ DIST_NAME  = mininaru_$(GOOS)_$(GOARCH)
 DIST_BIN   = $(DIST_DIR)/$(DIST_NAME)/mininaru$(if $(filter windows,$(GOOS)),.exe,)
 DIST_ALIAS = $(DIST_DIR)/$(DIST_NAME)/narush$(if $(filter windows,$(GOOS)),.exe,)
 
+PREFIX ?= $(HOME)/.local
+BINDIR ?= $(PREFIX)/bin
+
 .PHONY: all build generate fmt vet test test-race test-cover test-all dist install uninstall clean
 
 all: build
@@ -36,6 +39,12 @@ dist:
 	@cp $(DIST_BIN) $(DIST_ALIAS)
 	@cp LICENSE COPYRIGHT.md README.md $(dir $(DIST_BIN))
 	@echo "built $(DIST_BIN) and $(DIST_ALIAS)"
+
+install: build
+	@BINDIR="$(BINDIR)" DESTDIR="$(DESTDIR)" scripts/install-binary.sh
+
+uninstall:
+	@BINDIR="$(BINDIR)" DESTDIR="$(DESTDIR)" scripts/install-binary.sh --uninstall
 
 fmt:
 	@echo "checking code format..."

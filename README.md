@@ -14,6 +14,29 @@ delegation (`agent_spawn`, `session_send`), persistent memory, and skills
 have come back — see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for what
 is actually here.
 
+## Install
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/devproje/mininaru/master/scripts/install.sh | sh
+```
+
+Downloads the latest release for your platform, checks it against the
+release's `SHA256SUMS`, and installs `mininaru` (plus the `narush` alias)
+into `~/.local/bin`. Set `BINDIR` or `PREFIX` to change that, `--tag` to
+pin a version; if `mininaru` is already on `PATH` the script hands off to
+`mininaru update` instead. On Windows run `scripts/install.ps1` from
+PowerShell. Building from a checkout instead is covered below.
+
+Run interactively (not piped) it also offers to set up the background
+service described next, unless one is already registered.
+
+To keep a server up, `scripts/register-daemon.sh` installs a
+`systemd --user` unit that runs `mininaru serve` — `--host`, `--port`,
+`--path` to configure it, `--linger` to survive logout, `--shell` to also
+drop the `exec narush` hook into your shell rc, `--disable` to undo all of
+it. On Windows `scripts/register-daemon.ps1` registers a per-user Scheduled
+Task that starts it at logon.
+
 ## Build from source
 
 Requires the Go version declared in `go.mod`.
@@ -29,9 +52,12 @@ instead of typing `mininaru shell`.
 
 `make dist GOOS=linux GOARCH=arm64` cross-compiles a single release layout
 into `dist/` — this is what the release workflow runs for each target on a
-pushed `v*` tag, and it is currently the only way to get a mininaru binary;
-there is no install script yet. `dist/` carries the same `narush` alias
-alongside `mininaru`.
+pushed `v*` tag. `dist/` carries the same `narush` alias alongside
+`mininaru`.
+
+From a local checkout, `make install` installs `out/mininaru` (plus the
+`narush` alias) into `~/.local/bin` — `make install PREFIX=/usr/local` or
+`BINDIR=...` for another location, `make uninstall` to remove it.
 
 ### Using narush as your interactive shell
 
