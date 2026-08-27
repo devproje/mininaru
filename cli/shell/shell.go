@@ -57,6 +57,12 @@ type state struct {
 	gitBranch     string
 	lastExitCode  int
 	shellState    string
+	completeCache completeCache
+}
+
+type completeCache struct {
+	line  string
+	items []string
 }
 
 const (

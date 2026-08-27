@@ -222,7 +222,12 @@ func candidates(sh *state, line string) []string {
 		return atCandidates(sh, word)
 	}
 
-	if sh.mode == MODE_SHELL {
+	if sh.mode == MODE_SHELL && wordStart(line) > 0 {
+		items = bashComplete(sh, line)
+		if len(items) > 0 {
+			return items
+		}
+
 		fields = strings.Fields(line[:wordStart(line)])
 		if len(fields) == 1 {
 			items = subcommandCandidates(fields[0], word)

@@ -332,7 +332,7 @@ pick yourself.
 
 | Key | Shell mode | Agent mode |
 |---|---|---|
-| `Tab` | complete commands, arguments, and paths | complete `/`-commands and `@`-file references |
+| `Tab` | complete commands, args (real bash completion — branches, subcommands), and paths | complete `/`-commands and `@`-file references |
 | `↑` / `↓` | recall shell history | recall agent history (kept separate) |
 | `Ctrl+J` | insert a newline, keep typing | same — compose a multi-line message |
 | `Ctrl+A` / `Ctrl+E` | start / end of line | same |

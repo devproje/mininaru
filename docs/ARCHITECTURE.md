@@ -860,16 +860,23 @@ second one.
   registered slash-command names, and, when any word (not just at word-start
   — a mention can sit mid-sentence) starts with `@`, offers path completion
   under that `@` via `atCandidates` (see "`@path/to/file` references"
-  below). Completing the **second** word in bash
-  mode, when the first word is a key in `subcommandSets` (a small hardcoded
-  map — `git`, `go`, `npm`, `docker`, `cargo`), offers that program's known
-  subcommands instead of falling into path completion — e.g. `git ` + Tab
-  lists `add`/`commit`/`push`/etc. This is deliberately shallow: first-level
-  subcommand names only, no flags, no argument-aware completion like
-  branch names for `git checkout`; anything past that falls through to
-  ordinary path completion. Everything else containing `/`, or not at
-  word-start, is path completion. Multi-candidate columns are sized with
-  `displayWidth`, which is East-Asian-width aware, not raw byte/rune count.
+  below). Any shell-mode word past the first goes through `bashComplete`
+  (`bashcomplete.go`) when `$SHELL` is bash: it spawns `bash -c` with an
+  embedded driver that sources `/usr/share/bash-completion/bash_completion`,
+  lazy-loads the command's compspec via `_completion_loader`, reconstructs
+  `COMP_WORDS`/`COMP_CWORD`/`COMP_LINE`, runs the registered `-F` function
+  (or `-C` external completer), and prints `COMPREPLY`. So `git checkout ` +
+  Tab lists real branches, `docker ` its real subcommands, etc. A 400ms
+  `context` timeout and a one-entry `state.completeCache` (the two-press
+  flow re-queries the same line) keep it snappy; on timeout/failure or a
+  non-bash `$SHELL` it falls back to the hardcoded `subcommandSets` map
+  (`git go npm docker cargo`, first-level subcommands only) and then to
+  path completion. Word splitting is whitespace-only, so `COMP_WORDBREAKS`
+  characters (`:` `=`) and quoted args with spaces aren't reconstructed
+  exactly, and `-o nospace` from the compspec is ignored. Everything else
+  containing `/`, or not at word-start, is path completion. Multi-candidate
+  columns are sized with `displayWidth`, which is East-Asian-width aware,
+  not raw byte/rune count.
 
 ### Multiline input
 
