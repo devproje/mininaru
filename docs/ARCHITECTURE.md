@@ -601,10 +601,13 @@ goroutine.
 `cli/shell` mirrors this: `renderFrame`'s `"approval_request"` case pauses
 the ESC-to-interrupt watcher (`interruptWatch.pause()`, `cli/shell/client.go`)
 before reading a synchronous y/a/n keypress — two goroutines can't safely
-read raw stdin at once — prompts, then writes the decision frame back. The
-watcher is not restarted afterward, so ESC-to-interrupt is unavailable for
-the rest of that turn once a prompt has fired; nothing typed is lost, since
-unread bytes just stay buffered in the terminal until the next `readLine()`.
+read raw stdin at once — prompts, calls `interruptWatch.resume()`, then
+writes the decision frame back. `pause()` stops the reader goroutine and
+`resume()` starts a fresh one against the same persistent `interrupted`
+channel, so ESC keeps working for the rest of the turn after an approval
+prompt (`interrupt_test.go`). Bytes typed while the watcher is paused go to
+the y/a/n read; bytes typed while it runs are buffered on `interruptWatch`
+and replayed into the next `readLine()` via `sh.pendingInput`.
 
 `/ws` also sends a `{type: "tool", name, status: "started"|"finished"|
 "failed"}` frame around each call purely for progress display, unrelated to
@@ -1020,9 +1023,9 @@ rendering it — some providers stream literal `.` characters as a heartbeat
 while a reasoning summary is still being generated, instead of holding the
 delta back until there's real content; the header only appears once real
 text arrives. While a turn is in flight, a
-background goroutine (`watchInterrupt`) polls stdin so pressing Esc cancels
-the wait: it closes the websocket, then reconnects **reusing the existing
-session id** (harmless even before the first message — `state.session` is
+background goroutine (`interruptWatch.reader`) polls stdin so pressing Esc
+cancels the wait: it closes the websocket, then reconnects **reusing the
+existing session id** (harmless even before the first message — `state.session` is
 still empty at that point, so the reconnect's `openSession` call resolves
 the agent again but still doesn't create anything), and hands control back
 to the prompt. Polling is used instead of `SetReadDeadline` because raw-mode
@@ -1036,14 +1039,16 @@ version of this simply read and dropped those bytes, which made ordinary
 keys — including Ctrl+C and Ctrl+U — appear to silently stop working
 whenever they landed during, or immediately after, a streaming response.
 
-`watchInterrupt` and `sendAgent` are wrapped in `interruptWatch`
-(`client.go`), which exists for one reason: a tool-approval prompt
-(`approvalPrompt`) also reads raw stdin synchronously, and two goroutines
-can't safely read the same fd at once. `interruptWatch.pause()` stops the
-watcher (idempotent — safe to call from both the approval case and
-`sendAgent`'s own cleanup) before that read happens, and it is deliberately
-not restarted, so ESC stops interrupting for the rest of that turn once an
-approval prompt has fired in it.
+The stdin reader lives on `interruptWatch` (`client.go`), which exists for
+one reason: a tool-approval prompt (`approvalPrompt`) also reads raw stdin
+synchronously, and two goroutines can't safely read the same fd at once.
+`interruptWatch.pause()` stops the reader goroutine (idempotent — safe from
+both the approval case and `sendAgent`'s cleanup) before that read;
+`resume()` starts a new reader against the same `interrupted` channel and
+`captured` buffer, so the approval case restores ESC-to-interrupt right
+after it writes the decision. The `interrupted` channel is closed at most
+once (guarded by the watch's mutex), so a resumed reader firing after an
+earlier one is harmless.
 
 ### Slash commands
 

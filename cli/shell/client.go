@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/devproje/mininaru/core"
@@ -74,11 +75,12 @@ type inbound struct {
 }
 
 type interruptWatch struct {
+	interrupted chan struct{}
 	done        chan struct{}
-	interrupted <-chan struct{}
-	exited      <-chan struct{}
-	captured    *[]byte
-	stopped     bool
+	exited      chan struct{}
+	mu          sync.Mutex
+	captured    []byte
+	running     bool
 }
 
 type reply struct {
@@ -553,69 +555,105 @@ func chunkText(chunk *openai.ChatCompletionChunk) string {
 	return chunk.Choices[0].Delta.Content
 }
 
-func watchInterrupt(done <-chan struct{}) (<-chan struct{}, <-chan struct{}, *[]byte) {
-	var interrupted chan struct{}
-	var exited chan struct{}
-	var captured []byte
+func (w *interruptWatch) fire() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
 
-	interrupted = make(chan struct{})
-	exited = make(chan struct{})
+	select {
+	case <-w.interrupted:
+	default:
+		close(w.interrupted)
+	}
+}
 
-	go func() {
-		var buf []byte
-		var count int
+func (w *interruptWatch) reader(done chan struct{}, exited chan struct{}) {
+	var buf []byte
+	var count int
 
-		var err error
+	var err error
 
-		defer close(exited)
+	defer close(exited)
 
-		buf = make([]byte, 1)
+	buf = make([]byte, 1)
 
-		for {
-			select {
-			case <-done:
-				return
-			default:
-			}
-
-			if !pollStdin(interruptPollInterval) {
-				continue
-			}
-
-			count, err = os.Stdin.Read(buf)
-			if err != nil || count == 0 {
-				continue
-			}
-
-			if buf[0] == 0x1b || buf[0] == 0x03 {
-				close(interrupted)
-				return
-			}
-
-			captured = append(captured, buf[0])
+	for {
+		select {
+		case <-done:
+			return
+		default:
 		}
-	}()
 
-	return interrupted, exited, &captured
+		if !pollStdin(interruptPollInterval) {
+			continue
+		}
+
+		count, err = os.Stdin.Read(buf)
+		if err == io.EOF {
+			return
+		}
+		if err != nil || count == 0 {
+			continue
+		}
+
+		if buf[0] == 0x1b || buf[0] == 0x03 {
+			w.fire()
+			return
+		}
+
+		w.mu.Lock()
+		w.captured = append(w.captured, buf[0])
+		w.mu.Unlock()
+	}
 }
 
-func newInterruptWatch() *interruptWatch {
-	var w interruptWatch
+func (w *interruptWatch) resume() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
 
-	w.done = make(chan struct{})
-	w.interrupted, w.exited, w.captured = watchInterrupt(w.done)
-
-	return &w
-}
-
-func (w *interruptWatch) pause() {
-	if w.stopped {
+	if w.running {
 		return
 	}
 
+	w.done = make(chan struct{})
+	w.exited = make(chan struct{})
+	w.running = true
+
+	go w.reader(w.done, w.exited)
+}
+
+func (w *interruptWatch) pause() {
+	var exited chan struct{}
+
+	w.mu.Lock()
+
+	if !w.running {
+		w.mu.Unlock()
+		return
+	}
+
+	w.running = false
+	exited = w.exited
 	close(w.done)
-	<-w.exited
-	w.stopped = true
+
+	w.mu.Unlock()
+
+	<-exited
+}
+
+func (w *interruptWatch) capturedInput() []byte {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	return append([]byte(nil), w.captured...)
+}
+
+func newInterruptWatch() *interruptWatch {
+	var w *interruptWatch
+
+	w = &interruptWatch{interrupted: make(chan struct{})}
+	w.resume()
+
+	return w
 }
 
 func confirmPrompt(question string) bool {
@@ -810,6 +848,10 @@ func renderFrame(sh *state, rs *renderState, reply reply) (bool, error) {
 		}
 
 		decision = approvalPrompt(sh, reply.Name, reply.Arguments)
+
+		if rs.watch != nil {
+			rs.watch.resume()
+		}
 
 		err = writeJSON(sh, approvalResponse{Type: "approval", SessionId: reply.SessionId, Decision: decision})
 		if err != nil {
@@ -1052,7 +1094,7 @@ func sendAgent(sh *state, content string) error {
 		sh.mirror = nil
 
 		watch.pause()
-		sh.pendingInput = append(sh.pendingInput, *watch.captured...)
+		sh.pendingInput = append(sh.pendingInput, watch.capturedInput()...)
 
 		notice(YELLOW, "○", "%sinterrupted%s", YELLOW, RESET)
 
@@ -1067,7 +1109,7 @@ func sendAgent(sh *state, content string) error {
 		return nil
 	case err = <-result:
 		watch.pause()
-		sh.pendingInput = append(sh.pendingInput, *watch.captured...)
+		sh.pendingInput = append(sh.pendingInput, watch.capturedInput()...)
 
 		return err
 	}
