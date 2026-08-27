@@ -5,8 +5,10 @@ package shell
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 )
@@ -94,6 +96,39 @@ func exitCode(cmd *exec.Cmd) int {
 	return cmd.ProcessState.ExitCode()
 }
 
+func shellStatePath() string {
+	return filepath.Join(os.TempDir(), fmt.Sprintf("mininaru-shell-%d.state", os.Getpid()))
+}
+
+func initShellState(sh *state) error {
+	sh.shellState = shellStatePath()
+
+	return os.WriteFile(sh.shellState, nil, 0600)
+}
+
+func quote(argv []string) string {
+	var arg string
+	var quoted []string
+
+	for _, arg = range argv {
+		quoted = append(quoted, "'"+strings.ReplaceAll(arg, "'", `'\''`)+"'")
+	}
+
+	return strings.Join(quoted, " ")
+}
+
+func stateWrappedLine(statePath, line string) string {
+	if statePath == "" {
+		return line
+	}
+
+	return fmt.Sprintf(
+		"source %s 2>/dev/null; %s; __mininaru_status=$?; "+
+			"{ export -p; declare -f; alias -p; } > %s 2>/dev/null; exit $__mininaru_status",
+		quote([]string{statePath}), line, quote([]string{statePath}),
+	)
+}
+
 func runBash(sh *state, line string) {
 	var cmd *exec.Cmd
 	var exitErr *exec.ExitError
@@ -101,7 +136,7 @@ func runBash(sh *state, line string) {
 
 	var err error
 
-	args = append(shellInvokeFlags(), line)
+	args = append(shellInvokeFlags(), stateWrappedLine(sh.shellState, line))
 	cmd = exec.Command(bashPath(), args...)
 	cmd.Dir = sh.cwd
 	cmd.Stdin = os.Stdin
@@ -138,17 +173,6 @@ func selfArgs(sh *state) []string {
 	}
 
 	return argv
-}
-
-func quote(argv []string) string {
-	var arg string
-	var quoted []string
-
-	for _, arg = range argv {
-		quoted = append(quoted, "'"+strings.ReplaceAll(arg, "'", `'\''`)+"'")
-	}
-
-	return strings.Join(quoted, " ")
 }
 
 func switchUser(args []string) (string, bool) {

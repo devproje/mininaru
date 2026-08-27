@@ -62,6 +62,27 @@ func TestQuoteEscapesSingleQuotes(t *testing.T) {
 	}
 }
 
+func TestStateWrappedLineSourcesDumpsAndPreservesExitStatus(t *testing.T) {
+	var got string
+	var want string
+
+	got = stateWrappedLine("/tmp/it's.state", "false")
+	want = `source '/tmp/it'\''s.state' 2>/dev/null; false; __mininaru_status=$?; ` +
+		`{ export -p; declare -f; alias -p; } > '/tmp/it'\''s.state' 2>/dev/null; exit $__mininaru_status`
+	if got != want {
+		t.Fatalf("stateWrappedLine =\n%q\nwant\n%q", got, want)
+	}
+}
+
+func TestStateWrappedLineIsANoOpWithoutAStatePath(t *testing.T) {
+	var got string
+
+	got = stateWrappedLine("", "ls -la")
+	if got != "ls -la" {
+		t.Fatalf("stateWrappedLine with no state path = %q, want the line unchanged", got)
+	}
+}
+
 func TestEscalateBuildsNestedShellCommand(t *testing.T) {
 	var sh state
 	var cmd *exec.Cmd

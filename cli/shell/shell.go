@@ -56,6 +56,7 @@ type state struct {
 	killBuffer    []rune
 	gitBranch     string
 	lastExitCode  int
+	shellState    string
 }
 
 const (
@@ -160,6 +161,13 @@ func Run(opts Options) error {
 	sh.mode = MODE_BASH
 	sh.root = os.Geteuid() == 0
 	sh.user = currentUser()
+
+	err = initShellState(&sh)
+	if err != nil {
+		util.Log.Debug("shell state file unavailable, exports/functions/aliases won't persist between lines", "error", err)
+	} else {
+		defer os.Remove(sh.shellState)
+	}
 
 	loadHistory(&sh)
 	defer saveHistory(&sh)

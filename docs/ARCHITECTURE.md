@@ -891,6 +891,32 @@ simply returned non-zero (`false`, a no-match `grep`) is silent, the way a
 real shell is; only a genuine failure to run the command at all (bash
 itself couldn't start, for instance) gets the notice.
 
+**Bash mode is not a persistent process** — every line is still its own
+fresh `bash -i -c` invocation (a genuinely persistent pty-attached bash was
+scoped and explicitly turned down as too large for the benefit). `-i`
+already restores rc-file aliases, but anything set up *interactively*
+rather than in `.bashrc` — an ad-hoc `export`, a function typed at the
+prompt, an `alias` not already in the rc file — would otherwise vanish the
+moment that line's process exited. `stateWrappedLine` (`exec.go`) closes
+that specific gap without a pty: it wraps the line as `source <state> ...;
+<line>; __mininaru_status=$?; { export -p; declare -f; alias -p; } >
+<state> ...; exit $__mininaru_status`, where `<state>` is a per-session
+temp file (`state.shellState`, `mininaru-shell-<pid>.state` under
+`os.TempDir()`, created in `Run()` and removed on exit — one PID, one file,
+so concurrent shells never collide). Each command starts by restoring
+whatever the *previous* one exported/defined, and ends by overwriting the
+same file with the *current* full state (not a delta — `unset`/`unalias`
+inside a line is correctly reflected next time, nothing accumulates stale).
+The dump is redirected straight to the state file from inside the bash
+script itself, never touching `cmd.Stdout`, so it's invisible to the user;
+`$__mininaru_status` is captured before the dump can reset `$?`, so
+`state.lastExitCode` still reports the *line's* exit status, not the
+bookkeeping's. `quote()` (already used for the `su -c` re-exec argv above)
+handles safely quoting the state path. Left alone on purpose:
+`multiline.go`'s `bash -n -c` syntax probe (no side effects wanted there)
+and `runNested`'s `su`/`sudo` re-exec (a different process as a different
+user — no state to share across that boundary).
+
 ### Agent mode
 
 **Session creation is lazy.** `connect()`/`openSession()` (`client.go`)

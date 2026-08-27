@@ -274,6 +274,11 @@ the same way an interactive `bash` does. `su` and `sudo` re-exec the shell
 itself as the target user, carrying the session over, so the prompt and
 history survive a privilege switch.
 
+Each bash-mode line still runs as its own process — this isn't a single
+persistent shell — but `export`ed variables, functions, and aliases you
+define at the prompt carry over to the next line anyway; only things like
+`cd` already worked this way before.
+
 Inside agent mode, `@path/to/file` anywhere in a message pulls that file's
 content into what gets sent to the agent (path resolved relative to the
 shell's cwd, `~` expanded, tab-completes like a path) — the `@` is stripped
