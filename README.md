@@ -23,10 +23,15 @@ make build
 ./out/mininaru --version
 ```
 
+`make build` also creates `out/narush`, an alias for `mininaru shell` — run
+it directly (with the same `--url`/`--session`/`--agent`/`--api-key` flags)
+instead of typing `mininaru shell`.
+
 `make dist GOOS=linux GOARCH=arm64` cross-compiles a single release layout
 into `dist/` — this is what the release workflow runs for each target on a
 pushed `v*` tag, and it is currently the only way to get a mininaru binary;
-there is no install script yet.
+there is no install script yet. `dist/` carries the same `narush` alias
+alongside `mininaru`.
 
 ### Verifying a release download
 

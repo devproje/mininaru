@@ -6,10 +6,14 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/devproje/mininaru/util"
 	"github.com/spf13/cobra"
 )
+
+const narushAlias string = "narush"
 
 var (
 	version string
@@ -53,6 +57,15 @@ var root *cobra.Command = &cobra.Command{
 	},
 }
 
+func invokedAs(name string) bool {
+	var base string
+
+	base = filepath.Base(os.Args[0])
+	base = strings.TrimSuffix(base, ".exe")
+
+	return strings.EqualFold(base, name)
+}
+
 func main() {
 	var path string
 	var err error
@@ -94,6 +107,10 @@ func main() {
 		panic(err)
 	}
 	defer util.DB.Close()
+
+	if invokedAs(narushAlias) {
+		os.Args = append([]string{os.Args[0], "shell"}, os.Args[1:]...)
+	}
 
 	err = root.Execute()
 	if err != nil {

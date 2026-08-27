@@ -4,7 +4,12 @@ mininaru is a single Go binary: a stateless-per-request OpenAI-compatible HTTP
 API backed by SQLite, a matching websocket for streaming chat, and two CLI
 front ends — an admin CLI for providers/agents/sessions, and `mininaru shell`,
 an interactive terminal that runs a bash prompt and an agent chat over one
-line editor.
+line editor. `make build`/`make dist` also produce `narush`, a symlinked
+(local build) or copied (`dist`) alias binary — `invokedAs` in `cli/main.go`
+checks `filepath.Base(os.Args[0])` and, when invoked under that name,
+rewrites `os.Args` to inject `shell` before cobra parses it, so `narush
+--url ...` behaves exactly like `mininaru shell --url ...` with no separate
+`main` package to maintain.
 
 This is a rewrite in progress (`refactor/1.0.0-alpha`). An earlier version of
 this project had skills, memory, subagent delegation, a Discord front end, a
