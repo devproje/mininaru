@@ -709,7 +709,7 @@ func TestRetryConnectReconnectsAndRestoresAgentMode(t *testing.T) {
 
 	sh.url = "ws" + strings.TrimPrefix(server.URL, "http") + "/ws"
 	sh.session = "s1"
-	sh.mode = MODE_BASH
+	sh.mode = MODE_SHELL
 	sh.wasAgent = true
 	sh.retryAt = time.Now().Add(-time.Second)
 	sh.retryDelay = RETRY_MIN

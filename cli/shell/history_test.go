@@ -56,7 +56,7 @@ func TestRecordHistoryHonorsHistSize(t *testing.T) {
 func TestRecordHistoryKeepsAgentAndBashSeparate(t *testing.T) {
 	var sh state
 
-	sh = state{mode: MODE_BASH}
+	sh = state{mode: MODE_SHELL}
 	recordHistory(&sh, "ls -al")
 
 	sh.mode = MODE_AGENT
@@ -74,7 +74,7 @@ func TestRecordHistoryKeepsAgentAndBashSeparate(t *testing.T) {
 func TestHistoryForSelectsByMode(t *testing.T) {
 	var sh state
 
-	sh = state{mode: MODE_BASH, history: []string{"bash1"}, agentHistory: []string{"agent1"}}
+	sh = state{mode: MODE_SHELL, history: []string{"bash1"}, agentHistory: []string{"agent1"}}
 
 	if len(historyFor(&sh)) != 1 || historyFor(&sh)[0] != "bash1" {
 		t.Fatalf("historyFor(bash) = %v, want [bash1]", historyFor(&sh))

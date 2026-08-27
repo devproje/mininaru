@@ -26,7 +26,7 @@ const (
 	PURPLE string = "\x1b[38;5;141m"
 	GRAY   string = "\x1b[38;5;245m"
 
-	BASH_BADGE  string = "\x1b[48;5;110m\x1b[38;5;235m bash  \x1b[0m\x1b[38;5;110m"
+	SHELL_BADGE string = "\x1b[48;5;110m\x1b[38;5;235m shell \x1b[0m\x1b[38;5;110m"
 	AGENT_BADGE string = "\x1b[48;5;141m\x1b[38;5;235m agent \x1b[0m\x1b[38;5;141m"
 	USER_BG     string = "\x1b[48;5;245m\x1b[38;5;235m"
 	ROOT_BG     string = "\x1b[48;5;203m\x1b[38;5;231m\x1b[1m"
@@ -230,7 +230,7 @@ func gitSegment(sh *state) string {
 }
 
 func exitCodeSegment(sh *state) string {
-	if sh.mode != MODE_BASH || sh.lastExitCode == 0 {
+	if sh.mode != MODE_SHELL || sh.lastExitCode == 0 {
 		return ""
 	}
 
@@ -298,7 +298,7 @@ func prompt(sh *state) string {
 		return DIM + "> " + RESET
 	}
 
-	badge = BASH_BADGE
+	badge = SHELL_BADGE
 	caret = BLUE + "$" + RESET
 
 	if sh.mode == MODE_AGENT {
@@ -342,7 +342,7 @@ func banner(sh *state) {
 	if sh.conn != nil {
 		notice(GREEN, "●", "%sconnected%s %s", GREEN, RESET, connectionDetail(sh))
 	} else {
-		notice(YELLOW, "○", "%soffline%s %s", YELLOW, RESET, DIM+"bash mode only, retrying in the background — Shift+Tab retries now"+RESET)
+		notice(YELLOW, "○", "%soffline%s %s", YELLOW, RESET, DIM+"shell mode only, retrying in the background — Shift+Tab retries now"+RESET)
 	}
 
 	updateNotice = util.UpdateNotice()

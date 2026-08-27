@@ -537,7 +537,7 @@ func disconnect(sh *state, reason error) {
 	sh.frames = nil
 	sh.mirror = nil
 	sh.wasAgent = sh.mode == MODE_AGENT
-	sh.mode = MODE_BASH
+	sh.mode = MODE_SHELL
 	sh.retryDelay = 0
 
 	armRetry(sh)
@@ -1059,7 +1059,7 @@ func sendAgent(sh *state, content string) error {
 		err = connect(sh)
 		if err != nil {
 			sh.wasAgent = sh.mode == MODE_AGENT
-			sh.mode = MODE_BASH
+			sh.mode = MODE_SHELL
 			notice(RED, "●", "%sdisconnected%s %s", RED, RESET, DIM+err.Error()+", reconnecting…"+RESET)
 			return nil
 		}
@@ -1077,7 +1077,7 @@ func toggleMode(sh *state) {
 	var err error
 
 	if sh.mode == MODE_AGENT {
-		sh.mode = MODE_BASH
+		sh.mode = MODE_SHELL
 		return
 	}
 
