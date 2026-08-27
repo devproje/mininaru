@@ -40,6 +40,8 @@ const (
 
 const spinnerWordPeriod time.Duration = 2 * time.Second
 
+const promptFillMin int = 3
+
 var thinkingWords = []string{"thinking…", "pondering…", "percolating…", "mulling…", "noodling…"}
 
 func displayWidth(text string) int {
@@ -224,7 +226,7 @@ func gitSegment(sh *state) string {
 		return ""
 	}
 
-	return fmt.Sprintf(" %sgit:(%s)%s", GREEN, sh.gitBranch, RESET)
+	return fmt.Sprintf("%sgit:(%s)%s", GREEN, sh.gitBranch, RESET)
 }
 
 func exitCodeSegment(sh *state) string {
@@ -235,9 +237,27 @@ func exitCodeSegment(sh *state) string {
 	return fmt.Sprintf(" %s✗ %d%s", RED, sh.lastExitCode, RESET)
 }
 
+func promptLine1(left, right string) string {
+	var fill int
+
+	if right == "" {
+		return left
+	}
+
+	fill = termWidth() - displayWidth(stripAnsi(left)) - displayWidth(stripAnsi(right)) - 2
+	if fill < promptFillMin {
+		fill = promptFillMin
+	}
+
+	return fmt.Sprintf("%s %s%s%s %s", left, DIM, strings.Repeat("─", fill), RESET, right)
+}
+
 func prompt(sh *state) string {
 	var badge string
 	var caret string
+	var left string
+	var line1 string
+	var line2 string
 
 	if sh.continuation {
 		return DIM + "> " + RESET
@@ -255,7 +275,11 @@ func prompt(sh *state) string {
 		caret = RED + "#" + RESET
 	}
 
-	return fmt.Sprintf("%s%s%s %s%s%s%s%s %s ", userBadge(sh), badge, RESET, pathColor(sh), shortPath(sh.cwd), RESET, gitSegment(sh), exitCodeSegment(sh), caret)
+	left = fmt.Sprintf("%s%s%s", userBadge(sh), badge, RESET)
+	line1 = promptLine1(left, gitSegment(sh))
+	line2 = fmt.Sprintf("%s%s%s%s %s ", pathColor(sh), shortPath(sh.cwd), RESET, exitCodeSegment(sh), caret)
+
+	return line1 + "\n" + line2
 }
 
 func banner(sh *state) {

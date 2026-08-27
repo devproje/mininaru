@@ -445,12 +445,24 @@ without changing anything — `mininaru shell` polls this (`refreshYoloMode` in
 `cli/shell/client.go`, called on connect and on `cd`, not on every prompt
 redraw) and colors the path segment of its prompt by the result
 (`pathColor` in `cli/shell/style.go`): yellow for `persist`, red for `on`,
-dim (the default) for `off`. The prompt also shows a `git:(branch)` segment
-and, in bash mode, a `✗ <code>` segment after a non-zero exit — both read
-from cached `state` fields (`gitBranch`, `lastExitCode`) refreshed only when
-`cwd` actually changes or a command finishes, never from `prompt()` itself,
-since `prompt()` runs on nearly every keystroke redraw and shelling out to
-`git` or `stat`-walking on every one would be a stutter. `cli/shell/git.go`
+dim (the default) for `off`. The prompt is two lines —
+`[user][mode] ──── git:(branch)` (branch right-aligned to the terminal width
+via `promptLine1`, a dim fill of `─` computed from `termWidth()` minus the
+`displayWidth` of both sides, floored at `promptFillMin` so it never
+collapses to nothing on a narrow terminal; the line is just `[user][mode]`
+with no filler outside a git repo) then `path ✗<code> caret` — built as one string
+with an embedded `\n` (`prompt()` returns it that way; `write()` already
+turns `\n` into `\r\n` for every other multi-line output, so nothing
+downstream needed a separate code path). `rowsFor` (`redraw.go`) splits on
+`\n` and sums wrapped-row counts per line rather than treating the whole
+string as one wrapped line, which is what makes `redraw()`'s up-then-clear
+cursor math still land correctly with a multi-row prompt above the input
+line. The `git:(branch)` segment and, in bash mode, the `✗ <code>` segment
+after a non-zero exit both read from cached `state` fields (`gitBranch`,
+`lastExitCode`) refreshed only when `cwd` actually changes or a command
+finishes, never from `prompt()` itself, since `prompt()` runs on nearly
+every keystroke redraw and shelling out to `git` or `stat`-walking on every
+one would be a stutter. `cli/shell/git.go`
 resolves the branch by reading `.git/HEAD` directly (following a `.git`
 *file*'s `gitdir:` pointer for worktrees/submodules) rather than running
 `git`; it reports the branch name, or the first 7 hex characters of the

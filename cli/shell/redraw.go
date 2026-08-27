@@ -50,14 +50,24 @@ func stripAnsi(text string) string {
 }
 
 func rowsFor(cols int, text string) int {
+	var lines []string
+	var one string
 	var width int
+	var rows int
 
-	width = displayWidth(stripAnsi(text))
-	if width == 0 {
-		return 1
+	lines = strings.Split(stripAnsi(text), "\n")
+
+	for _, one = range lines {
+		width = displayWidth(one)
+		if width == 0 {
+			rows = rows + 1
+			continue
+		}
+
+		rows = rows + (width+cols-1)/cols
 	}
 
-	return (width + cols - 1) / cols
+	return rows
 }
 
 func redraw(sh *state, before string, line []rune, pos int) {
