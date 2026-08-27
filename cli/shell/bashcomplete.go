@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-const bashCompleteTimeout time.Duration = 400 * time.Millisecond
+const bashCompleteTimeout time.Duration = 2 * time.Second
 
 const bashCompleteDriver = `
 BC=/usr/share/bash-completion/bash_completion
@@ -71,6 +71,25 @@ func parseBashCompletions(out []byte) []string {
 	sort.Strings(items)
 
 	return items
+}
+
+func warmBashComplete() {
+	if !isBash(bashPath()) {
+		return
+	}
+
+	go func() {
+		var ctx context.Context
+		var cancel context.CancelFunc
+		var cmd *exec.Cmd
+
+		ctx, cancel = context.WithTimeout(context.Background(), bashCompleteTimeout)
+		defer cancel()
+
+		cmd = exec.CommandContext(ctx, bashPath(), "-c", bashCompleteDriver, "bash", "true ")
+		cmd.Env = os.Environ()
+		cmd.Run()
+	}()
 }
 
 func bashComplete(sh *state, line string) []string {

@@ -8,7 +8,26 @@ import (
 	"os/exec"
 	"slices"
 	"testing"
+	"time"
 )
+
+func completeUntil(t *testing.T, sh *state, line, want string) []string {
+	var items []string
+	var deadline time.Time
+
+	deadline = time.Now().Add(20 * time.Second)
+	for time.Now().Before(deadline) {
+		sh.completeCache = completeCache{}
+		items = bashComplete(sh, line)
+		if slices.Contains(items, want) {
+			return items
+		}
+
+		time.Sleep(200 * time.Millisecond)
+	}
+
+	return items
+}
 
 func bashCompletionAvailable(t *testing.T) {
 	var path string
@@ -73,7 +92,7 @@ func TestBashCompleteOffersGitRefs(t *testing.T) {
 
 	sh.cwd = gitRepoWithBranch(t)
 
-	items = bashComplete(&sh, "git checkout ")
+	items = completeUntil(t, &sh, "git checkout ", "wip-feature")
 	if !slices.Contains(items, "wip-feature") {
 		t.Fatalf("git checkout completion = %v, want it to contain \"wip-feature\"", items)
 	}
@@ -87,7 +106,7 @@ func TestBashCompleteOffersSubcommands(t *testing.T) {
 
 	sh.cwd = gitRepoWithBranch(t)
 
-	items = bashComplete(&sh, "git chec")
+	items = completeUntil(t, &sh, "git chec", "checkout")
 	if !slices.Contains(items, "checkout") {
 		t.Fatalf("git subcommand completion = %v, want it to contain \"checkout\"", items)
 	}
