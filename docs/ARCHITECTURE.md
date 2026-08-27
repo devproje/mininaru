@@ -866,7 +866,12 @@ aborts the whole in-progress multi-line entry, not just the current segment.
 
 ### Running bash
 
-`runBash`/`runNested` (`exec.go`) run `bash -c <line>` — or, for `su`/`sudo`,
+`runBash`/`runNested` (`exec.go`) run `bash -i -c <line>` (`shellInvokeFlags()`,
+`-i` so `~/.bashrc` actually loads — a plain `-c` line never sourced it,
+which silently dropped every rc-file alias, `alias ls='ls --color=auto'`
+being the near-universal one; this was reported as "colors get stripped in
+bash mode," but nothing was ever stripping anything, the alias just never
+existed in that process) — or, for `su`/`sudo`,
 re-exec `mininaru shell` itself as the target user, carrying `--session` and
 `--agent` over so a privilege switch does not lose the conversation — through
 `runForeground()` (`tty.go`). The child is placed in its own process group
