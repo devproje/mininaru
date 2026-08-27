@@ -484,7 +484,7 @@ func adoptDial(sh *state, block bool) bool {
 	}
 
 	write("\r\x1b[0J")
-	notice(GREEN, "●", "%sreconnected%s %s", GREEN, RESET, DIM+sh.url+" · session "+sh.session+RESET)
+	notice(GREEN, "●", "%sreconnected%s %s", GREEN, RESET, connectionDetail(sh))
 
 	return true
 }
@@ -1057,7 +1057,7 @@ func toggleMode(sh *state) {
 			return
 		}
 
-		notice(GREEN, "●", "%sconnected%s %s", GREEN, RESET, DIM+sh.url+" · session "+sh.session+RESET)
+		notice(GREEN, "●", "%sconnected%s %s", GREEN, RESET, connectionDetail(sh))
 		refreshYoloMode(sh)
 	}
 

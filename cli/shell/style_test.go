@@ -21,7 +21,7 @@ func TestBannerShowsTheConnectedAgentName(t *testing.T) {
 		banner(&sh)
 	})
 
-	if !strings.Contains(output, "agent naru") {
+	if !strings.Contains(output, "agent") || !strings.Contains(output, "   naru") {
 		t.Fatalf("banner output = %q, want it to mention the connected agent", output)
 	}
 }

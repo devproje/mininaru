@@ -317,6 +317,19 @@ func prompt(sh *state) string {
 	return line1 + "\n" + line2
 }
 
+func connectionDetail(sh *state) string {
+	var b strings.Builder
+
+	b.WriteString(DIM + sh.url + RESET)
+	b.WriteString("\n  " + GRAY + "agent" + RESET + "   " + agentLabel(sh))
+
+	if sh.session != "" {
+		b.WriteString("\n  " + GRAY + "session" + RESET + " " + sh.session)
+	}
+
+	return b.String()
+}
+
 func banner(sh *state) {
 	var updateNotice string
 
@@ -327,7 +340,7 @@ func banner(sh *state) {
 	write("  %sCtrl+D%s exit   %s/help%s agent commands\n\n", GRAY, RESET, GRAY, RESET)
 
 	if sh.conn != nil {
-		notice(GREEN, "●", "%sconnected%s %s", GREEN, RESET, DIM+sh.url+" · agent "+agentLabel(sh)+" · session "+sh.session+RESET)
+		notice(GREEN, "●", "%sconnected%s %s", GREEN, RESET, connectionDetail(sh))
 	} else {
 		notice(YELLOW, "○", "%soffline%s %s", YELLOW, RESET, DIM+"bash mode only, retrying in the background — Shift+Tab retries now"+RESET)
 	}
