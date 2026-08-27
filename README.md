@@ -7,11 +7,12 @@ interactive terminal shell — one Go binary, no external dependencies.
 
 This is a rewrite in progress (`refactor/1.0.0-alpha`). An earlier version of
 this project had skills, memory, subagent delegation, a Discord front end,
-and a paired gRPC client. Skills, memory, Discord, and gRPC do not exist in
-this branch; they were dropped on purpose to rebuild the server and CLI from
-a small core. Tool calling (bash, file read/write/edit, browser automation,
-MCP) and delegation (`agent_spawn`, `session_send`) have come back — see
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for what is actually here.
+and a paired gRPC client. Discord and gRPC do not exist in this branch; they
+were dropped on purpose to rebuild the server and CLI from a small core.
+Tool calling (bash, file read/write/edit, browser automation, MCP),
+delegation (`agent_spawn`, `session_send`), persistent memory, and skills
+have come back — see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for what
+is actually here.
 
 ## Build from source
 

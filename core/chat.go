@@ -10,6 +10,7 @@ import (
 
 	"github.com/devproje/mininaru/modules"
 	"github.com/devproje/mininaru/modules/memory"
+	"github.com/devproje/mininaru/modules/skill"
 	"github.com/google/uuid"
 	"github.com/openai/openai-go"
 	"github.com/openai/openai-go/option"
@@ -209,6 +210,7 @@ func SendChatMessage(ctx context.Context, agent *Agent, session *Session, anchor
 	var record *ToolCall
 	var result string
 	var memoryIndex string
+	var skillCatalog string
 	var assistant Message
 	var updateErr error
 
@@ -231,6 +233,10 @@ func SendChatMessage(ctx context.Context, agent *Agent, session *Session, anchor
 	memoryIndex = memory.LoadIndex(agent.Id)
 	if memoryIndex != "" {
 		union = append([]openai.ChatCompletionMessageParamUnion{openai.SystemMessage(memoryIndex)}, union...)
+	}
+	skillCatalog = skill.Catalog()
+	if skillCatalog != "" {
+		union = append([]openai.ChatCompletionMessageParamUnion{openai.SystemMessage(skillCatalog)}, union...)
 	}
 	if agent.Soul != "" {
 		union = append([]openai.ChatCompletionMessageParamUnion{openai.SystemMessage(agent.Soul)}, union...)
@@ -315,6 +321,10 @@ func SendChatMessage(ctx context.Context, agent *Agent, session *Session, anchor
 			err = ToolCallUpdate(record.Id, &ToolCall{Status: "completed", Result: result})
 			if err != nil {
 				return err
+			}
+
+			if record.Name == skill.ToolName {
+				skillUseRecord(session.Id, record)
 			}
 
 			if onTool != nil {

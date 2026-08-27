@@ -85,6 +85,7 @@ func main() {
 	root.AddCommand(shellCmd)
 	root.AddCommand(providerCmd)
 	root.AddCommand(agentCmd)
+	root.AddCommand(skillCmd)
 	root.AddCommand(sessionCmd)
 	root.AddCommand(updateCmd)
 

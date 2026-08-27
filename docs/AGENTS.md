@@ -14,12 +14,13 @@ the first edit. This document does not repeat them.
 
 `refactor/1.0.0-alpha` dropped a lot of what an earlier version of this
 project had: skills, memory, subagent delegation, a Discord front end, a
-paired gRPC client, a full-screen TUI. (Tool calling, MCP, and delegation —
-now the `agent_spawn` and `session_send` tools — came back; see "Tool
-calling" in ARCHITECTURE.md. All three are a different, lighter design than
-the old one, so don't assume the old shape.) If you find a stale reference
-to any of the rest — in a comment, a doc, an old branch — it describes
-something that used to exist, not something you are missing. Check
+paired gRPC client, a full-screen TUI. (Tool calling, MCP, delegation — the
+`agent_spawn` and `session_send` tools — persistent memory, and skills all
+came back; see "Tool calling" in ARCHITECTURE.md. All of them are a
+different, lighter design than the old one, so don't assume the old shape.)
+If you find a stale reference to any of the rest — in a comment, a doc, an
+old branch — it describes something that used to exist, not something you
+are missing. Check
 [ARCHITECTURE.md](ARCHITECTURE.md) against the actual package layout before
 trusting any other description of "what mininaru does," this file included:
 documentation lags the code here more often than the reverse.

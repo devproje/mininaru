@@ -11,13 +11,15 @@ this project had skills, memory, subagent delegation, a Discord front end, a
 paired gRPC client, and a full-screen TUI. Most of that still does not exist
 in this branch; it was deliberately dropped in favor of starting the server
 and CLI over from a small, well-understood core. If you are looking for
-skills, memory, the Discord front end, the gRPC client, or the TUI, they are
-not merely undocumented — they are not built yet. Two things have come back,
-both under a lighter design than the old one: tool calling (bash, file
-read/write/edit, browser automation, MCP client), gated by a
-directory-scoped trust model ("yolo mode") and a human-in-the-loop approval
-round-trip over `/ws`; and delegation, as the `agent_spawn` and
-`session_send` tools. See "Tool calling" below for both.
+the Discord front end, the gRPC client, or the TUI, they are not merely
+undocumented — they are not built yet. Four things have come back, all under
+a lighter design than the old one: tool calling (bash, file read/write/edit,
+browser automation, MCP client), gated by a directory-scoped trust model
+("yolo mode") and a human-in-the-loop approval round-trip over `/ws`;
+delegation, as the `agent_spawn` and `session_send` tools; persistent
+per-agent memory (`modules/memory`); and skills (`modules/skill`), stored
+bundles of instructions the model loads on demand and can also author itself.
+See "Tool calling" below for all four.
 
 ## Packages
 
@@ -193,9 +195,55 @@ index directly, which removes that whole failure mode. `LoadIndex(agentId)`
 caps what actually gets read at session start to 200 lines / 25KB (mirroring
 Claude Code's own limit), returns `""` if there's nothing saved yet, and
 `SendChatMessage` (`core/chat.go`) prepends its result as a `SystemMessage`
-right after `agent.Soul` — topic files themselves are never preloaded, only
-fetched on demand via `memory_read`, same as Claude Code only loading topic
-files when the model actually reads them.
+right after `agent.Soul` and the skill catalog (see "Skills" below) — topic
+files themselves are never preloaded, only fetched on demand via
+`memory_read`, same as Claude Code only loading topic files when the model
+actually reads them.
+
+### Skills — `modules/skill`
+
+A skill is a folder of instructions the model loads on demand instead of
+carrying in every prompt — the same idea as Claude Code's own skills. A
+bundle is a directory containing `SKILL.md` (YAML frontmatter `name`/
+`description` + a markdown body) and, optionally, companion files (scripts,
+references) the model can read or run once it has loaded the bundle.
+
+```
+.mininaru/skills/<name>/SKILL.md       # project scope
+~/.mininaru/skills/<name>/SKILL.md     # user scope
+```
+
+Two `modules.PermissionSafe` tools: `skill` reads a bundle — with no `path`
+argument it returns the full `SKILL.md` body plus a listing of companion
+files; with `path` it returns one companion file's content, each path
+segment validated with `util.SafeSegment` against traversal and hidden
+files. `skill_create` writes (or, with `overwrite: true`, replaces) a bundle
+from model-supplied `name`/`description`/`body`/`scope` — full-body
+replacement only, no incremental append, matching the trust level already
+given to `memory_save`.
+
+Unlike `.bak`'s prior implementation, `modules/skill` keeps no in-memory
+cache: `Catalog()`, `Find()`, and `All()` each do a fresh directory scan on
+every call, the same choice `modules/memory` already made for `MEMORY.md`.
+With at most 64 small bundles this costs nothing per turn and removes an
+entire subsystem (`Init`/`Reload`/reload-on-SIGHUP) a stateful cache would
+otherwise need.
+
+`skill.Catalog()` returns `""` when no skills exist, otherwise a header of
+rule text followed by one `name: description` line per skill (capped at
+4096 characters), and `SendChatMessage` (`core/chat.go`) prepends it as a
+`SystemMessage` right after `agent.Soul`. The rule text is also where the
+self-improvement loop lives: rather than a separate background job, the
+catalog itself tells the model that after finishing real work it should
+call `skill_create` when it used or discovered a reusable multi-step
+technique — the skill-side counterpart to `memory_save`'s "feedback" type
+for facts and preferences — entirely at the model's own judgment during
+normal conversation.
+
+Every `skill` tool call is recorded in the `skill_uses` table
+(`core/skilluse.go`, hooked into `core/chat.go`'s tool-call loop) —
+`skill, scope, path, rel, session_id, call_id, created_at` — queryable via
+`SkillUseStats` / `mininaru skill uses`.
 
 ### Computer use — `modules/browser`
 
