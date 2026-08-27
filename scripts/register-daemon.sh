@@ -52,13 +52,13 @@ install_hook() {
 		log "shell hook already present in $rc"
 		return 0
 	fi
-	{
-		printf '%s\n' "$HOOK_BEGIN"
-		printf 'if [ -z "${MININARU_ACTIVE:-}" ] && command -v narush >/dev/null 2>&1; then\n'
-		printf '    case $- in *i*) exec narush ;; esac\n'
-		printf 'fi\n'
-		printf '%s\n' "$HOOK_END"
-	} >>"$rc"
+	cat >>"$rc" <<EOF
+$HOOK_BEGIN
+if [ -z "\${MININARU_ACTIVE:-}" ] && command -v narush >/dev/null 2>&1; then
+    case \$- in *i*) exec narush ;; esac
+fi
+$HOOK_END
+EOF
 	log "added the narush shell hook to $rc"
 }
 

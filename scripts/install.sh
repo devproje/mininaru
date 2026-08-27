@@ -50,7 +50,7 @@ maybe_register_daemon() {
 	[ -f "${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/mininaru.service" ] && return 0
 	[ -f "$script_dir/register-daemon.sh" ] || return 0
 
-	printf 'register `mininaru serve` as a systemd --user service now? [y/N] '
+	printf 'register the "mininaru serve" systemd --user service now? [y/N] '
 	read -r ans || return 0
 	case "$ans" in
 		[yY] | [yY][eE][sS]) BINDIR="$bindir" sh "$script_dir/register-daemon.sh" ;;
