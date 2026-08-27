@@ -185,6 +185,8 @@ func Run(opts Options) error {
 	loadHistory(&sh)
 	defer saveHistory(&sh)
 
+	warmBashComplete()
+
 	err = connect(&sh)
 	if err != nil {
 		util.Log.Debug("shell websocket unavailable", "error", err)
