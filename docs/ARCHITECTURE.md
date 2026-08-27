@@ -1,49 +1,54 @@
 # Architecture
 
-mininaru is a single Go binary: a stateless-per-request OpenAI-compatible HTTP
-API backed by SQLite, a matching websocket for streaming chat, and two CLI
-front ends — an admin CLI for providers/agents/sessions, and `mininaru shell`,
-an interactive terminal that runs a shell prompt and an agent chat over one
-line editor. `make build`/`make dist` also produce `narush`, a symlinked
-(local build) or copied (`dist`) alias binary — `invokedAs` in `cli/main.go`
-checks `filepath.Base(os.Args[0])` and, when invoked under that name,
-rewrites `os.Args` to inject `shell` before cobra parses it, so `narush
---url ...` behaves exactly like `mininaru shell --url ...` with no separate
-`main` package to maintain.
+mininaru is an LLM harness in a single Go binary. `core` holds the agent
+runtime — a tool-calling round loop with bash, file, headless-browser, and
+MCP tools, per-agent memory, skills, and one-level delegation — and two front
+ends put a user in front of it:
+
+- **`mininaru shell` / `narush`** (`cli/shell/`) — a terminal that runs a
+  real shell and an agent chat over one line editor, Shift+Tab between them.
+- **`mininaru serve`** (`server/`) — a stateless-per-request
+  OpenAI-compatible HTTP API backed by SQLite, plus a `/ws` websocket for
+  streaming chat and the approval round-trip.
+
+An admin CLI (`mininaru provider`/`agent`/`session`/`mcp`/`skill`) manages
+the SQLite-backed config directly. `make build`/`make dist` also produce
+`narush`, a symlinked (local build) or copied (`dist`) alias binary —
+`invokedAs` in `cli/main.go` checks `filepath.Base(os.Args[0])` and, invoked
+under that name, injects `shell` into `os.Args` before cobra parses it, so
+`narush --url …` is exactly `mininaru shell --url …` with no second `main`.
+
+Dangerous tools are gated by a directory-scoped trust model ("yolo mode")
+with a human-in-the-loop approval round-trip over `/ws`. Delegation is the
+`agent_spawn` and `session_send` tools. Memory (`modules/memory`) is a
+per-agent markdown store; skills (`modules/skill`) are instruction bundles
+the model loads on demand and can also author itself. See "Tool calling"
+below.
 
 This is a from-scratch rewrite, currently in the `1.0.0-alpha` series. An
-earlier version of this project had skills, memory, subagent delegation, a
-Discord front end, a paired gRPC client, and a full-screen TUI. Most of that
-still does not exist; it was deliberately dropped in favor of starting the
-server and CLI over from a small, well-understood core. If you are looking for
-the Discord front end, the gRPC client, or the TUI, they are not merely
-undocumented — they are not built yet. Four things have come back, all under
-a lighter design than the old one: tool calling (bash, file read/write/edit,
-browser automation, MCP client), gated by a directory-scoped trust model
-("yolo mode") and a human-in-the-loop approval round-trip over `/ws`;
-delegation, as the `agent_spawn` and `session_send` tools; persistent
-per-agent memory (`modules/memory`); and skills (`modules/skill`), stored
-bundles of instructions the model loads on demand and can also author itself.
-See "Tool calling" below for all four.
+earlier version had a Discord front end, a paired gRPC client, and a
+full-screen TUI; none of those exist here.
 
 ## Packages
 
 ```
-cli/            cobra root, `serve`, `shell`, and the provider/agent/session admin subcommands
+cli/            cobra root, `serve`, `shell`, and the provider/agent/session/mcp/skill admin subcommands
 cli/shell/      the `mininaru shell` line editor — shell mode, agent mode, slash commands
 core/           Provider, Agent, Session, Message, ToolCall CRUD, the tool-calling chat loop, and yolo trust state
-modules/          the Tool/Permission type — a leaf package, imports only util + the MCP SDK
+modules/          the Tool/Permission type — a pure leaf package, imports only the standard library
 modules/bash/     the bash_exec builtin tool
 modules/file/     the file_read/file_write/file_edit builtin tools
 modules/browser/  the browser_* computer-use tools (chromedp), the one tool package with cross-call state
 modules/mcp/      the MCP client (stdio + streamable-HTTP transports, mcp.json config, `cli/mcp.go` admin CLI)
+modules/memory/   the memory_save/memory_read/memory_forget tools over a per-agent markdown store
+modules/skill/    skill discovery plus the skill/skill_create tools
 server/           gin HTTP API — OpenAI-compatible /api/v1, REST admin routes under /api, and /ws
 util/             data directory layout, SQLite handle + migrations, logging, version/banner
 ```
 
 Dependencies point one way: `server` and `cli` depend on `core`; `core`
-depends on `util` and `modules` (plus `modules/bash`, `modules/file`,
-`modules/browser`, `modules/mcp`); those four each depend on `modules` and
+depends on `util` and every `modules/*` tool package (`bash`, `file`,
+`browser`, `mcp`, `memory`, `skill`); each of those depends on `modules` and
 `util` but not on each other. Nothing in `core`, `modules`, or `util` imports
 its callers.
 `cli/shell` reaches a `mininaru serve` instance only through its public
@@ -64,8 +69,8 @@ SQLite (`modernc.org/sqlite`, no cgo) is opened with WAL, `foreign_keys`, and
 a five-second busy timeout (`util.databaseDSN`). Migrations are `.sql` files
 embedded into the binary (`util/migrations/*.sql`), tracked one row per
 applied version in a `migrations` table, and applied inside one transaction
-per file on every `NewDatabase` call — `0001_initial_schema.sql` and
-`0002_tool_calls.sql`.
+per file on every `NewDatabase` call — `0001_initial_schema.sql`,
+`0002_tool_calls.sql`, `0003_skill_uses.sql`.
 
 ```
 providers(id, name, api_key, base_url, active)
@@ -81,6 +86,9 @@ tool_calls(id, message_id REFERENCES messages ON DELETE CASCADE, call_id,
            name, arguments, result, status, error, created_at)
   -- status is CHECKed against pending/completed/failed; hangs off the user
   -- message whose turn produced the call, so a session resume can replay it
+skill_uses(id, skill, scope, path, rel, session_id, call_id, created_at)
+  -- one row per `skill` tool call (core/skilluse.go); session_id is indexed
+  -- but not a foreign key, so it outlives the session it was logged in
 ```
 
 Deleting an agent or a session cascades through the foreign keys; nothing in
@@ -91,7 +99,7 @@ Yolo trust state is the one exception to "everything is SQLite": it lives in
 entries, rewritten whole via `util.WriteFileAtomic` on every change
 (`core/yolo.go`), the same pattern `modules/mcp/config.go` uses for
 `mcp.json`. It is a flat trust list, not relational data that needs joins or
-cascades, so a JSON file was simpler than a table.
+cascades, so a JSON file is simpler than a table.
 
 ## `core/` — plain CRUD, no ORM
 
@@ -149,14 +157,18 @@ assembles the tool list every round: `bash_exec` and the three file tools
 from `modules/bash`/`modules/file` rooted at `root`, the six
 `modules/browser` tools scoped to `sessionId` (see below), whatever
 `modules/mcp.Tools()` currently exposes from `mcp.json`-configured MCP
-servers, the three `modules/memory` tools scoped to `caller.Id` (see below),
-the `session_list`/`agent_list` discovery pair, and — only while
-`depth` hasn't hit its cap — `agent_spawn` and `session_send` (see
-"Delegation" below). Every `modules.Tool` carries a
-`Permission` (`Safe`/`Dangerous`) — builtins are always `Dangerous`, MCP
-tools infer it from `ToolAnnotations.ReadOnlyHint` unless a server or
-per-tool override in `mcp.json` says otherwise. `executeTool` only consults
-`Permission` and the caller-supplied `ApproveFunc`: a `Safe` tool always runs
+servers, the three `modules/memory` tools scoped to `caller.Id`, the two
+`modules/skill` tools, the `session_list`/`agent_list` discovery pair, and —
+only while `depth` hasn't hit its cap — `agent_spawn` and `session_send`
+(see "Delegation" below). Every `modules.Tool` carries a `Permission`
+(`Safe`/`Dangerous`): `bash_exec`, the file tools, the `browser_*` tools,
+`agent_spawn`, and `session_send` are `Dangerous`; `memory_*`,
+`skill`/`skill_create`, and `session_list`/`agent_list` are `Safe` (pure
+reads, or writes confined to a validated slug under a managed directory).
+MCP tools infer it from
+`ToolAnnotations.ReadOnlyHint` unless a server or per-tool override in
+`mcp.json` says otherwise. `executeTool` only consults `Permission` and the
+caller-supplied `ApproveFunc`: a `Safe` tool always runs
 unconditionally; a `Dangerous` one calls `approve(ctx, name, arguments)` and
 runs only if the decision isn't `"deny"`. `core` itself has no opinion on
 *when* to ask — that policy lives one layer up, in `server/sock`.
@@ -164,51 +176,43 @@ runs only if the decision isn't `"deny"`. `core` itself has no opinion on
 ### MCP servers — `modules/mcp`
 
 `mcp.Init(ctx)`/`mcp.Reload(ctx)` (`client.go`, `Init` is a plain alias for
-`Reload`) are what actually dial every enabled server in `mcp.json` and
-populate the in-memory `shared` manager `mcp.Tools()` reads from — until
-this session, **nothing called either one**, anywhere in `cli/`/`server/`,
-so `mcp.Tools()` always returned empty regardless of what was configured.
-Two call sites fix that: `cli/serve.go`'s `serveExecute` calls `mcp.Init`
-once at startup (a failure is logged as a warning, not fatal — one broken
-server shouldn't take the HTTP API down), and a new `watchReload` goroutine
-started alongside it calls `mcp.Reload(ctx)` on `SIGHUP`
-(`signal.Notify(syscall.SIGHUP)`), so a running server picks up config
-changes without restarting. Making those log lines actually visible
-surfaced a second dormant gap: `util.NewLog` (`util/logging.go`) was never
-called anywhere either, so `util.Log` stayed the zero-value `slog.Logger`
-writing to `io.Discard` for every command, always — `cli/main.go`'s
-`main()` now calls `util.NewLog(util.LogOptions{})` once at startup (default
-level `info`, text-or-JSON auto-picked by whether stderr is a terminal, both
-already implemented in `logging.go` and simply unused). Every existing
-`util.Log.*` call site in `cli/shell/*.go` is `Debug`-level, below that
-default threshold, so this doesn't change the shell's interactive output.
-`Reload` itself already did the reuse-if-
-unchanged work this needed — a live session is kept as-is when
-`fingerprint(&existing.entry) == fingerprint(&reloaded.entry)` (a JSON
-marshal of the whole `Server` struct), only genuinely-changed or newly-added
-servers get redialed, and servers dropped from the config (or now disabled)
-have their client closed.
+`Reload`) dial every enabled server in `mcp.json` and populate the in-memory
+`shared` manager that `mcp.Tools()` reads from. `cli/serve.go`'s
+`serveExecute` calls `mcp.Init` once at startup (a failure is logged as a
+warning, not fatal — one broken server shouldn't take the HTTP API down),
+and a `watchReload` goroutine alongside it calls `mcp.Reload(ctx)` on
+`SIGHUP` (`signal.Notify(syscall.SIGHUP)`), so a running server picks up
+config changes without restarting. `Reload` reuses unchanged sessions: a
+live session is kept as-is when `fingerprint(&existing.entry) ==
+fingerprint(&reloaded.entry)` (a JSON marshal of the whole `Server`
+struct), only genuinely-changed or newly-added servers get redialed, and
+servers dropped from the config or disabled have their client closed.
+
+`util.Log` (`util/logging.go`) is the shared `log/slog` logger; `cli/main.go`
+calls `util.NewLog(util.LogOptions{})` once at startup (default level `info`,
+text-or-JSON auto-picked by whether stderr is a terminal). Every `util.Log.*`
+call in `cli/shell/*.go` is `Debug`-level, below that threshold, so it stays
+out of the shell's interactive output.
 
 `mcp.StatusAll() []Status` (`client.go`, next to `Tools()`) reports, per
-*configured* server (`Loaded.Servers`, not just the currently-live ones —
-this is what lets `cli/mcp.go show`/`list` display a disabled or
-never-successfully-dialed server too): `Enabled`, `Connected`, `Tools`
-(count), and `Error` (the live session's dial error, if any). This didn't
-exist before either; `cli/mcp.go`'s `list`/`show` call `mcp.Init(ctx)`
-themselves (so a one-off `mininaru mcp list` invocation — a separate
-process from any running `serve` — dials fresh rather than showing a stale
-cached state it has no way to see) and `defer mcp.Close()` afterward, since
-an MCP CLI subcommand process exiting mid-connection without a clean
-`client.Close()` produces a `write EPIPE` on the child stdio process's side
-otherwise.
+*configured* server (`Loaded.Servers`, not just the currently-live ones — so
+`cli/mcp.go show`/`list` can display a disabled or never-successfully-dialed
+server too): `Enabled`, `Connected`, `Tools` (count), and `Error` (the live
+session's dial error, if any). `cli/mcp.go`'s `list`/`show` call
+`mcp.Init(ctx)` themselves (so a one-off `mininaru mcp list` invocation — a
+separate process from any running `serve` — dials fresh rather than showing
+a stale cached state it has no way to see) and `defer mcp.Close()`
+afterward, since an MCP CLI subcommand process exiting mid-connection
+without a clean `client.Close()` produces a `write EPIPE` on the child
+stdio process otherwise.
 
 `cli/mcp.go` mirrors `cli/agent.go`/`cli/provider.go`'s admin-command shape
 (`add`/`list`/`show`/`remove`/`enable`/`disable`) but resolves servers by
 **name only** (`mcpFind`, a linear scan over `mcp.Loaded.Servers`) since
 `Server` has no id, unlike the SQLite-backed `Agent`/`Provider`. `add`'s
-`--tool-permission <tool>=safe|dangerous` (repeatable) is new — it exposes
-`Server.ToolPermission` (`config.go`), which had no CLI flag before this
-even in the prior, pre-refactor version of this command.
+`--tool-permission <tool>=safe|dangerous` (repeatable) exposes
+`Server.ToolPermission` (`config.go`); a per-tool override always wins over
+the server-wide `--permission`.
 
 ### Persistent memory — `modules/memory`
 
@@ -239,20 +243,15 @@ given to `mcp` tools. Frontmatter keeps Claude Code's four-way
 `type` taxonomy (`user`/`feedback`/`project`/`reference`), enforced via a
 JSON Schema `enum` on `memory_save`'s `type` argument.
 
-One deliberate deviation from Claude Code: there, the model freely edits
-`MEMORY.md` itself with a generic file-edit tool, so the index can drift
-out of sync with the topic files it lists. mininaru's memory tools are
-structured (`memory_save` takes `name`/`description` as separate fields,
-not raw markdown), so `modules/memory` upserts the matching `MEMORY.md`
-line server-side on every save/forget instead — the model never edits the
-index directly, which removes that whole failure mode. `LoadIndex(agentId)`
-caps what actually gets read at session start to 200 lines / 25KB (mirroring
-Claude Code's own limit), returns `""` if there's nothing saved yet, and
-`SendChatMessage` (`core/chat.go`) prepends its result as a `SystemMessage`
-right after `agent.Soul` and the skill catalog (see "Skills" below) — topic
-files themselves are never preloaded, only fetched on demand via
-`memory_read`, same as Claude Code only loading topic files when the model
-actually reads them.
+The memory tools are structured — `memory_save` takes `name`/`description`
+as separate fields, not raw markdown — so `modules/memory` upserts the
+matching `MEMORY.md` line itself on every save/forget. The model never
+edits the index directly, so it can't drift out of sync with the topic
+files it lists. `LoadIndex(agentId)` caps what's read at session start to
+200 lines / 25KB, returns `""` if nothing is saved yet, and
+`SendChatMessage` (`core/chat.go`) prepends the result as a `SystemMessage`
+right after `agent.Soul` and the skill catalog (see "Skills" below). Topic
+files are never preloaded — only `memory_read` fetches one, on demand.
 
 ### Skills — `modules/skill`
 
@@ -273,15 +272,14 @@ files; with `path` it returns one companion file's content, each path
 segment validated with `util.SafeSegment` against traversal and hidden
 files. `skill_create` writes (or, with `overwrite: true`, replaces) a bundle
 from model-supplied `name`/`description`/`body`/`scope` — full-body
-replacement only, no incremental append, matching the trust level already
-given to `memory_save`.
+replacement only, no incremental append, the same trust level as
+`memory_save`.
 
-Unlike `.bak`'s prior implementation, `modules/skill` keeps no in-memory
+`modules/skill` keeps no in-memory
 cache: `Catalog()`, `Find()`, and `All()` each do a fresh directory scan on
-every call, the same choice `modules/memory` already made for `MEMORY.md`.
-With at most 64 small bundles this costs nothing per turn and removes an
-entire subsystem (`Init`/`Reload`/reload-on-SIGHUP) a stateful cache would
-otherwise need.
+every call, the same choice `modules/memory` makes for `MEMORY.md`. With at
+most 64 small bundles this costs nothing per turn and needs no
+`Init`/`Reload`/reload-on-SIGHUP subsystem the way a stateful cache would.
 
 `skill.Catalog()` returns `""` when no skills exist, otherwise a header of
 rule text followed by one `name: description` line per skill (capped at
@@ -348,11 +346,12 @@ placeholder text only, not the picture.
 
 ### Delegation — `core/agentspawn.go`, `core/sessionconnect.go`
 
-`agent_spawn` is the one built-in tool that lives in `core` rather than
-`modules/*` — it needs `AgentByName`/`SessionCreate`/`MessageCreate`/
-`SendChatMessage` directly, which a leaf package can't import without a
-cycle. It's also the only tool `core` builds by hand instead of pulling in
-from a `modules` subpackage. Calling it creates a real `Session` (named
+`agent_spawn` lives in `core` rather than `modules/*` — it needs
+`AgentByName`/`SessionCreate`/`MessageCreate`/`SendChatMessage` directly,
+which a leaf package can't import without a cycle. `core` builds it, plus
+`session_send`, `session_list`, and `agent_list`, by hand rather than
+pulling them from a `modules` subpackage. Calling it creates a real
+`Session` (named
 `"spawn: <prompt preview>"`) and a `Message` for the target agent, then
 recurses into `SendChatMessage` for that session with the same `anchor` and
 `approve` the caller has — a dangerous tool call inside the delegate prompts
@@ -367,8 +366,7 @@ Depth is capped at one level via a `depth int` threaded through
 `SendChatMessage` and `buildTools` (`core/tools.go`): `buildTools` only
 appends `agent_spawn` to the tool list when `depth < maxSpawnDepth`, so a
 delegate's own tool list never includes it — not a permission check the
-delegate could route around, the tool simply isn't there. Same shape as
-this session's own Explore/Plan subagents not carrying an `Agent` tool.
+delegate could route around, the tool simply isn't there.
 
 Because the delegate's own streamed content never reaches the caller
 (`onChunk` is a no-op in the recursive call — only the final answer comes
@@ -392,12 +390,9 @@ delegation blurb) is printed once, plainly, right before its spinner starts.
 
 `session_send` is `agent_spawn`'s sibling: instead of creating a fresh
 session for a fresh agent, it injects a message into a session that already
-exists — **any** session, not just one owned by the same agent as the
-caller (the only remaining restriction is the caller's own session, refused
-because that would deadlock on its own session lock below). This was
-originally gated to same-agent sessions only; that restriction was removed
-on request, so a message can now cross from one agent's conversation into
-a completely different agent's. It reuses `agentSpawnTool`'s
+exists — **any** session, including one owned by a different agent than the
+caller. The only refusal is the caller's own session, which would deadlock
+on its own session lock (below). It reuses `agentSpawnTool`'s
 `lastAssistantMessage` helper and the same `depth < maxSpawnDepth` gate in
 `buildTools`, and — like `agent_spawn` — runs the nested `SendChatMessage`
 with the caller's own `anchor`/`approve` rather than building a second
@@ -415,18 +410,12 @@ sees matches what was delivered.
 
 Its `session` argument accepts an id **or a name** — `resolveSessionRef`
 tries `SessionRead` first and, only on `sql.ErrNoRows`, falls back to a
-name match against `SessionListAll()` (every session, not just the
-caller's own — matching `session_list`'s own now-unscoped output, below in
-this same section). This matters because `session_list` shows the
-model each session's `Name`, not just its id, and every session gets a real
-random name now (`core/sessionname.go`) instead of the old hardcoded
-`"shell"` — before that, resolving a session by name had no real use, but a
-model that's just been shown `quiet-otter` in `session_list`'s output has
-every reason to pass that back verbatim rather than the id next to it, and
-the raw `SessionRead`/`AgentRead` errors this tool returned on a miss were
-unwrapped `sql: no rows in result set` with no indication of what went
-wrong — both paths now report a proper "no session %q — check session_list"
-message instead.
+name match against `SessionListAll()` (every session, matching
+`session_list`'s output). `session_list` shows the model each session's
+`Name` alongside its id, and every session has a random `adjective-noun`
+name (`core/sessionname.go`), so a model shown `quiet-otter` can pass that
+back verbatim. A miss on either path reports `no session %q — check
+session_list`, not a raw `sql: no rows in result set`.
 
 Because the target session may have a person watching it live over another
 `/ws` connection, two extra pieces exist purely to serve that case:
@@ -434,14 +423,14 @@ Because the target session may have a person watching it live over another
 - **`core.SessionLock(sessionId string) func()`** (`core/sessionlock.go`) —
   a `sync.Map` of per-session `*sync.Mutex`, `Load`-or-`Store`d by id. Every
   place that reads a session's history, appends a new pending message, and
-  runs a `SendChatMessage` round now holds this lock for the duration:
+  runs a `SendChatMessage` round holds this lock for the duration:
   `session_send`'s `Execute`, and `server/sock/sock.go`'s `handleFrame` (the
   normal per-frame path). Without it, `session_send` writing into a session
   that a person is concurrently typing into — or two fast frames on the same
   `/ws` connection — could interleave two `historyUnion` reads against the
   same "one pending message" invariant and corrupt the session.
 - **The live-connection registry** (`server/sock/session.go`) — a
-  `sessionId -> *safeConn` `sync.Map` (`liveConns`, alongside the existing
+  `sessionId -> *safeConn` `sync.Map` (`liveConns`, alongside the
   `sessionAutoApprove` map in the same file), populated the moment a session
   is resolved and cleared for a connection's sessions when `SockHandler`'s
   loop exits. `core` can't import `server/sock` (cycle), so the wiring runs
@@ -449,72 +438,64 @@ Because the target session may have a person watching it live over another
   `SetSessionRouter(messageFn, chunkFn, toolFn, doneFn)`, and
   `server/sock/session.go`'s `init()` calls it once with closures that look a
   session up in `liveConns` and, if present, `writeFrame` the same frame
-  shapes `handleFrame` already sends. `session_send` calls these hooks
+  shapes `handleFrame` sends. `session_send` calls these hooks
   unconditionally and they are no-ops when nobody's watching: `messageFn`
   right after the injected `Message` is persisted (so the viewer's transcript
   order matches the stored order), `chunkFn`/`toolFn` from the nested round's
   callbacks, and `doneFn` once the round settles — a `"done"` frame on
   success, an `"error"` frame carrying the failure otherwise. The `"message"`
-  frame reuses the existing `Name` field for the *origin* session id and
-  `Message` for the injected content.
+  frame reuses the `Name` field for the *origin* session id and `Message` for
+  the injected content.
 
-  Registration used to happen lazily, only inside `handleFrame` once a real
-  chat frame for that session was processed — so a shell that had connected
-  but never sent a message wasn't "live" yet, even though its socket was
-  open and idle. `connect()` (`cli/shell/client.go`) now writes a
+  A session counts as live from the moment its shell connects, not just once
+  it sends a message: `connect()` (`cli/shell/client.go`) writes a
   `{"type":"attach","session_id":...}` frame right after dialing, and
   `SockHandler` dispatches `"attach"` to `handleAttach` (`server/sock/sock.go`)
-  — a synchronous, no-round path that just validates the session exists
+  — a synchronous, no-round path that validates the session exists
   (`core.SessionRead`) and calls the same `registerLiveConn`/`seen.Store`
-  pair `handleFrame` uses, so a session counts as live from the moment the
-  shell connects.
+  pair `handleFrame` uses.
 
-A mirrored round only reaches a person if their shell is actually reading the
-socket, and a shell sitting at its prompt used to read nothing until the next
-time it sent something — mirrored frames piled up in the buffer and then
-rendered as if they answered whatever the person typed next. Two changes in
-`cli/shell` close that:
+A mirrored round only reaches a person if their shell is reading the socket,
+and a shell sitting at its prompt would otherwise read nothing until the next
+time it sent something — mirrored frames would pile up in the buffer and
+render as if they answered whatever the person typed next. Two things in
+`cli/shell` prevent that:
 
 - The socket is drained by one reader goroutine per connection
   (`readFrames`, started lazily by `ensureReader`) feeding a buffered
-  `chan inbound`. Gorilla makes read errors sticky, so a read deadline cannot
+  `chan inbound`. Gorilla makes read errors sticky, so a read deadline can't
   be used to poll a connection that must survive the poll. All *rendering*
-  still happens on the main thread — `renderFrame` and the `renderState` it
+  happens on the main thread — `renderFrame` and the `renderState` it
   mutates are never touched from the reader goroutine.
-- `readLine` polls stdin with the existing `pollStdin` on a 100ms
-  `idlePollInterval` instead of blocking. Each idle tick calls `drainMirror`,
-  which renders whatever frames have queued and then `redraw`s the prompt and
-  the half-typed line underneath them. `sendAgent` calls `awaitMirror` first,
-  which blocks until any open mirrored round has rendered its terminal frame,
-  so a local round can never start inside someone else's.
+- `readLine` polls stdin with `pollStdin` on a 100ms `idlePollInterval`
+  instead of blocking. Each idle tick calls `drainMirror`, which renders
+  whatever frames have queued and then `redraw`s the prompt and the
+  half-typed line underneath them. `sendAgent` calls `awaitMirror` first,
+  which blocks until any open mirrored round has rendered its terminal
+  frame, so a local round can never start inside someone else's.
 
-`session_list` and `agent_list` (`core/sessiontools.go`) exist purely so a
-model can pick a valid target for the two tools above without being told one
-in its prompt — `agent_list` is `AgentList()` unfiltered, and `session_list`
-is `SessionListAll()` (**every** session, not just the caller's own agent's)
+`session_list` and `agent_list` (`core/sessiontools.go`) exist so a model
+can pick a valid target for the two tools above without being told one in
+its prompt: `agent_list` is `AgentList()` unfiltered, and `session_list` is
+`SessionListAll()` (**every** session, not just the caller's own agent's)
 intersected with the same `liveConns` registry `session_send`'s mirroring
 uses, via a second getter set alongside `SetSessionRouter`:
 `core.SetLiveSessionsLister(fn func() []string)`, called from the same
-`server/sock/session.go` `init()`. Each entry carries an `agent` field
-(the owning agent's name, looked up from a one-shot `AgentList()` id→name
-map built per call — no join, this is a small, infrequent read) and a
-`current` bool (`item.Id == callerSessionId`, the session this very tool
-call is running in) — deliberately broader than what `session_send` will
-actually let the model act on: `session_send` still refuses any session not
-owned by the calling agent, so most of what shows up here is
-for-awareness-only, not a target list. The description string says so
-explicitly, since the tool's own JSON has no way to flag that per row. Both
-tools are `modules.PermissionSafe` — pure reads with no side effects,
-unlike `bash_exec`/`file_*`/`browser_*`, which stay `PermissionDangerous`
-because they touch the filesystem or network.
+`server/sock/session.go` `init()`. Each entry carries an `agent` field (the
+owning agent's name, from a one-shot `AgentList()` id→name map built per
+call) and a `current` bool (`item.Id == callerSessionId`). Every live
+session here is a valid `session_send` target except `current`. Both tools
+are `modules.PermissionSafe` — pure reads with no side effects, unlike
+`bash_exec`/`file_*`/`browser_*`, which are `PermissionDangerous` because
+they touch the filesystem or network.
 
 ### Yolo mode — the trust policy behind `approve`
 
 `root` is the **anchor**: for a loopback `/ws` connection it's the client's
-reported cwd (the `cwd` field on the chat frame — `mininaru shell` already
-tracks `state.cwd` for bash execution and just forwards it); for a
-non-loopback connection it's the server process's own `$HOME`, since a
-remote peer's claimed cwd can't be trusted. `core.ResolveAnchor` /
+reported cwd (the `cwd` field on the chat frame — `mininaru shell` tracks
+`state.cwd` for shell-mode execution and forwards it); for a non-loopback
+connection it's the server process's own `$HOME`, since a remote peer's
+claimed cwd can't be trusted. `core.ResolveAnchor` /
 `core.IsLoopbackAddr` (`core/yolo.go`) make that call from the raw
 `RemoteAddr` the request came in on.
 
@@ -564,15 +545,12 @@ per-keystroke redraw budget can't afford.
 
 In agent mode, line one also carries the connected agent's name and its
 `ThinkingLevel` (`agentSegment`/`effortColor`, `cli/shell/style.go`) — e.g.
-`agent-name [high]`, colored by level (dim for `off`, blue `low`, default
-gray `medium`, yellow `high`, red `max`). `state.thinkingLevel` is filled in
-the same place `state.name` already was: `openSession`
-(`cli/shell/client.go`) now returns the resolved `*core.Agent`'s
-`ThinkingLevel` alongside its `Name`, threaded through `dialResult` and
-applied in `adoptConn` — no new API call, `resolveAgentByIdOrName`/
-`pickAgent`/`seedAgent` already fetch the full `core.Agent` (including
-`thinking_level`) via `GET /api/agents/:id`, that value was just being
-discarded before.
+`agent-name [high]`, colored by level (dim for `off`, blue `low`, gray
+`medium`, yellow `high`, red `max`). `openSession` (`cli/shell/client.go`)
+returns the resolved `*core.Agent`'s `ThinkingLevel` alongside its `Name` —
+`resolveAgentByIdOrName`/`pickAgent`/`seedAgent` already fetch the full
+`core.Agent` via `GET /api/agents/:id` — threaded through `dialResult` into
+`state.thinkingLevel` in `adoptConn`, no extra API call.
 
 ### The HIL round-trip
 
@@ -586,9 +564,9 @@ over the same `/ws` connection and blocks on a per-session channel
 session's dangerous calls skip the prompt — it's not written to
 `directory.json` and is gone on restart.
 
-This forced a concurrency change in `SockHandler`: the read loop used to call
-`handleFrame` synchronously, which would have deadlocked waiting for an
-approval frame it can only read from the same loop. It now reads continuously
+`SockHandler`'s read loop can't call `handleFrame` synchronously — that
+would deadlock waiting for an approval frame it can only read from the same
+loop. It reads continuously
 in one goroutine, routing `type: "approval"` frames straight to the
 `approvalRouter` and dispatching everything else to `handleFrame` in its own
 goroutine (`go handleFrame(...)`), so an approval reply can arrive while a
@@ -617,7 +595,8 @@ or `✖ ... failed` line once it settles.
 
 ## `server/` — three route groups, one gin engine
 
-`server.NewAppServer(host, port)` builds one `*gin.Engine` and wires:
+`server.NewAppServer(host string, port uint16, apiKey string)` builds one
+`*gin.Engine` and wires:
 
 - **`/api`** (`server/api.go`) — REST admin CRUD for agents, providers,
   sessions, and messages, one controller file per resource
@@ -667,17 +646,19 @@ locally-generated key cannot leak to whatever host `--url` happens to name.
 `cli/main.go` reads `NARU_PATH` (default `.mininaru`), calls `util.InitFS`,
 opens the database itself, registers every subcommand, and calls
 `root.Execute()`. `root.SilenceUsage = true` plus `os.Exit(1)` on a command
-error is deliberate: earlier this called `panic(err)`, so an ordinary failure
-like "session not found" printed a Go stack trace instead of one clean
-`Error: ...` line.
+error means an ordinary failure like "session not found" prints one clean
+`Error: …` line, not a Go stack trace.
 
-`provider`, `agent`, and `session` each follow the same shape
-(`cli/provider.go`, `cli/agent.go`, `cli/session.go`): `add`, `list`, `show`,
-`set`, `remove`, plus `provider activate`. Every subcommand that takes a
-positional id resolves it through a small `resolveX(idOrName)` helper that
-tries reading by id first and falls back to a name match, so `agent show
-naru` and `agent show <uuid>` both work. `session list` defaults to every
-session (`core.SessionListAll`) and narrows to one agent with `--agent`.
+`provider` and `agent` (`cli/provider.go`, `cli/agent.go`) each have
+`add`/`list`/`show`/`set`/`remove`, plus `provider activate`. `session`
+(`cli/session.go`) is read/cleanup only — `list`, `show <id>`, `remove
+<id>`. Every subcommand that takes a positional id resolves it through a
+small `resolveX(idOrName)` helper that tries reading by id first and falls
+back to a name match, so `agent show naru` and `agent show <uuid>` both
+work. `session list` defaults to every session (`core.SessionListAll`) and
+narrows to one agent with `--agent`. `mcp` and `skill` are the other two
+admin groups — `mcp` in its own section above, `skill` with `list`/`show
+<name>`/`uses`.
 
 `cli/serve.go` starts the HTTP server and blocks on `ListenAndServe`.
 `cli/shell.go` is a thin wrapper that builds `shell.Options` from flags and
@@ -687,13 +668,15 @@ calls `shell.Run`.
 
 `mininaru update` fetches a release from `.github/workflows/release.yml`'s
 output (`mininaru_<tag>_<os>_<arch>.tar.gz`/`.zip` + `SHA256SUMS` +
-attestation, unchanged by this rewrite), verifies the checksum, and replaces
-the running executable. It intentionally does **not** call GitHub's
-`/releases/latest` — that endpoint excludes prereleases, and every
-`1.0.0-alpha.x` tag is one (`release.yml` marks any tag containing `-` as
-`--prerelease`). `updateLatestRelease` hits `GET /repos/{repo}/releases`
-(the list endpoint) and takes the newest entry instead, so "latest" doesn't
-fall through to an old, incompatible `0.x` release once one exists again.
+attestation), verifies the checksum, and replaces the running executable. It
+does **not** call GitHub's `/releases/latest` — that endpoint excludes
+prereleases, and every `1.0.0-alpha.x` tag is one (`release.yml` marks any
+tag containing `-` as `--prerelease`). `updateLatestRelease` hits
+`GET /repos/{repo}/releases` (the list endpoint) and takes the newest entry
+instead, so "latest" doesn't fall through to an old, incompatible `0.x`
+release. The `scripts/install.sh` / `install.ps1` installers additionally
+refuse a resolved `0.x` tag unless `--tag` names it explicitly — a guard the
+in-binary updater does not have.
 
 The download is staged to a temp file next to the target executable, hashed
 while downloading, and only extracted after the checksum matches
@@ -749,10 +732,9 @@ Linux/macOS) and a `.ps1` sibling.
 
 ## `cli/shell/` — the interactive shell
 
-`mininaru shell` is a line editor and terminal front end built from scratch
-for this rewrite — unrelated to the earlier project's bubbletea TUI. It talks
-to a `mininaru serve` instance only over `/api` and `/ws`; nothing in
-`cli/shell` imports `server` or touches SQLite directly.
+`mininaru shell` is a hand-rolled line editor and terminal front end — no
+TUI framework. It talks to a `mininaru serve` instance only over `/api` and
+`/ws`; nothing in `cli/shell` imports `server` or touches SQLite directly.
 
 ### One editor, two modes
 
@@ -760,7 +742,7 @@ to a `mininaru serve` instance only over `/api` and `/ws`; nothing in
 both modes share; `state.mode` only changes which prompt badge is drawn and
 what a submitted line dispatches to. Shift+Tab toggles it. Switching into
 agent mode with no live connection connects lazily and falls back to
-"still offline" on failure, so the shell works in bash-only mode with no
+"still offline" on failure, so the shell works in shell-only mode with no
 server reachable at all — the initial connect at startup is best-effort in
 the same way.
 
@@ -772,7 +754,7 @@ already cross-platform Go stdlib or a dependency that handles both itself
 (`golang.org/x/term.MakeRaw` has its own `term_windows.go`, setting
 `ENABLE_VIRTUAL_TERMINAL_INPUT` so arrow-key escapes arrive the same way a
 unix pty sends them). Split with `//go:build unix` / `//go:build windows`,
-same shape `modules/bash/bashproc_unix.go`/`bashproc_other.go` already uses
+the same shape `modules/bash/bashproc_unix.go`/`bashproc_other.go` uses
 for process-group kill vs. plain `Process.Kill()`. Unix's `pollStdin` is a
 `poll(2)` on `POLLIN`; Windows' is `windows.WaitForSingleObject` on the
 stdin handle (safe to treat any signal as "a key is ready" because
@@ -790,12 +772,14 @@ no-op on unix.
 
 `exec.go`'s `bashPath`/`switchUser` don't need build tags — no syscalls,
 just `runtime.GOOS`. `bashPath` dispatches to `bashPathUnix`
-(`$SHELL`/`/bin/bash`) or `bashPathWindows` (`$COMSPEC`/`cmd.exe`);
-`shellInvokeFlag` picks `-c` or `/C` to match. `switchUser` (the `su`/`sudo`
-parser behind `escalate`) returns unmatched on Windows unconditionally —
-there is no POSIX-style user-switch binary there, and Windows' UAC
-elevation is a different enough mechanism that it was left out rather than
-half-ported.
+(`$SHELL`/`/bin/bash`) or `bashPathWindows` (`$COMSPEC`/`cmd.exe`), and
+`shellInvokeFlags(path)` returns the flags to match: `-i -c` when the
+resolved shell is bash (so `.bashrc` aliases load — `isBash` gates that and
+the `stateWrappedLine` state-persistence wrapper too), `-c` for a non-bash
+`$SHELL`, `/C` on Windows. `switchUser` (the `su`/`sudo` parser behind
+`escalate`) returns unmatched on Windows unconditionally — there is no
+POSIX-style user-switch binary there, and UAC elevation is a different
+enough mechanism that it is left out rather than half-ported.
 
 ### Reconnecting
 
@@ -805,9 +789,9 @@ shell keeps dialing on its own. A dial costs up to `DIAL_TIMEOUT` plus
 every attempt — instead `startDial` (`client.go`) hands a snapshot of the
 fields a dial needs (`dialConfig`) to a goroutine and takes the answer back
 as a `dialResult` on a channel. Nothing in `state` is touched off the main
-thread; `openSession`, `pickAgent`, and `seedAgent` were changed to take that
-snapshot and *return* the agent name rather than assigning `state.name`,
-which is what made them safe to call from the dial goroutine at all.
+thread; `openSession`, `pickAgent`, and `seedAgent` take that snapshot and
+*return* the agent name rather than assigning `state.name`, which is what
+makes them safe to call from the dial goroutine.
 
 `readLine`'s idle tick — the same 100ms `pollStdin` beat that drains mirrored
 frames — calls `retryConnect`, which adopts a finished dial if one has landed
@@ -834,29 +818,28 @@ second one.
   act at the cursor position, not just at the end of the line.
 - Ctrl+A/E jump to the start/end of the line. Ctrl+K kills from the cursor
   to end-of-line, Ctrl+U kills from start-of-line to the cursor (readline
-  semantics — it used to unconditionally clear the whole line regardless of
-  cursor position; that changed), Ctrl+W kills the word behind the cursor,
+  semantics, not a whole-line clear), Ctrl+W kills the word behind the cursor,
   and Ctrl+Y yanks whatever the last kill put in `state.killBuffer` back in
   at the cursor. Ctrl+L clears the screen and reprints the current line.
   `wordBoundaryLeft`/`wordBoundaryRight` (`input.go`) share the same
   whitespace-boundary logic between word-movement and Ctrl+W.
 - Up/Down recall history, and recall is **kept separate per mode** —
-  `state.history` for bash, `state.agentHistory` for agent
-  (`historyFor(sh)` picks the right one) — so bash commands and chat lines
+  `state.history` for shell mode, `state.agentHistory` for agent mode
+  (`historyFor(sh)` picks the right one) — so shell commands and chat lines
   never show up in each other's recall.
 - `history` (`history.go`) is a GNU-bash-compatible builtin: a bare listing,
   `history N`, `-c` (clear), `-d offset` (delete; a negative offset counts
   from the end), `-w`/`-r` (write/read `HISTFILE`, default
   `.mininaru/shell_history`), honoring `HISTSIZE`/`HISTFILESIZE`/`HISTFILE`.
-  Only bash history persists to disk; agent history lives only for the
+  Only shell-mode history persists to disk; agent history lives only for the
   current process.
 - Every full redraw (backspace, Ctrl+U, history recall, cursor movement)
   goes through `redraw()` (`redraw.go`), which strips ANSI escapes to measure
   the *visible* width of `prompt+line`, works out how many terminal rows that
   occupied, moves up that many rows, and clears with `\x1b[0J` before
-  reprinting. A plain `\r\x1b[2K` (clear only the current row) leaves stale
-  wrapped content on screen once a line is longer than the terminal width —
-  that was a real, reported bug before this existed.
+  reprinting. A plain `\r\x1b[2K` (clear only the current row) would leave
+  stale wrapped content on screen once a line is longer than the terminal
+  width.
 - Tab completion (`complete.go`): shell-mode, word-start position offers the
   builtins (`cd`, `exit`, `quit`, `history`) plus everything executable on
   `$PATH`; agent-mode completion, when the word starts with `/`, offers the
@@ -906,21 +889,18 @@ aborts the whole in-progress multi-line entry, not just the current segment.
 
 ### Running bash
 
-`runBash`/`runNested` (`exec.go`) run `bash -i -c <line>` (`shellInvokeFlags()`,
-`-i` so `~/.bashrc` actually loads — a plain `-c` line never sourced it,
-which silently dropped every rc-file alias, `alias ls='ls --color=auto'`
-being the near-universal one; this was reported as "colors get stripped in
-shell mode," but nothing was ever stripping anything, the alias just never
-existed in that process) — or, for `su`/`sudo`,
-re-exec `mininaru shell` itself as the target user, carrying `--session` and
-`--agent` over so a privilege switch does not lose the conversation — through
-`runForeground()` (`tty.go`). The child is placed in its own process group
-and handed the terminal's foreground process group via `TIOCSPGRP`
-(`SIGTTOU`/`SIGTTIN` ignored around the handoff, standard job-control
-practice), then the shell reclaims the foreground group when the child
-exits. Without this, a `Ctrl+C` meant for a running child would land on the
-whole process group and kill the mininaru shell along with it, since both
-would otherwise share one group.
+`runBash`/`runNested` (`exec.go`) run each shell-mode line — `$SHELL` `-c
+<line>`, with `-i` added when `$SHELL` is bash (so `~/.bashrc` loads and
+rc-file aliases like `alias ls='ls --color=auto'` apply) — or, for
+`su`/`sudo`, re-exec `mininaru shell` itself as the target user, carrying
+`--session` and `--agent` over so a privilege switch does not lose the
+conversation. Both go through `runForeground()` (`tty.go`): the child is
+placed in its own process group and handed the terminal's foreground
+process group via `TIOCSPGRP` (`SIGTTOU`/`SIGTTIN` ignored around the
+handoff, standard job-control practice), then the shell reclaims the
+foreground group when the child exits. Without this a `Ctrl+C` meant for a
+running child would land on the whole process group and kill the mininaru
+shell along with it.
 
 `runBash` records the child's exit code into `state.lastExitCode`
 (`exitCode()`, reading `cmd.ProcessState.ExitCode()` after `Wait` returns)
@@ -931,89 +911,71 @@ simply returned non-zero (`false`, a no-match `grep`) is silent, the way a
 real shell is; only a genuine failure to run the command at all (bash
 itself couldn't start, for instance) gets the notice.
 
-**Shell mode is not a persistent process** — every line is still its own
-fresh `bash -i -c` invocation (a genuinely persistent pty-attached bash was
-scoped and explicitly turned down as too large for the benefit). `-i`
-already restores rc-file aliases, but anything set up *interactively*
-rather than in `.bashrc` — an ad-hoc `export`, a function typed at the
-prompt, an `alias` not already in the rc file — would otherwise vanish the
-moment that line's process exited. `stateWrappedLine` (`exec.go`) closes
-that specific gap without a pty: it wraps the line as `source <state> ...;
-<line>; __mininaru_status=$?; { export -p; declare -f; alias -p; } >
-<state> ...; exit $__mininaru_status`, where `<state>` is a per-session
-temp file (`state.shellState`, `mininaru-shell-<pid>.state` under
-`os.TempDir()`, created in `Run()` and removed on exit — one PID, one file,
-so concurrent shells never collide). Each command starts by restoring
-whatever the *previous* one exported/defined, and ends by overwriting the
-same file with the *current* full state (not a delta — `unset`/`unalias`
-inside a line is correctly reflected next time, nothing accumulates stale).
-The dump is redirected straight to the state file from inside the bash
-script itself, never touching `cmd.Stdout`, so it's invisible to the user;
-`$__mininaru_status` is captured before the dump can reset `$?`, so
-`state.lastExitCode` still reports the *line's* exit status, not the
-bookkeeping's. `quote()` (already used for the `su -c` re-exec argv above)
-handles safely quoting the state path. Left alone on purpose:
-`runNested`'s `su`/`sudo` re-exec (a different process as a different
-user — no state to share across that boundary).
+**Shell mode is not a persistent process** — every line is its own fresh
+`$SHELL` invocation, not a pty-attached long-lived shell. `-i` restores
+rc-file aliases, but anything set up *interactively* — an ad-hoc `export`, a
+function or `alias` typed at the prompt — would otherwise vanish when that
+line's process exits. `stateWrappedLine` (`exec.go`) closes that gap without
+a pty: it wraps the line as `source <state> …; <line>;
+__mininaru_status=$?; { export -p; declare -f; alias -p; } > <state> …; (
+exit $__mininaru_status )`, where `<state>` is a per-session temp file
+(`state.shellState`, `mininaru-shell-<pid>.state` under `os.TempDir()`,
+created in `Run()` and removed on exit — one PID, one file, so concurrent
+shells never collide). Each command restores whatever the *previous* one
+exported/defined and ends by overwriting the file with the *current* full
+state (not a delta — `unset`/`unalias` is reflected next time, nothing
+accumulates). The dump goes straight to the state file from inside the
+script, never touching `cmd.Stdout`. `$__mininaru_status` is captured
+before the dump resets `$?`, and the trailing `( exit … )` is a **subshell**
+rather than the bare `exit` builtin — an interactive bash echoes `exit` to
+the terminal when the `exit` builtin runs, a subshell doesn't, and bash
+still exits with its last command's status. `quote()` (also used for the
+`su -c` re-exec argv above) quotes the state path. `runNested`'s `su`/`sudo`
+re-exec is left unwrapped — a different process as a different user has no
+state to share across that boundary.
 
-**None of this is safe to assume for every `$SHELL` by construction** —
-`bashPath()` resolves `$SHELL`, falling back to `/bin/bash` only when it's
+`bashPath()` resolves `$SHELL` and only falls back to `/bin/bash` when it's
 unset, so on a machine where the login shell is zsh or fish, "shell mode"
-launches *that* binary, not necessarily bash at all. `-i`'s exact
-rc-loading semantics, and definitely `stateWrappedLine`'s `export -p`/
-`declare -f`/`alias -p`/`$?` syntax and `multiline.go`'s `bash -n -c`
-syntax-probe wording (`bashIncomplete`, grepping stderr for bash's specific
-"unexpected EOF" phrasing), are not portable — zsh's `alias` has no `-p`
-flag at all (fails quietly, since stderr is already redirected to
-`/dev/null`, silently dropping only alias-persistence while exports and
-functions still work), and fish's syntax is different enough that the
-whole wrapped script would likely fail to parse, breaking shell-mode
-command execution generally rather than just the newer features.
-`isBash(path string) bool` (`exec.go`, `filepath.Base(path) == "bash"`)
-gates all three: `shellInvokeFlags(path)` only adds `-i` when
-`isBash(path)` (else just `-c`, the conservative choice given no way to
-verify another shell's `-i` behaves the same), `runBash` only calls
-`stateWrappedLine` when `isBash(bashPath())` (else the line runs
-unwrapped, exactly as before this feature existed), and `bashIncomplete`
-returns `false` immediately for a non-bash shell so `incomplete()` falls
-back to the shell-agnostic trailing-backslash check only. A non-bash
-`$SHELL` loses `-i`'s rc-loading, the state-persistence feature, and
-bash-aware multi-line continuation detection — but command execution
-itself never breaks.
+launches *that* binary. `stateWrappedLine`'s `export -p`/`declare -f`/`alias
+-p`/`$?` syntax and `multiline.go`'s `bash -n -c` syntax probe
+(`bashIncomplete`, grepping stderr for bash's "unexpected EOF" phrasing)
+are bash-specific — zsh's `alias` has no `-p` flag, fish's syntax differs
+enough that the wrapped script would fail to parse. `isBash(path string)
+bool` (`exec.go`, `filepath.Base(path) == "bash"`) gates the bash-only
+paths: `shellInvokeFlags(path)` adds `-i` only when `isBash(path)`, `runBash`
+wraps with `stateWrappedLine` only when `isBash(bashPath())` (otherwise the
+line runs unwrapped), and `bashIncomplete` returns `false` for a non-bash
+shell so `incomplete()` falls back to the trailing-backslash check only. A
+non-bash `$SHELL` loses `-i` rc-loading, state persistence, and bash-aware
+continuation detection, but command execution itself works.
 
 **`MININARU_ACTIVE`** (`activeEnvVar`, `shell.go`) — set to `"1"` via
-`os.Setenv` near the very top of `Run()`, so every process this session
-spawns afterward inherits it (`exec.Cmd` inherits the parent's environment
-whenever `cmd.Env` is left `nil`, which every spawn site here does — no
-per-call plumbing needed). It exists purely so a user can safely add an
-`exec narush`-on-interactive-shell hook to their `~/.bashrc`/`~/.zshrc`
-(README's "Using narush as your interactive shell") without it recursing:
-shell mode's own `-i` per-command child is itself an interactive shell that
-sources the same rc file, so without this guard such a hook would
-re-launch narush on every single shell-mode command instead of running it.
-Nothing else in this codebase reads `MININARU_ACTIVE` — it's a signal for
-the user's own shell config, not consumed internally.
+`os.Setenv` near the top of `Run()`, so every process this session spawns
+inherits it (`exec.Cmd` inherits the parent's environment whenever
+`cmd.Env` is `nil`, which every spawn site here leaves it). It exists so a
+user can add an `exec narush`-on-interactive-shell hook to their
+`~/.bashrc`/`~/.zshrc` (README's "Using narush as your interactive shell")
+without it recursing: shell mode's own `-i` per-command child is itself an
+interactive shell that sources the same rc file, so without the guard such
+a hook would re-launch narush on every shell-mode command. Nothing else in
+this codebase reads `MININARU_ACTIVE`.
 
 ### Agent mode
 
 **Session creation is lazy.** `connect()`/`openSession()` (`client.go`)
 resolve *which agent* a fresh shell talks to (so the prompt's agent-name/
-effort badge shows immediately) but no longer `POST /sessions` themselves —
-`openSession` returns the resolved agent's `Id`/`Name`/`ThinkingLevel` and
-leaves `state.session` empty, `adoptConn` stores the id into
-`state.agentId` and skips the `attach` frame when there's no session to
-attach to yet. The session row is created by `ensureSession(sh)`, called
-from `sendAgent()` right before the first chat frame goes out — it's a
-no-op once `state.session` is set. This only changes the *first* message of
-a fresh launch; `--session <id>` (resuming) and every message after the
-first are unaffected. `core.SessionCreate` (`core/session.go`) fills in a
-random `adjective-noun` name (`core/sessionname.go`,
-`math/rand/v2`, no uniqueness check — it's a friendly label, not a key) for
-any session created without an explicit one, so this isn't shell-specific:
-every session gets a real name now, which also means the model-facing
-`session_list` tool (`core/sessiontools.go`) — which already returned each
-session's `Name` — finally has something useful in that field for picking a
-`session_send` target.
+effort badge shows immediately) without a `POST /sessions`: `openSession`
+returns the resolved agent's `Id`/`Name`/`ThinkingLevel`, leaves
+`state.session` empty, and `adoptConn` stores the id into `state.agentId`
+and skips the `attach` frame while there's no session to attach to.
+`ensureSession(sh)`, called from `sendAgent()` right before the first chat
+frame, creates the row — a no-op once `state.session` is set. Only the
+*first* message of a fresh launch is affected; `--session <id>` (resuming)
+and every later message aren't. `core.SessionCreate` (`core/session.go`)
+gives any session created without an explicit name a random `adjective-noun`
+label (`core/sessionname.go`, `math/rand/v2`, no uniqueness check — a
+friendly label, not a key), which is what the model-facing `session_list`
+tool shows for picking a `session_send` target.
 
 `sendAgent()` posts `{session_id, content, cwd}` over the
 websocket and streams the reply back, rendering `reply.Reasoning` — dimmed,
@@ -1033,11 +995,10 @@ stdin does not support read deadlines on this platform; the poll goes
 through `golang.org/x/sys/unix.Poll` on the raw fd instead.
 
 Any other byte typed while that watcher is running — i.e., while a response
-is streaming — is captured rather than discarded, and replayed into the next
-`readLine()` call through `state.pendingInput` once the turn ends. An earlier
-version of this simply read and dropped those bytes, which made ordinary
-keys — including Ctrl+C and Ctrl+U — appear to silently stop working
-whenever they landed during, or immediately after, a streaming response.
+is streaming — is captured, not discarded, and replayed into the next
+`readLine()` call through `state.pendingInput` once the turn ends, so keys
+like Ctrl+C or Ctrl+U that land during or just after a streaming response
+aren't silently lost.
 
 The stdin reader lives on `interruptWatch` (`client.go`), which exists for
 one reason: a tool-approval prompt (`approvalPrompt`) also reads raw stdin
@@ -1076,25 +1037,21 @@ returns `commandResult{Quit: true}`, and `dispatchCommand` turns that into
 for the shell's current directory — see "Tool calling" above), `/model
 <model>` and `/effort <off|low|medium|high|max>` (PATCH the connected
 agent's settings on the server) — a small name-keyed registry (`command.go`),
-dispatched only in agent mode when a line starts with `/`.
-Handlers take `*state` directly and read/write it in place; there is no
-adapter interface here, because there used to be — this lived in a separate
-`cli/cmd` package for a short time and was folded back into `cli/shell` once
-the indirection was not paying for itself.
+dispatched only in agent mode when a line starts with `/`. Handlers take
+`*state` directly and read/write it in place; there is no adapter interface.
 
 `/model`/`effortCommand` (`command.go`) share `currentAgent(sh, base)`,
 which resolves the *actually connected* agent via `resolveAgentByIdOrName`
-using `state.name` (falling back to `state.agent` if that's somehow still
-empty) — not `state.agent` first, since that field only holds a requested
-override and can be blank when `pickAgent` picked the default. Both PATCH
-`base+"/agents/"+target.Id` through a new `apiPatch` (`client.go`, a thin
-wrapper over the same body-building/error-handling `apiSend` helper
-`apiPost` was refactored onto, `http.MethodPatch` instead of `POST`) against
-`AgentUpdate`'s "only touch non-empty fields" semantics (`core/agent.go`) —
-a request with just `{"model": "..."}` or `{"thinking_level": "..."}`
-leaves everything else on the agent untouched. `effortCommand` writes the
-response's `ThinkingLevel` straight into `state.thinkingLevel` so the
-prompt's effort badge (see the prompt paragraph above) updates immediately,
+using `state.name` (falling back to `state.agent` if that's empty) — not
+`state.agent` first, since that field only holds a requested override and
+can be blank when `pickAgent` picked the default. Both PATCH
+`base+"/agents/"+target.Id` through `apiPatch` (`client.go`, a thin wrapper
+over the same `apiSend` helper `apiPost` uses, `http.MethodPatch` instead of
+`POST`) against `AgentUpdate`'s "only touch non-empty fields" semantics
+(`core/agent.go`) — a request with just `{"model": "…"}` or
+`{"thinking_level": "…"}` leaves everything else on the agent untouched.
+`effortCommand` writes the response's `ThinkingLevel` straight into
+`state.thinkingLevel` so the prompt's effort badge updates immediately,
 without reconnecting.
 
 **`@path/to/file` references** — typing `@` anywhere in an agent-mode

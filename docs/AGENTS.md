@@ -70,14 +70,17 @@ make test-race   # gofmt -l + go vet + the suite under the race detector
 ```
 
 That is what CI runs on every push and pull request, alongside a plain
-`make build` and a cross-compile check for `linux/amd64`, `linux/arm64`, and
-`darwin/arm64` — `os/exec`, `syscall`, and anything terminal-related in
-`cli/shell/` deserve a `GOOS=darwin go build ./...` before you claim a change
-is done, since that platform is not what most development happens on.
+`make build`, a cross-compile check for `linux/amd64`, `linux/arm64`, and
+`darwin/arm64`, and a `scripts` job that shellchecks `scripts/*.sh` and
+parse-checks `scripts/*.ps1` — `os/exec`, `syscall`, and anything
+terminal-related in `cli/shell/` deserve a `GOOS=darwin go build ./...`
+before you claim a change is done, since that platform is not what most
+development happens on.
 
 Most packages have tests as of this writing (`cli`, `cli/shell`, `core`,
-`modules/bash`, `modules/browser`, `modules/file`, `modules/mcp`, `server`,
-`server/controller`, `server/sock`, `util`) — check with `go test ./... -v`
+`modules/bash`, `modules/browser`, `modules/file`, `modules/mcp`,
+`modules/memory`, `server`, `server/controller`, `server/sock`, `util`) —
+check with `go test ./... -v`
 which ones actually ran; "tests pass" after running one package is a false
 statement about the rest. `modules/browser`'s integration test skips itself
 when no Chrome/Chromium binary is reachable (`browser.Available()`) — a

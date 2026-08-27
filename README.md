@@ -2,17 +2,21 @@
 
 <img src="assets/logo.png" alt="mininaru" width="80" align="right">
 
-An OpenAI-compatible chat server backed by SQLite, plus an admin CLI and an
-interactive terminal shell — one Go binary, no external dependencies.
+An LLM harness in one Go binary: the agent runtime — a tool-calling loop with
+bash, file edit, headless-browser, and MCP tools, plus persistent memory,
+skills, and one-level delegation — reachable two ways.
+
+- **`mininaru shell` / `narush`** — a terminal that runs a real shell and an
+  agent chat in one line editor. Shift+Tab switches between them; shell mode
+  has argument completion through bash's own completion engine, agent mode
+  has `@file` references, and dangerous tools are gated per directory.
+- **An OpenAI-compatible HTTP + websocket API** backed by SQLite, with an
+  admin CLI for providers, agents, and sessions.
 
 This is a from-scratch rewrite, currently in the `1.0.0-alpha` series. An
-earlier version of this project had skills, memory, subagent delegation, a
-Discord front end, and a paired gRPC client. Discord and gRPC are gone; they
-were dropped on purpose to rebuild the server and CLI from a small core.
-Tool calling (bash, file read/write/edit, browser automation, MCP),
-delegation (`agent_spawn`, `session_send`), persistent memory, and skills
-have come back — see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for what
-is actually here.
+earlier version had a Discord front end and a paired gRPC client; both are
+gone. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how the pieces
+fit together.
 
 ## Install
 
