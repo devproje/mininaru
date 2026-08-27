@@ -428,13 +428,22 @@ rendered as if they answered whatever the person typed next. Two changes in
 `session_list` and `agent_list` (`core/sessiontools.go`) exist purely so a
 model can pick a valid target for the two tools above without being told one
 in its prompt — `agent_list` is `AgentList()` unfiltered, and `session_list`
-is `SessionList(caller.Id)` intersected with the same `liveConns` registry
-`session_send`'s mirroring uses, via a second getter set alongside
-`SetSessionRouter`: `core.SetLiveSessionsLister(fn func() []string)`, called
-from the same `server/sock/session.go` `init()`. Both are
-`modules.PermissionSafe` — pure reads with no side effects, unlike
-`bash_exec`/`file_*`/`browser_*`, which stay `PermissionDangerous` because
-they touch the filesystem or network.
+is `SessionListAll()` (**every** session, not just the caller's own agent's)
+intersected with the same `liveConns` registry `session_send`'s mirroring
+uses, via a second getter set alongside `SetSessionRouter`:
+`core.SetLiveSessionsLister(fn func() []string)`, called from the same
+`server/sock/session.go` `init()`. Each entry carries an `agent` field
+(the owning agent's name, looked up from a one-shot `AgentList()` id→name
+map built per call — no join, this is a small, infrequent read) and a
+`current` bool (`item.Id == callerSessionId`, the session this very tool
+call is running in) — deliberately broader than what `session_send` will
+actually let the model act on: `session_send` still refuses any session not
+owned by the calling agent, so most of what shows up here is
+for-awareness-only, not a target list. The description string says so
+explicitly, since the tool's own JSON has no way to flag that per row. Both
+tools are `modules.PermissionSafe` — pure reads with no side effects,
+unlike `bash_exec`/`file_*`/`browser_*`, which stay `PermissionDangerous`
+because they touch the filesystem or network.
 
 ### Yolo mode — the trust policy behind `approve`
 

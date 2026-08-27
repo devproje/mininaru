@@ -21,7 +21,7 @@ func buildTools(root, sessionId string, caller *Agent, depth int, onTool func(na
 	tools = append(tools, mcp.Tools()...)
 	tools = append(tools, memory.Tools(caller.Id)...)
 	tools = append(tools, skill.Tool(), skill.CreateTool())
-	tools = append(tools, sessionListTool(caller), agentListTool())
+	tools = append(tools, sessionListTool(caller, sessionId), agentListTool())
 
 	if depth < maxSpawnDepth {
 		tools = append(tools, agentSpawnTool(caller, root, depth, onTool, approve))

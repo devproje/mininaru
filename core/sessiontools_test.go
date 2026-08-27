@@ -46,11 +46,13 @@ func TestAgentListReturnsAllConfiguredAgents(t *testing.T) {
 	}
 }
 
-func TestSessionListOnlyReturnsLiveSessionsOwnedByTheCaller(t *testing.T) {
+func TestSessionListReturnsEveryLiveSessionAndMarksTheCurrentOne(t *testing.T) {
 	var tool modules.Tool
 	var result string
 	var summaries []sessionSummary
 	var caller *Agent
+	var byId map[string]sessionSummary
+	var one sessionSummary
 
 	var err error
 
@@ -80,7 +82,7 @@ func TestSessionListOnlyReturnsLiveSessionsOwnedByTheCaller(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	tool = sessionListTool(caller)
+	tool = sessionListTool(caller, "s1")
 
 	result, err = tool.Execute(t.Context(), "{}")
 	if err != nil {
@@ -103,7 +105,19 @@ func TestSessionListOnlyReturnsLiveSessionsOwnedByTheCaller(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if len(summaries) != 1 || summaries[0].Id != "s1" {
-		t.Fatalf("session_list = %+v, want only s1 (live and owned by the caller)", summaries)
+	if len(summaries) != 2 {
+		t.Fatalf("session_list = %+v, want both live sessions across both agents", summaries)
+	}
+
+	byId = make(map[string]sessionSummary, len(summaries))
+	for _, one = range summaries {
+		byId[one.Id] = one
+	}
+
+	if !byId["s1"].Current || byId["s1"].Agent != "naru" {
+		t.Fatalf("s1 = %+v, want current=true and agent=naru", byId["s1"])
+	}
+	if byId["s3"].Current || byId["s3"].Agent != "other" {
+		t.Fatalf("s3 = %+v, want current=false and agent=other", byId["s3"])
 	}
 }

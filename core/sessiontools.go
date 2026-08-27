@@ -17,6 +17,8 @@ const AgentListToolName = "agent_list"
 type sessionSummary struct {
 	Id        string `json:"id"`
 	Name      string `json:"name"`
+	Agent     string `json:"agent"`
+	Current   bool   `json:"current"`
 	CreatedAt string `json:"created_at"`
 }
 
@@ -26,10 +28,12 @@ type agentSummary struct {
 	Model string `json:"model"`
 }
 
-func sessionListTool(caller *Agent) modules.Tool {
+func sessionListTool(caller *Agent, callerSessionId string) modules.Tool {
 	return modules.Tool{
-		Name:        SessionListToolName,
-		Description: "List the calling agent's own sessions that currently have a live viewer connected — the valid targets for session_send.",
+		Name: SessionListToolName,
+		Description: "List every session, across every agent, that currently has a live viewer connected — " +
+			"marks which one is this conversation. Only sessions owned by the calling agent are valid " +
+			"session_send targets; the rest are shown for awareness of what else is active right now.",
 		Parameters: map[string]any{
 			"type":                 "object",
 			"properties":           map[string]any{},
@@ -38,18 +42,33 @@ func sessionListTool(caller *Agent) modules.Tool {
 		Permission: modules.PermissionSafe,
 		Execute: func(ctx context.Context, arguments string) (string, error) {
 			var sessions []*Session
+			var agents []*Agent
+			var agentNames map[string]string
+			var agent *Agent
 			var live []string
 			var liveSet map[string]bool
 			var item *Session
 			var id string
+			var name string
+			var ok bool
 			var summaries []sessionSummary
 			var buf []byte
 
 			var err error
 
-			sessions, err = SessionList(caller.Id)
+			sessions, err = SessionListAll()
 			if err != nil {
 				return "", err
+			}
+
+			agents, err = AgentList()
+			if err != nil {
+				return "", err
+			}
+
+			agentNames = make(map[string]string, len(agents))
+			for _, agent = range agents {
+				agentNames[agent.Id] = agent.Name
 			}
 
 			if liveSessionIds != nil {
@@ -62,9 +81,19 @@ func sessionListTool(caller *Agent) modules.Tool {
 			}
 
 			for _, item = range sessions {
-				if liveSet[item.Id] {
-					summaries = append(summaries, sessionSummary{Id: item.Id, Name: item.Name, CreatedAt: item.CreatedAt})
+				if !liveSet[item.Id] {
+					continue
 				}
+
+				name, ok = agentNames[item.AgentId]
+				if !ok {
+					name = item.AgentId
+				}
+
+				summaries = append(summaries, sessionSummary{
+					Id: item.Id, Name: item.Name, Agent: name,
+					Current: item.Id == callerSessionId, CreatedAt: item.CreatedAt,
+				})
 			}
 
 			buf, err = json.Marshal(summaries)
