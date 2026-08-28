@@ -318,16 +318,16 @@ func prompt(sh *state) string {
 }
 
 func connectionDetail(sh *state) string {
-	var b strings.Builder
+	var b string
 
-	b.WriteString(DIM + sh.url + RESET)
-	b.WriteString("\n  " + GRAY + "agent" + RESET + "   " + agentLabel(sh))
+	b = fmt.Sprintf("%s%s%s", DIM, sh.url, RESET)
+	b += fmt.Sprintf("\n  %sagent%s   %s", GRAY, RESET, agentLabel(sh))
 
 	if sh.session != "" {
-		b.WriteString("\n  " + GRAY + "session" + RESET + " " + sh.session)
+		b += fmt.Sprintf("\n  %ssession%s %s", GRAY, RESET, sh.session)
 	}
 
-	return b.String()
+	return b
 }
 
 func banner(sh *state) {
