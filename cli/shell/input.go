@@ -115,6 +115,7 @@ func readLine(sh *state) (string, error) {
 	var killFrom int
 	var completed string
 	var listed bool
+	var shown bool
 	var repeated bool
 	var before string
 	var params string
@@ -158,13 +159,13 @@ func readLine(sh *state) (string, error) {
 		switch buf[0] {
 		case '\t':
 			before = string(line)
-			completed, listed = complete(sh, string(line), repeated)
+			completed, listed, shown = complete(sh, string(line), repeated)
 			line = []rune(completed)
 			pos = len(line)
 			repeated = listed
 
-			if listed {
-				write("\r\x1b[2K%s%s", prompt(sh), string(line))
+			if shown {
+				write("%s%s", prompt(sh), string(line))
 			} else {
 				redraw(sh, before, line, pos)
 			}

@@ -847,22 +847,39 @@ second one.
   — a mention can sit mid-sentence) starts with `@`, offers path completion
   under that `@` via `atCandidates` (see "`@path/to/file` references"
   below). Any shell-mode word past the first goes through `bashComplete`
-  (`bashcomplete.go`) when `$SHELL` is bash: it spawns `bash -c` with an
-  embedded driver that sources `/usr/share/bash-completion/bash_completion`,
+  (`bashcomplete.go`) when `$SHELL` is bash. Rather than fork a fresh
+  `bash -c` per Tab (which re-sources the whole completion tree every time),
+  `startBashComplete` launches **one long-lived bash coprocess** at startup
+  that sources `/usr/share/bash-completion/bash_completion` once, then loops
+  reading `cwd`+`COMP_LINE` request pairs on its stdin and writing a
+  `\x02<opts>\t<cur>` header, then candidate lines, then a `\x01` sentinel.
+  Each Tab is one pipe round-trip: the driver `cd`s to the shell's live cwd,
   lazy-loads the command's compspec via `_completion_loader`, reconstructs
   `COMP_WORDS`/`COMP_CWORD`/`COMP_LINE`, runs the registered `-F` function
   (or `-C` external completer), and prints `COMPREPLY`. So `git checkout ` +
-  Tab lists real branches, `docker ` its real subcommands, etc. A 400ms
-  `context` timeout and a one-entry `state.completeCache` (the two-press
-  flow re-queries the same line) keep it snappy; on timeout/failure or a
-  non-bash `$SHELL` it falls back to the hardcoded `subcommandSets` map
-  (`git go npm docker cargo`, first-level subcommands only) and then to
-  path completion. Word splitting is whitespace-only, so `COMP_WORDBREAKS`
-  characters (`:` `=`) and quoted args with spaces aren't reconstructed
-  exactly, and `-o nospace` from the compspec is ignored. Everything else
-  containing `/`, or not at word-start, is path completion. Multi-candidate
-  columns are sized with `displayWidth`, which is East-Asian-width aware,
-  not raw byte/rune count.
+  Tab lists real branches, `docker ` its real subcommands, etc. The editor
+  is never blocked more than `queryTimeout` (250ms); a request that times
+  out or hits a broken pipe marks the coprocess dead and the *next* Tab
+  respawns it in the background while the current one falls back to path
+  completion. A one-entry `state.completeCache` keeps the two-press
+  list flow instant.
+- Every candidate set flows through a `completion` struct
+  (`complete.go`): `replace` (how many trailing bytes of the line the
+  candidates stand in for), `filenames`, `noSpace`, `noSort`. The coprocess
+  reports `cur` as the token after the last `=`/`:` — matching
+  bash-completion's `_init_completion -n =:` convention — so
+  `--jobs=<Tab>` / `host:path<Tab>` anchor after the break char instead of
+  clobbering the whole word (`ponytail:` — break chars other than `=:`
+  mis-anchor). `-o nospace` / `-o filenames` / `-o nosort` from `complete -p`
+  are honored (no auto-space on a unique match, basename display + `/` for
+  dirs, provider order kept). Quoted / space-containing filenames and
+  dynamic `compopt` from inside a completion function are still not handled.
+  A non-bash `$SHELL` gets path completion only.
+- Everything else containing `/`, or not at word-start, is path completion.
+  Multi-candidate columns are sized with `displayWidth`, which is
+  East-Asian-width aware, not raw byte/rune count; a list longer than
+  `queryItems` (100, readline's `completion-query-items`) prompts
+  *"Display all N possibilities?"* first.
 
 ### Multiline input
 
@@ -979,7 +996,16 @@ tool shows for picking a `session_send` target.
 
 `sendAgent()` posts `{session_id, content, cwd}` over the
 websocket and streams the reply back, rendering `reply.Reasoning` — dimmed,
-under a "thinking" heading — ahead of the answer text. `isReasoningFiller`
+under a "thinking" heading — ahead of the answer text. The answer text runs
+through `mdRenderer` (`cli/shell/markdown.go`), a dependency-free,
+line-buffered markdown→ANSI pass: a line is styled and emitted only once its
+newline arrives (the trailing partial line is held until the next delta or a
+final `flush()` at block close), so output is streamed per-line rather than
+per-token. It handles ATX headings, `-`/`*`/`1.` list markers (normalised to
+`•`), blockquotes, thematic breaks, fenced code blocks (a gutter, no inline
+processing inside), and inline `` `code` ``/`**bold**`/`*em*`/`[text](url)`.
+Fuller CommonMark (tables, nested lists) is deliberately out of scope.
+`isReasoningFiller`
 drops any reasoning delta that's nothing but dots and whitespace before
 rendering it — some providers stream literal `.` characters as a heartbeat
 while a reasoning summary is still being generated, instead of holding the

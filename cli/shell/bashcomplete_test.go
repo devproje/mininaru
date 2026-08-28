@@ -13,12 +13,19 @@ import (
 
 func completeUntil(t *testing.T, sh *state, line, want string) []string {
 	var items []string
+	var res completion
 	var deadline time.Time
+
+	if sh.bashComp == nil {
+		startBashComplete(sh)
+		t.Cleanup(func() { stopBashComplete(sh) })
+	}
 
 	deadline = time.Now().Add(20 * time.Second)
 	for time.Now().Before(deadline) {
 		sh.completeCache = completeCache{}
-		items = bashComplete(sh, line)
+		res, _ = bashComplete(sh, line)
+		items = res.items
 		if slices.Contains(items, want) {
 			return items
 		}
@@ -114,23 +121,91 @@ func TestBashCompleteOffersSubcommands(t *testing.T) {
 
 func TestBashCompleteCachesByLine(t *testing.T) {
 	var sh state
+	var got completion
+	var ok bool
 
 	bashCompletionAvailable(t)
 
 	sh.cwd = gitRepoWithBranch(t)
 	sh.completeCache.line = "git checkout "
-	sh.completeCache.items = []string{"sentinel"}
+	sh.completeCache.res = completion{items: []string{"sentinel"}}
+	sh.completeCache.ok = true
 
-	if !slices.Equal(bashComplete(&sh, "git checkout "), []string{"sentinel"}) {
-		t.Fatal("bashComplete should return the cached items for an unchanged line")
+	got, ok = bashComplete(&sh, "git checkout ")
+	if !ok || !slices.Equal(got.items, []string{"sentinel"}) {
+		t.Fatalf("bashComplete should return the cached result for an unchanged line, got %v (ok=%v)", got, ok)
 	}
 }
 
-func TestParseBashCompletionsDedupesAndTrims(t *testing.T) {
+func TestDedupeTrimsAndSorts(t *testing.T) {
 	var got []string
 
-	got = parseBashCompletions([]byte("master \nmaster \nmain\n\n"))
+	got = dedupe([]string{"master ", "master ", "main", ""}, true)
 	if !slices.Equal(got, []string{"main", "master"}) {
-		t.Fatalf("parseBashCompletions = %v, want [main master]", got)
+		t.Fatalf("dedupe = %v, want [main master]", got)
+	}
+
+	got = dedupe([]string{"b", "a", "b"}, false)
+	if !slices.Equal(got, []string{"b", "a"}) {
+		t.Fatalf("dedupe(nosort) = %v, want [b a]", got)
+	}
+}
+
+func TestParseCompReplyHeader(t *testing.T) {
+	var c completion
+
+	c = parseCompReply([]string{"\x02nf\tfo", "format", "format:"})
+	if c.replace != 2 || !c.noSpace || !c.filenames || c.noSort {
+		t.Fatalf("flags: replace=%d noSpace=%v filenames=%v noSort=%v", c.replace, c.noSpace, c.filenames, c.noSort)
+	}
+	if !slices.Equal(c.items, []string{"format", "format:"}) {
+		t.Fatalf("items = %v", c.items)
+	}
+}
+
+func TestCompleteAnchorsAfterEquals(t *testing.T) {
+	var sh state
+	var line string
+
+	bashCompletionAvailable(t)
+	sh.mode = MODE_SHELL
+	sh.cwd = gitRepoWithBranch(t)
+
+	completeUntil(t, &sh, "git log --pretty=m", "medium")
+
+	sh.completeCache = completeCache{}
+	line, _, _ = complete(&sh, "git log --pretty=me", false)
+	if line != "git log --pretty=medium" {
+		t.Fatalf("complete = %q, want %q", line, "git log --pretty=medium")
+	}
+}
+
+func TestBashCompleteRespawnsAfterKill(t *testing.T) {
+	var sh state
+	var items []string
+	var ok bool
+
+	bashCompletionAvailable(t)
+	sh.cwd = gitRepoWithBranch(t)
+
+	items = completeUntil(t, &sh, "git chec", "checkout")
+	if !slices.Contains(items, "checkout") {
+		t.Fatalf("warm-up completion = %v, want \"checkout\"", items)
+	}
+
+	sh.bashComp.mu.Lock()
+	sh.bashComp.kill()
+	sh.bashComp.mu.Unlock()
+	sh.bashComp.broken.Store(true)
+
+	sh.completeCache = completeCache{}
+	_, ok = bashComplete(&sh, "git chec")
+	if ok {
+		t.Fatal("bashComplete on dead proc should report not-ok (fallback)")
+	}
+
+	items = completeUntil(t, &sh, "git chec", "checkout")
+	if !slices.Contains(items, "checkout") {
+		t.Fatalf("post-respawn completion = %v, want \"checkout\"", items)
 	}
 }
