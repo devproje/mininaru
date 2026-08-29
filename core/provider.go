@@ -5,6 +5,7 @@ package core
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -145,6 +146,10 @@ func ProviderActive() (*Provider, error) {
 
 	err = row.Scan(&obj.Id, &obj.Name, &obj.ApiKey, &obj.BaseUrl, &obj.Active)
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("no active provider — activate one with `naru provider activate <id-or-name>`")
+		}
+
 		return nil, err
 	}
 

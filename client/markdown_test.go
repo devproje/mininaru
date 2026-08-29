@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Wonhyeok Kim (Project_IO)
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package shell
+package client
 
 import (
 	"strings"
@@ -72,5 +72,20 @@ func TestMarkdownFenceSuppressesInline(t *testing.T) {
 	out = renderWhole("```\n**not bold** `not code`\n```\n")
 	if !strings.Contains(out, "**not bold** `not code`") {
 		t.Errorf("inline markup was processed inside a fence: %q", out)
+	}
+}
+
+func TestMarkdownKeepsMultibyteBytes(t *testing.T) {
+	var md mdRenderer
+	var got string
+
+	got = md.write("안녕하세요, 잘돼요.\n")
+	if got != "안녕하세요, 잘돼요.\n" {
+		t.Fatalf("multibyte text mangled: %q", got)
+	}
+
+	got = md.write("**굵게**") + md.flush()
+	if !strings.Contains(got, "굵게") {
+		t.Fatalf("inline multibyte mangled: %q", got)
 	}
 }

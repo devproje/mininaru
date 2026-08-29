@@ -9,8 +9,7 @@ LD_FLAGS := -s -w						\
 			-X main.hash=$(GIT_HASH)$(DIRTY)
 
 TARGET  = out/mininaru
-ALIAS   = out/narush
-FMT_DIR = cli/ core/ server/ modules/ util/
+FMT_DIR = cli/ core/ client/ server/ modules/ util/
 
 COVER_OUT = out/coverage.out
 
@@ -30,7 +29,6 @@ all: build
 
 build:
 	go build -ldflags "$(LD_FLAGS)" -o $(TARGET) ./cli
-	@ln -sf $(notdir $(TARGET)) $(ALIAS)
 
 dist:
 	@mkdir -p $(dir $(DIST_BIN))

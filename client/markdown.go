@@ -1,12 +1,15 @@
 // SPDX-FileCopyrightText: 2026 Wonhyeok Kim (Project_IO)
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package shell
+package client
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+)
 
 type mdRenderer struct {
-	buf     strings.Builder
+	buf     string
 	inFence bool
 }
 
@@ -42,7 +45,7 @@ func parseLink(s string) mdLink {
 }
 
 func inlineMarkdown(s string) string {
-	var out strings.Builder
+	var out string
 	var marker string
 	var link mdLink
 	var end int
@@ -52,7 +55,7 @@ func inlineMarkdown(s string) string {
 		if s[i] == '`' {
 			end = strings.IndexByte(s[i+1:], '`')
 			if end >= 0 {
-				out.WriteString("\x1b[7m " + s[i+1:i+1+end] + " \x1b[27m")
+				out = fmt.Sprintf("%s\x1b[7m %s \x1b[27m", out, s[i+1:i+1+end])
 				i = i + end + 1
 				continue
 			}
@@ -62,7 +65,7 @@ func inlineMarkdown(s string) string {
 			marker = s[i : i+2]
 			end = strings.Index(s[i+2:], marker)
 			if end >= 0 {
-				out.WriteString(BOLD + s[i+2:i+2+end] + RESET)
+				out = fmt.Sprintf("%s%s%s%s", out, BOLD, s[i+2:i+2+end], RESET)
 				i = i + end + 3
 				continue
 			}
@@ -71,7 +74,7 @@ func inlineMarkdown(s string) string {
 		if s[i] == '*' || s[i] == '_' {
 			end = strings.IndexByte(s[i+1:], s[i])
 			if end > 0 {
-				out.WriteString("\x1b[3m" + s[i+1:i+1+end] + "\x1b[23m")
+				out = fmt.Sprintf("%s\x1b[3m%s\x1b[23m", out, s[i+1:i+1+end])
 				i = i + end + 1
 				continue
 			}
@@ -80,16 +83,16 @@ func inlineMarkdown(s string) string {
 		if s[i] == '[' {
 			link = parseLink(s[i:])
 			if link.ok {
-				out.WriteString("\x1b[4m" + link.text + "\x1b[24m" + DIM + " (" + link.url + ")" + RESET)
+				out = fmt.Sprintf("%s\x1b[4m%s\x1b[24m%s (%s)%s", out, link.text, DIM, link.url, RESET)
 				i = i + link.width - 1
 				continue
 			}
 		}
 
-		out.WriteByte(s[i])
+		out = fmt.Sprintf("%s%s", out, s[i:i+1])
 	}
 
-	return out.String()
+	return out
 }
 
 func headingLevel(trimmed string) int {
@@ -213,37 +216,36 @@ func (m *mdRenderer) formatLine(line string) string {
 }
 
 func (m *mdRenderer) write(delta string) string {
-	var out strings.Builder
+	var out string
 	var i int
 
 	for i = 0; i < len(delta); i++ {
 		if delta[i] != '\n' {
-			m.buf.WriteByte(delta[i])
+			m.buf = fmt.Sprintf("%s%s", m.buf, delta[i:i+1])
 			continue
 		}
 
-		out.WriteString(m.formatLine(m.buf.String()))
-		out.WriteByte('\n')
-		m.buf.Reset()
+		out = fmt.Sprintf("%s%s\n", out, m.formatLine(m.buf))
+		m.buf = ""
 	}
 
-	return out.String()
+	return out
 }
 
 func (m *mdRenderer) flush() string {
 	var line string
 
-	if m.buf.Len() == 0 {
+	if m.buf == "" {
 		return ""
 	}
 
-	line = m.buf.String()
-	m.buf.Reset()
+	line = m.buf
+	m.buf = ""
 
 	return m.formatLine(line)
 }
 
 func (m *mdRenderer) reset() {
-	m.buf.Reset()
+	m.buf = ""
 	m.inFence = false
 }
