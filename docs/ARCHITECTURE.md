@@ -5,18 +5,18 @@ runtime — a tool-calling round loop with bash, file, headless-browser, and
 MCP tools, per-agent memory, skills, and one-level delegation — and two front
 ends put a user in front of it:
 
-- **`mininaru shell` / `narush`** (`cli/shell/`) — a terminal that runs a
-  real shell and an agent chat over one line editor, Shift+Tab between them.
+- **`mininaru`** (`modules/client/`) — a terminal REPL where every line goes
+  straight to the agent; `/bash` and `/!bash` run one shell command on
+  request, other slash commands manage the session. `mininaru -p "<prompt>"`
+  is the same client wire protocol without the REPL: attach, one message,
+  print the reply, exit.
 - **`mininaru serve`** (`server/`) — a stateless-per-request
   OpenAI-compatible HTTP API backed by SQLite, plus a `/ws` websocket for
-  streaming chat and the approval round-trip.
+  streaming chat, the approval round-trip, and interrupts.
 
 An admin CLI (`mininaru provider`/`agent`/`session`/`mcp`/`skill`) manages
-the SQLite-backed config directly. `make build`/`make dist` also produce
-`narush`, a symlinked (local build) or copied (`dist`) alias binary —
-`invokedAs` in `cli/main.go` checks `filepath.Base(os.Args[0])` and, invoked
-under that name, injects `shell` into `os.Args` before cobra parses it, so
-`narush --url …` is exactly `mininaru shell --url …` with no second `main`.
+the SQLite-backed config directly, and `mininaru daemon` runs `serve` as a
+per-user background service (`cli/daemon.go`).
 
 Dangerous tools are gated by a directory-scoped trust model ("yolo mode")
 with a human-in-the-loop approval round-trip over `/ws`. Delegation is the
@@ -26,14 +26,15 @@ the model loads on demand and can also author itself. See "Tool calling"
 below.
 
 This is a from-scratch rewrite, currently in the `1.0.0-alpha` series. An
-earlier version had a Discord front end, a paired gRPC client, and a
-full-screen TUI; none of those exist here.
+earlier version had a Discord front end, a paired gRPC client, a full-screen
+TUI, and a dual-mode `mininaru shell` / `narush` terminal; none of those
+exist here.
 
 ## Packages
 
 ```
-cli/            cobra root, `serve`, `shell`, and the provider/agent/session/mcp/skill admin subcommands
-cli/shell/      the `mininaru shell` line editor — shell mode, agent mode, slash commands
+cli/            cobra root, `serve`, `daemon`, and the provider/agent/session/mcp/skill admin subcommands
+modules/client/ the `mininaru` REPL — line editor, websocket turn loop, streamed-reply renderer, slash commands
 core/           Provider, Agent, Session, Message, ToolCall CRUD, the tool-calling chat loop, and yolo trust state
 modules/          the Tool/Permission type — a pure leaf package, imports only the standard library
 modules/bash/     the bash_exec builtin tool
@@ -51,13 +52,16 @@ depends on `util` and every `modules/*` tool package (`bash`, `file`,
 `browser`, `mcp`, `memory`, `skill`); each of those depends on `modules` and
 `util` but not on each other. Nothing in `core`, `modules`, or `util` imports
 its callers.
-`cli/shell` reaches a `mininaru serve` instance only through its public
-`/api` and `/ws` surface — it is a client like any other, not a special case
-with direct database access. The admin subcommands (`provider`, `agent`,
-`session`) are the opposite: `cli/main.go` opens the local SQLite file itself
-and those commands call `core/*` directly, so they always operate on the
-`NARU_PATH` database the CLI process was started against, never on a remote
-server the way `serve --url` or `shell --url` can.
+
+`modules/client` is the odd one under `modules/` — not a tool package but a
+front end. It imports `core` for its `Agent`/`Session` types and `util`, and
+reaches a `mininaru serve` instance only through its public `/api` and `/ws`
+surface; it never touches SQLite and nothing in `core` imports it. The admin
+subcommands (`provider`, `agent`, `session`) are the opposite: `cli/main.go`
+opens the local SQLite file itself and those commands call `core/*`
+directly, so they always operate on the `NARU_PATH` database the CLI process
+was started against, never on a remote server the way `serve` or a client
+`--url` can.
 
 ## Storage
 
@@ -190,9 +194,9 @@ servers dropped from the config or disabled have their client closed.
 
 `util.Log` (`util/logging.go`) is the shared `log/slog` logger; `cli/main.go`
 calls `util.NewLog(util.LogOptions{})` once at startup (default level `info`,
-text-or-JSON auto-picked by whether stderr is a terminal). Every `util.Log.*`
-call in `cli/shell/*.go` is `Debug`-level, below that threshold, so it stays
-out of the shell's interactive output.
+text-or-JSON auto-picked by whether stderr is a terminal). The few
+`util.Log.*` calls in `modules/client` are `Debug`-level, below that
+threshold, so they stay out of the REPL's interactive output.
 
 `mcp.StatusAll() []Status` (`client.go`, next to `Tools()`) reports, per
 *configured* server (`Loaded.Servers`, not just the currently-live ones — so
@@ -378,15 +382,13 @@ independently — <prompt>"}` right before the recursive call, one more
 calls forwarded as `{name: target.Name + "/" + toolName, ...}` via a wrapped
 `onTool` closure.
 
-`cli/shell/client.go`'s `renderFrame` tracks these as a stack
-(`renderState.toolStack`), not just a log: `"started"` pushes a name and
-(re)starts a `spinner()` for whatever is now on top, `"finished"`/`"failed"`
-pop their name, print a settled `✔`/`✖` line, and restart the spinner for
-whatever's left — so nested activity
-(`agent_spawn` → `worker` → `worker/bash_exec`) shows as one
-line spinning at a time, innermost first, with each level's settled line
-staying in scrollback once it completes. `"started"`'s `Message` (the
-delegation blurb) is printed once, plainly, right before its spinner starts.
+`modules/client`'s renderer (`render.go`) turns each `tool` frame into a
+one-line status: `"started"` starts a `spinner()` labelled with the tool
+name, `"finished"`/`"failed"` stop it and print a settled `●` line (green or
+red), and a multi-line `message` (a file diff) is printed under a
+`+n -n` header with per-line numbers (`writeDiff`). Nested delegate activity
+arrives already namespaced (`worker`, `worker/bash_exec`) from the wrapped
+`onTool` closure, so it reads as a flat stream rather than a managed stack.
 
 `session_send` is `agent_spawn`'s sibling: instead of creating a fresh
 session for a fresh agent, it injects a message into a session that already
@@ -447,32 +449,20 @@ Because the target session may have a person watching it live over another
   frame reuses the `Name` field for the *origin* session id and `Message` for
   the injected content.
 
-  A session counts as live from the moment its shell connects, not just once
-  it sends a message: `connect()` (`cli/shell/client.go`) writes a
+  A session counts as live from the moment the client connects, not just
+  once it sends a message: `Run()` (`modules/client/repl.go`) writes a
   `{"type":"attach","session_id":...}` frame right after dialing, and
   `SockHandler` dispatches `"attach"` to `handleAttach` (`server/sock/sock.go`)
   — a synchronous, no-round path that validates the session exists
   (`core.SessionRead`) and calls the same `registerLiveConn`/`seen.Store`
   pair `handleFrame` uses.
 
-A mirrored round only reaches a person if their shell is reading the socket,
-and a shell sitting at its prompt would otherwise read nothing until the next
-time it sent something — mirrored frames would pile up in the buffer and
-render as if they answered whatever the person typed next. Two things in
-`cli/shell` prevent that:
-
-- The socket is drained by one reader goroutine per connection
-  (`readFrames`, started lazily by `ensureReader`) feeding a buffered
-  `chan inbound`. Gorilla makes read errors sticky, so a read deadline can't
-  be used to poll a connection that must survive the poll. All *rendering*
-  happens on the main thread — `renderFrame` and the `renderState` it
-  mutates are never touched from the reader goroutine.
-- `readLine` polls stdin with `pollStdin` on a 100ms `idlePollInterval`
-  instead of blocking. Each idle tick calls `drainMirror`, which renders
-  whatever frames have queued and then `redraw`s the prompt and the
-  half-typed line underneath them. `sendAgent` calls `awaitMirror` first,
-  which blocks until any open mirrored round has rendered its terminal
-  frame, so a local round can never start inside someone else's.
+The current `modules/client` REPL reads the socket only inside `Receive`
+during an active turn — it does not drain mirrored frames while sitting at
+the prompt — so a message injected into the session by `session_send` while
+its owner is idle is delivered and persisted, but only rendered on that
+person's screen the next time they take a turn (the stored transcript is
+correct either way).
 
 `session_list` and `agent_list` (`core/sessiontools.go`) exist so a model
 can pick a valid target for the two tools above without being told one in
@@ -492,8 +482,8 @@ they touch the filesystem or network.
 ### Yolo mode — the trust policy behind `approve`
 
 `root` is the **anchor**: for a loopback `/ws` connection it's the client's
-reported cwd (the `cwd` field on the chat frame — `mininaru shell` tracks
-`state.cwd` for shell-mode execution and forwards it); for a non-loopback
+reported cwd (the `cwd` field on the chat frame — `modules/client` sends the
+process's working directory, captured once at startup); for a non-loopback
 connection it's the server process's own `$HOME`, since a remote peer's
 claimed cwd can't be trusted. `core.ResolveAnchor` /
 `core.IsLoopbackAddr` (`core/yolo.go`) make that call from the raw
@@ -510,47 +500,27 @@ file; `"off"` is stored as an explicit entry rather than a deletion, so a
 subdirectory can be locked back down under a more permissive ancestor.
 `POST /api/yolo` (`server/controller/yolo.go`) is how a client sets this —
 plain REST, not a `/ws` frame, since it's a one-off directory declaration,
-not part of a live turn. `mininaru shell`'s `/yolo <off|persist|on>` command
-calls it; switching to `on` asks for a local confirmation first
-(`confirmPrompt` in `cli/shell/client.go`). `GET /api/yolo?cwd=` reads it back
-without changing anything — `mininaru shell` polls this (`refreshYoloMode` in
-`cli/shell/client.go`, called on connect and on `cd`, not on every prompt
-redraw) and colors the path segment of its prompt by the result
-(`pathColor` in `cli/shell/style.go`): yellow for `persist`, red for `on`,
-dim (the default) for `off`. The prompt is two lines —
-`[user][mode] agent-name [effort] ──── git:(branch)` (branch right-aligned
-to the terminal width via `promptLine1`, a dim fill of `─` computed from
-`termWidth()` minus the `displayWidth` of both sides, floored at
-`promptFillMin` so it never collapses to nothing on a narrow terminal;
-outside a git repo the fill still runs the full width, just with nothing
-after it) then `path ✗<code> caret` — built as one string
-with an embedded `\n` (`prompt()` returns it that way; `write()` already
-turns `\n` into `\r\n` for every other multi-line output, so nothing
-downstream needed a separate code path). `rowsFor` (`redraw.go`) splits on
-`\n` and sums wrapped-row counts per line rather than treating the whole
-string as one wrapped line, which is what makes `redraw()`'s up-then-clear
-cursor math still land correctly with a multi-row prompt above the input
-line. The `git:(branch)` segment and, in shell mode, the `✗ <code>` segment
-after a non-zero exit both read from cached `state` fields (`gitBranch`,
-`lastExitCode`) refreshed only when `cwd` actually changes or a command
-finishes, never from `prompt()` itself, since `prompt()` runs on nearly
-every keystroke redraw and shelling out to `git` or `stat`-walking on every
-one would be a stutter. `cli/shell/git.go`
-resolves the branch by reading `.git/HEAD` directly (following a `.git`
-*file*'s `gitdir:` pointer for worktrees/submodules) rather than running
-`git`; it reports the branch name, or the first 7 hex characters of the
-commit hash when `HEAD` is detached. There is deliberately no dirty/staged
-indicator — that needs `git status`, a subprocess call, which the
-per-keystroke redraw budget can't afford.
+not part of a live turn. `modules/client`'s `/yolo [off|persist|on]` command
+(`cmdYolo`, `command.go`) calls it, and with no argument reads it back with
+`GET /api/yolo?cwd=`; `Run()` also calls `cmdYolo(&sh, "")` once at startup
+to seed `sh.yolo`. The prompt colours the path segment by that value
+(`pathColor`, `style.go`): yellow for `persist`, red for `on`, dim for
+`off`. The prompt (`sh.prompt()`, `repl.go`) is two lines — `agent-name
+[effort] session-name git:(branch)` then `path ❯` — one string with an
+embedded `\n`; `write()` turns `\n` into `\r\n`, and `rowsFor` (`input.go`)
+splits on `\n` and sums wrapped-row counts per line so `redraw()`'s
+up-then-clear cursor math lands with a multi-row prompt. The `git:(branch)`
+segment reads from `sh.cwd` (fixed for the process); `git.go` resolves the
+branch by reading `.git/HEAD` directly (following a `.git` *file*'s
+`gitdir:` pointer for worktrees/submodules) rather than running `git`, and
+reports the branch name or the first 7 hex chars of a detached `HEAD`.
+There is deliberately no dirty/staged indicator.
 
-In agent mode, line one also carries the connected agent's name and its
-`ThinkingLevel` (`agentSegment`/`effortColor`, `cli/shell/style.go`) — e.g.
-`agent-name [high]`, colored by level (dim for `off`, blue `low`, gray
-`medium`, yellow `high`, red `max`). `openSession` (`cli/shell/client.go`)
-returns the resolved `*core.Agent`'s `ThinkingLevel` alongside its `Name` —
-`resolveAgentByIdOrName`/`pickAgent`/`seedAgent` already fetch the full
-`core.Agent` via `GET /api/agents/:id` — threaded through `dialResult` into
-`state.thinkingLevel` in `adoptConn`, no extra API call.
+Line one carries the connected agent's `Name` and `ThinkingLevel` (from
+`sh.agent`, a `*core.Agent` fetched once via `GET /api/agents` at startup
+and replaced whole by `/model`/`/effort`/`/agent`), coloured by level
+(`effortColor`, `style.go`: dim `off`, blue `low`, gray `medium`, yellow
+`high`, red `max`).
 
 ### The HIL round-trip
 
@@ -566,32 +536,35 @@ session's dangerous calls skip the prompt — it's not written to
 
 `SockHandler`'s read loop can't call `handleFrame` synchronously — that
 would deadlock waiting for an approval frame it can only read from the same
-loop. It reads continuously
-in one goroutine, routing `type: "approval"` frames straight to the
-`approvalRouter` and dispatching everything else to `handleFrame` in its own
-goroutine (`go handleFrame(...)`), so an approval reply can arrive while a
-turn is mid-stream. Every `conn.WriteJSON` goes through a `safeConn`'s
-mutex, since gorilla/websocket doesn't allow concurrent writers. A blocked
-approval wait is tied to a context that's canceled the moment the read loop
-exits (client disconnect), so it resolves to `"deny"` instead of leaking a
-goroutine.
+loop. It reads continuously in one goroutine, handling `type: "approval"`
+(routed to the `approvalRouter`) and `type: "interrupt"` (calls
+`interruptSession`, which cancels that session's stored `context.CancelFunc`
+— see below) inline, and dispatching everything else to `handleFrame` in its
+own goroutine (`go handleFrame(...)`), so an approval or interrupt can
+arrive while a turn is mid-stream. Every `conn.WriteJSON` goes through a
+`safeConn`'s mutex, since gorilla/websocket doesn't allow concurrent
+writers, and a `pingPeriod`/`pongWait` keepalive goroutine drops a dead
+connection. A blocked approval wait is tied to a context canceled the moment
+the read loop exits (client disconnect), so it resolves to `"deny"` instead
+of leaking a goroutine.
 
-`cli/shell` mirrors this: `renderFrame`'s `"approval_request"` case pauses
-the ESC-to-interrupt watcher (`interruptWatch.pause()`, `cli/shell/client.go`)
-before reading a synchronous y/a/n keypress — two goroutines can't safely
-read raw stdin at once — prompts, calls `interruptWatch.resume()`, then
-writes the decision frame back. `pause()` stops the reader goroutine and
-`resume()` starts a fresh one against the same persistent `interrupted`
-channel, so ESC keeps working for the rest of the turn after an approval
-prompt (`interrupt_test.go`). Bytes typed while the watcher is paused go to
-the y/a/n read; bytes typed while it runs are buffered on `interruptWatch`
-and replayed into the next `readLine()` via `sh.pendingInput`.
+`handleFrame` derives a per-turn `context.WithCancel` from the handler
+context and stores its `cancel` in a `running sync.Map` keyed by session id
+(deleted on return). An `interrupt` frame calls that `cancel`, which
+propagates into `SendChatMessage`'s stream and tool calls; the round returns
+a context-canceled error, `handleFrame` sends it as an `"error"` frame, and
+the client (`render.go`'s `frame`) prints a plain `interrupted` line rather
+than an error when the message contains `context canceled`.
 
-`/ws` also sends a `{type: "tool", name, status: "started"|"finished"|
-"failed"}` frame around each call purely for progress display, unrelated to
-approval; `cli/shell` turns it into the spinner-and-settled-line stack
-described under "Delegation" above — a spinner while a call is open, a `✔`
-or `✖ ... failed` line once it settles.
+`modules/client` reads a single raw stdin stream (`keys`, a
+`chan byte` filled by one goroutine in `input.go`). During a turn,
+`renderer.watch` (`render.go`) consumes that channel: while
+`renderer.awaiting` is set (an approval prompt is up) each byte goes to the
+`answers` channel `decide()` reads a `y`/`a`/`n` from; otherwise a `0x03`
+(Ctrl+C) or `0x1b` (Esc) sends an `{type: "interrupt"}` frame. Outside a
+turn the same channel feeds the line editor. `{type: "tool", ...}` frames
+are handled by `renderer.tool` — a spinner while a call is open, a settled
+`●` line (with a diff block for a multi-line message) once it finishes.
 
 ## `server/` — three route groups, one gin engine
 
@@ -615,19 +588,21 @@ or `✖ ... failed` line once it settles.
   every session over a single connection type. Inbound frames are dispatched
   by their `type`: a chat frame carries no type at all and is
   `{session_id, content, cwd}` (`cwd` feeds the yolo anchor), `{type:
-  "approval", session_id, decision}` answers a pending prompt, and `{type:
-  "attach", session_id}` registers the connection as that session's live
-  viewer without running a round. Because an absent field survives a
+  "approval", session_id, decision}` answers a pending prompt, `{type:
+  "interrupt", session_id}` cancels that session's in-flight round, and
+  `{type: "attach", session_id}` registers the connection as that session's
+  live viewer without running a round. Because an absent field survives a
   `json.Unmarshal` into a reused struct, `SockHandler` zeroes its
   `inboundFrame` on every iteration — otherwise an `attach` would leave its
   type behind and swallow the next chat frame. Outbound frames are
   `{type: "message"|"chunk"|"tool"|"approval_request"|"done"|"error", ...}`
   — `message` echoes a `session_send` injection (`name` is the *origin*
-  session id), `chunk` carries a completion delta, `tool` reports a call's
-  `name`/`status`, `approval_request` carries `name`/`arguments` and blocks
-  the turn until an approval frame answers it (see "Tool calling" below).
-  Reasoning deltas are pulled out of the chunk's raw JSON (`chunkReasoning`),
-  because `openai.ChatCompletionChunk` has no typed field for
+  session id), `chunk` carries a completion delta plus a `reasoning` string,
+  `tool` reports a call's `name`/`status`/`message`, `approval_request`
+  carries `name`/`arguments` and blocks the turn until an approval frame
+  answers it (see "Tool calling" below). Reasoning deltas are pulled out of
+  the chunk's raw JSON (`chunkReasoning`), because
+  `openai.ChatCompletionChunk` has no typed field for
   `reasoning`/`reasoning_content` and different providers use either key.
 
 All three require `Authorization: Bearer <key>` (`server/auth.go`). The key
@@ -635,11 +610,12 @@ is a random 32-byte value generated on first use and stored at
 `NARU_PATH/mininaru.key`, mode `0600` (`util.APIKey`, `util/apikey.go`) —
 there is no setup step and no separate command to reveal it again later;
 reading the file is the only way. `cli/serve.go` calls `util.APIKey()` at
-startup and passes it into `NewAppServer`; `cli/shell` resolves the key it
-sends per connection as `--api-key` flag > `MININARU_API_KEY` env var >
-(only when the target host is loopback) reading that same local file —
-a shell pointed at a remote `--url` never reads the local key file, so a
-locally-generated key cannot leak to whatever host `--url` happens to name.
+startup and passes it into `NewAppServer`; `modules/client` resolves the key
+it sends as `--api-key` flag > `MININARU_API_KEY` env var > (only when the
+target `--url` host is loopback) reading that same local file
+(`ResolveApiKey`, `client.go`) — a client pointed at a remote `--url` never
+reads the local key file, so a locally-generated key cannot leak to whatever
+host `--url` happens to name.
 
 ## `cli/` — the admin surface
 
@@ -661,8 +637,15 @@ admin groups — `mcp` in its own section above, `skill` with `list`/`show
 <name>`/`uses`.
 
 `cli/serve.go` starts the HTTP server and blocks on `ListenAndServe`.
-`cli/shell.go` is a thin wrapper that builds `shell.Options` from flags and
-calls `shell.Run`.
+`cli/daemon.go` is `mininaru daemon install`/`restart`/`uninstall` — it
+switches on `runtime.GOOS` to write a `systemd --user` unit (Linux), a
+`launchd` agent (macOS), or a per-logon Scheduled Task (Windows) that runs
+`mininaru serve` with `NARU_PATH` pinned to the current data directory, and
+also pins `export NARU_PATH` into the user's shell rc (`pinNaruPath`) so an
+interactive `mininaru` shares that directory. The bare `mininaru` command
+(no subcommand) is the REPL: `cli/main.go`'s `execute` calls `shortPrompt`
+(`cli/prompt.go`) when `-p` is set, otherwise `client.Run`
+(`cli/client.go`).
 
 ### `cli/update.go` — self-update
 
@@ -692,15 +675,15 @@ overwrite an open file, but allows renaming one), moves the staged build into
 place, then best-effort removes the `.old` file.
 
 `util/update.go` holds the half both `cli` (writes `update.json`) and
-`cli/shell` (only reads it, to print a notice in `banner()`) need — `cli` is
-`package main` and can't be imported by `cli/shell`. `updateCheckStart`,
-wired into `root.PersistentPreRunE` in `cli/main.go`, runs a TTL-gated
+`modules/client` (only reads it, to print a notice in `banner()`) need —
+`cli` is `package main` and can't be imported. `updateCheckStart`, wired
+into `root.PersistentPreRunE` in `cli/main.go`, runs a TTL-gated
 (`util.UpdateCacheTTL`, 24h) background check on every command except
-`update` and `serve` itself, so the notice in `showVersion()` and the shell
+`update` and `serve` itself, so the notice in `showVersion()` and the REPL
 banner are usually a command or two behind rather than triggering a network
 call on every invocation.
 
-### `scripts/` — install and daemon helpers
+### `scripts/` — install helpers
 
 Not built or imported by anything; hand-run, and `make install`/`uninstall`
 shell out to `install-binary.sh`. Each has a `.sh` (POSIX, for
@@ -712,390 +695,147 @@ Linux/macOS) and a `.ps1` sibling.
   verify, and unpack into `~/.local/bin` (`$BINDIR`/`$PREFIX` to change).
   When `mininaru` is already on `PATH` they hand off to `mininaru update`
   instead. A tag that resolves to `0.x` is refused unless `--tag` names it
-  — the one guard the in-binary updater does **not** have. They also pin
-  `export NARU_PATH` in the user's shell rc (a `User` env var on Windows),
-  since the Go default is working-directory-relative and never re-exported
-  (`cli/main.go` reads it, resolves to `util.RootDir`, and stops there).
+  — the one guard the in-binary updater does **not** have. On an interactive
+  terminal they offer to run `mininaru daemon install` (the background
+  service, which is also what pins `NARU_PATH`); `.ps1` still pins
+  `NARU_PATH` as a `User` env var directly since Windows has no shell rc.
 - `install-binary.sh` / `.ps1` — install the local `out/` build; the
   target of `make install`. Does not touch `NARU_PATH`.
-- `register-daemon.sh` / `.ps1` — write a `systemd --user` unit (a per-user
-  Scheduled Task on Windows) running `mininaru serve`, always with
-  `Environment=NARU_PATH=` (default `~/.mininaru`). `--shell` also adds the
-  `exec narush` rc hook and the matching `NARU_PATH` export so an
-  interactive shell shares the service's data dir; `--disable` undoes all of
-  it. The rc edits are sentinel-delimited blocks (`# >>> mininaru env >>>`,
-  `# >>> mininaru shell hook >>>`) shared with `install.sh`, so adding one
-  from either script is idempotent and removal is exact.
+
+Registering the background service moved from a `register-daemon` script to
+the `mininaru daemon` subcommand (`cli/daemon.go`); the shell-rc pin it
+writes uses the `# >>> mininaru env >>>` sentinel block, shared with
+`install.sh` so a pin from either side is idempotent.
 
 `ci.yml`'s `scripts` job shellchecks the `.sh` files and parse-checks the
 `.ps1` files.
 
-## `cli/shell/` — the interactive shell
+## `modules/client/` — the REPL
 
-`mininaru shell` is a hand-rolled line editor and terminal front end — no
-TUI framework. It talks to a `mininaru serve` instance only over `/api` and
-`/ws`; nothing in `cli/shell` imports `server` or touches SQLite directly.
+`mininaru` is a hand-rolled raw-terminal line editor and streamed-reply
+renderer — no TUI framework. It talks to a `mininaru serve` instance only
+over `/api` and `/ws`; it imports `core` for `Agent`/`Session` types and
+`util`, never `server`, and never touches SQLite.
 
-### One editor, two modes
+### One mode
 
-`readLine()` (`input.go`) is the single byte-at-a-time raw-terminal reader
-both modes share; `state.mode` only changes which prompt badge is drawn and
-what a submitted line dispatches to. Shift+Tab toggles it. Switching into
-agent mode with no live connection connects lazily and falls back to
-"still offline" on failure, so the shell works in shell-only mode with no
-server reachable at all — the initial connect at startup is best-effort in
-the same way.
+Every submitted line either dispatches a `/command` or is sent to the agent
+as a turn — there is no shell mode, no mode toggle. `Run()` (`repl.go`)
+resolves the agent (`GET /api/agents`) and session (`GET /api/sessions/:id`
+for `--session`, else `POST /api/sessions`), dials `/ws`, sends an `attach`
+frame, prints the banner, seeds yolo mode, puts the terminal in raw mode
+(`golang.org/x/term`), and runs `loop()`: read a line, record it in
+history, and either `dispatch` it or `sh.turn(line)` it. `sh.turn` writes
+the chat frame and calls `Receive` to stream the reply; on a write error it
+reconnects and retries up to `reconnectAttempts` (3).
 
-### Platform split — `tty_unix.go` / `tty_windows.go`
+Non-TTY stdin is refused with a pointer to `-p`. `mininaru -p "<prompt>"`
+(`cli/prompt.go`) runs the same wire protocol without the editor: resolve a
+session (deleting it on exit unless `--session` was given), dial, `attach`,
+send one frame, and `Receive` with a `nil` key stream so there is no
+interrupt watcher.
 
-Four functions (`pollStdin`, `setForeground`, `runForeground`, `enableAnsi`)
-are the only OS-specific surface in `cli/shell` — everything else is
-already cross-platform Go stdlib or a dependency that handles both itself
-(`golang.org/x/term.MakeRaw` has its own `term_windows.go`, setting
-`ENABLE_VIRTUAL_TERMINAL_INPUT` so arrow-key escapes arrive the same way a
-unix pty sends them). Split with `//go:build unix` / `//go:build windows`,
-the same shape `modules/bash/bashproc_unix.go`/`bashproc_other.go` uses
-for process-group kill vs. plain `Process.Kill()`. Unix's `pollStdin` is a
-`poll(2)` on `POLLIN`; Windows' is `windows.WaitForSingleObject` on the
-stdin handle (safe to treat any signal as "a key is ready" because
-`ENABLE_MOUSE_INPUT`/`ENABLE_WINDOW_INPUT` are off by default and
-`MakeRaw` never turns them on). `setForeground`/`runForeground` are unix's
-POSIX foreground-process-group handoff (`SysProcAttr{Setpgid: true}` plus
-ignoring `SIGTTOU`/`SIGTTIN` around the transfer) versus a plain
-`cmd.Start()`/`cmd.Wait()` on Windows, where a child inheriting the console
-reads keyboard input directly with no such concept. `enableAnsi` is a
-Windows-only addition — `MakeRaw` only sets *input* mode, so rendering the
-ANSI color/cursor codes `style.go` writes needs
-`ENABLE_VIRTUAL_TERMINAL_PROCESSING` set on the *output* handle separately;
-`Run()` (`shell.go`) calls it once, right after `MakeRaw`, and it is a
-no-op on unix.
+### Platform split — `exec_unix.go` / `exec_windows.go`
 
-`exec.go`'s `bashPath`/`switchUser` don't need build tags — no syscalls,
-just `runtime.GOOS`. `bashPath` dispatches to `bashPathUnix`
-(`$SHELL`/`/bin/bash`) or `bashPathWindows` (`$COMSPEC`/`cmd.exe`), and
-`shellInvokeFlags(path)` returns the flags to match: `-i -c` when the
-resolved shell is bash (so `.bashrc` aliases load — `isBash` gates that and
-the `stateWrappedLine` state-persistence wrapper too), `-c` for a non-bash
-`$SHELL`, `/C` on Windows. `switchUser` (the `su`/`sudo` parser behind
-`escalate`) returns unmatched on Windows unconditionally — there is no
-POSIX-style user-switch binary there, and UAC elevation is a different
-enough mechanism that it is left out rather than half-ported.
+Two functions, `setGroup` and `killGroup`, are the only OS-specific surface,
+used by `/bash`: unix puts the child in its own process group
+(`Setpgid`) and signals the group with `SIGINT`; Windows leaves the group
+alone and calls `Process.Kill()`. Split with `//go:build unix` /
+`//go:build windows`, the same shape
+`modules/bash/bashproc_unix.go`/`bashproc_other.go` uses. Everything else is
+cross-platform Go stdlib or `golang.org/x/term`, which has its own
+`term_windows.go` (setting `ENABLE_VIRTUAL_TERMINAL_INPUT` so arrow-key
+escapes arrive the same way a unix pty sends them).
 
 ### Reconnecting
 
-Neither of those failures is final: whenever there is no connection, the
-shell keeps dialing on its own. A dial costs up to `DIAL_TIMEOUT` plus
-`openSession`'s HTTP round-trips, so running it inline would freeze typing on
-every attempt — instead `startDial` (`client.go`) hands a snapshot of the
-fields a dial needs (`dialConfig`) to a goroutine and takes the answer back
-as a `dialResult` on a channel. Nothing in `state` is touched off the main
-thread; `openSession`, `pickAgent`, and `seedAgent` take that snapshot and
-*return* the agent name rather than assigning `state.name`, which is what
-makes them safe to call from the dial goroutine.
-
-`readLine`'s idle tick — the same 100ms `pollStdin` beat that drains mirrored
-frames — calls `retryConnect`, which adopts a finished dial if one has landed
-and starts the next one once `state.retryAt` has passed. `armRetry` doubles
-`state.retryDelay` from `RETRY_MIN` to a `RETRY_MAX` ceiling on every
-failure, and failed attempts print nothing at all: a notice per attempt would
-bury the prompt within a minute. A successful adopt resets the backoff,
-re-sends the `attach` frame for the **existing** session id (so the
-conversation survives a server restart), re-reads yolo mode, and prints one
-`reconnected` line.
-
-`disconnect` records whether the drop happened in agent mode
-(`state.wasAgent`) before dropping to shell mode, and `adoptDial` restores
-that mode on success — a `mininaru serve` restart reads as a pause rather
-than as being kicked back to a shell prompt. An explicit Shift+Tab while a
-background dial is in flight waits for that dial instead of starting a
-second one.
+There is no background dialer. `sh.turn` (`repl.go`) retries a failed
+`WriteJSON` up to `reconnectAttempts` (3) with a `reconnectDelay` pause,
+calling `sh.reconnect()` — dial a fresh `/ws`, close the old conn, re-send
+the `attach` frame for the **existing** session id — between tries, so a
+`mininaru serve` restart between turns is invisible. A drop *during* a
+streamed reply surfaces as the turn's error; the next line reconnects.
 
 ### Line editing
 
-- Left/Right move the cursor by one character; Ctrl+Left/Right (`ESC [
-  1;5 D/C`) and Home/End (`ESC [ H/F`, or the VT220-style `ESC [ 1~`/`ESC [
-  4~`) move by word or to the start/end of the line. Typing and backspace
-  act at the cursor position, not just at the end of the line.
-- Ctrl+A/E jump to the start/end of the line. Ctrl+K kills from the cursor
-  to end-of-line, Ctrl+U kills from start-of-line to the cursor (readline
-  semantics, not a whole-line clear), Ctrl+W kills the word behind the cursor,
-  and Ctrl+Y yanks whatever the last kill put in `state.killBuffer` back in
-  at the cursor. Ctrl+L clears the screen and reprints the current line.
-  `wordBoundaryLeft`/`wordBoundaryRight` (`input.go`) share the same
-  whitespace-boundary logic between word-movement and Ctrl+W.
-- Up/Down recall history, and recall is **kept separate per mode** —
-  `state.history` for shell mode, `state.agentHistory` for agent mode
-  (`historyFor(sh)` picks the right one) — so shell commands and chat lines
-  never show up in each other's recall.
-- `history` (`history.go`) is a GNU-bash-compatible builtin: a bare listing,
-  `history N`, `-c` (clear), `-d offset` (delete; a negative offset counts
-  from the end), `-w`/`-r` (write/read `HISTFILE`, default
-  `.mininaru/shell_history`), honoring `HISTSIZE`/`HISTFILESIZE`/`HISTFILE`.
-  Only shell-mode history persists to disk; agent history lives only for the
-  current process.
-- Every full redraw (backspace, Ctrl+U, history recall, cursor movement)
-  goes through `redraw()` (`redraw.go`), which strips ANSI escapes to measure
-  the *visible* width of `prompt+line`, works out how many terminal rows that
-  occupied, moves up that many rows, and clears with `\x1b[0J` before
-  reprinting. A plain `\r\x1b[2K` (clear only the current row) would leave
-  stale wrapped content on screen once a line is longer than the terminal
-  width.
-- Tab completion (`complete.go`): shell-mode, word-start position offers the
-  builtins (`cd`, `exit`, `quit`, `history`) plus everything executable on
-  `$PATH`; agent-mode completion, when the word starts with `/`, offers the
-  registered slash-command names, and, when any word (not just at word-start
-  — a mention can sit mid-sentence) starts with `@`, offers path completion
-  under that `@` via `atCandidates` (see "`@path/to/file` references"
-  below). Any shell-mode word past the first goes through `bashComplete`
-  (`bashcomplete.go`) when `$SHELL` is bash. Rather than fork a fresh
-  `bash -c` per Tab (which re-sources the whole completion tree every time),
-  `startBashComplete` launches **one long-lived bash coprocess** at startup
-  that sources `/usr/share/bash-completion/bash_completion` once, then loops
-  reading `cwd`+`COMP_LINE` request pairs on its stdin and writing a
-  `\x02<opts>\t<cur>` header, then candidate lines, then a `\x01` sentinel.
-  Each Tab is one pipe round-trip: the driver `cd`s to the shell's live cwd,
-  lazy-loads the command's compspec via `_completion_loader`, reconstructs
-  `COMP_WORDS`/`COMP_CWORD`/`COMP_LINE`, runs the registered `-F` function
-  (or `-C` external completer), and prints `COMPREPLY`. So `git checkout ` +
-  Tab lists real branches, `docker ` its real subcommands, etc. The editor
-  is never blocked more than `queryTimeout` (250ms); a request that times
-  out or hits a broken pipe marks the coprocess dead and the *next* Tab
-  respawns it in the background while the current one falls back to path
-  completion. A one-entry `state.completeCache` keeps the two-press
-  list flow instant.
-- Every candidate set flows through a `completion` struct
-  (`complete.go`): `replace` (how many trailing bytes of the line the
-  candidates stand in for), `filenames`, `noSpace`, `noSort`. The coprocess
-  reports `cur` as the token after the last `=`/`:` — matching
-  bash-completion's `_init_completion -n =:` convention — so
-  `--jobs=<Tab>` / `host:path<Tab>` anchor after the break char instead of
-  clobbering the whole word (`ponytail:` — break chars other than `=:`
-  mis-anchor). `-o nospace` / `-o filenames` / `-o nosort` from `complete -p`
-  are honored (no auto-space on a unique match, basename display + `/` for
-  dirs, provider order kept). Quoted / space-containing filenames and
-  dynamic `compopt` from inside a completion function are still not handled.
-  A non-bash `$SHELL` gets path completion only.
-- Everything else containing `/`, or not at word-start, is path completion.
-  Multi-candidate columns are sized with `displayWidth`, which is
-  East-Asian-width aware, not raw byte/rune count; a list longer than
-  `queryItems` (100, readline's `completion-query-items`) prompts
-  *"Display all N possibilities?"* first.
+`editor.readLine()` (`input.go`) is a byte-at-a-time raw-terminal reader
+over the shared `keys` channel. There is no Tab completion and no `@file`
+expansion — both were shell-era features.
 
-### Multiline input
+- Left/Right by character; Ctrl+Left/Right (`ESC [ 1;5 D/C`) and Home/End
+  (`ESC [ H/F` or VT220 `ESC [ 1~`/`4~`) by word / line end. Typing and
+  backspace act at the cursor.
+- Ctrl+A/E line start/end; Ctrl+K kill to end, Ctrl+U kill to start, Ctrl+W
+  kill word behind (readline semantics — `wordBoundaryLeft`/`Right` share the
+  boundary logic), Ctrl+Y yank the last kill. Ctrl+L clears the screen.
+- Ctrl+C returns `errInterrupted` (the loop just re-prompts), Ctrl+D returns
+  `io.EOF` (quit).
+- Ctrl+J, or Shift+Enter when the terminal sends the Kitty CSI-u `13;2u`
+  sequence, inserts a literal newline instead of submitting; mininaru never
+  turns the Kitty protocol on itself, so Ctrl+J is the portable path.
+- Up/Down recall `sh.history` — one list, since there is only one mode.
+  `history.go` loads/saves it to `NARU_PATH/history` (`NARU_HISTFILE` to
+  override), trimmed to `HISTSIZE`/`HISTFILESIZE` (default 500);
+  `recordHistory` drops consecutive duplicates. There is no `history`
+  builtin.
+- `redraw()` (`input.go`) strips ANSI to measure the *visible* width of
+  `prompt+line` (`displayWidth` is East-Asian-width aware), computes the row
+  count it wrapped to, moves up that many rows and clears with `\x1b[0J`
+  before reprinting — a plain `\r\x1b[2K` would leave stale wrapped rows once
+  a line exceeds the terminal width. `rowsFor` splits the two-line prompt on
+  `\n` so the cursor math survives a multi-row prompt.
 
-Two independent triggers feed the same continuation loop in `Run()`
-(`shell.go`), both signaled from `readLine` as a sentinel error rather than a
-normal return:
+### Streaming a reply
 
-- **Automatic, shell mode only** — after Enter, `continueLine()`
-  (`multiline.go`) shells out to `bash -n -c <accumulated text>` and checks
-  stderr for `unexpected EOF`/`unexpected end of file`, or checks for an
-  unescaped trailing backslash; either one means "not done yet," and it keeps
-  reading more lines under a `> ` prompt until the accumulated text parses.
-- **Manual, either mode** — Ctrl+J (a literal `\n` byte, distinct from the
-  `\r` a physical Enter key sends) ends the current line without submitting.
-  `Run()` accumulates it into `composing` and keeps reading under the same
-  `> ` prompt until a real Enter. Shift+Enter, when a terminal encodes it as
-  the Kitty-protocol CSI-u sequence `13;2u`, is recognized as an alias for
-  the same path, but mininaru never activates that protocol itself —
-  turning it on broke Ctrl+C/Ctrl+D/Ctrl+U on terminals with partial
-  support for it, so Ctrl+J is the one path guaranteed to work everywhere.
+`Receive` (`render.go`) reads `/ws` frames until a `"done"` or `"error"` and
+drives a `renderer`. Content and reasoning deltas go through `renderer.text`,
+which switches "mode" between `reasoning` (dimmed, under a `● thinking`
+heading) and `content`. On a TTY (`r.rich`), content runs through
+`mdRenderer` (`markdown.go`), a dependency-free, line-buffered markdown→ANSI
+pass: a line is styled and emitted only once its newline arrives (the
+trailing partial is held until the next delta or a `flush()` at close), so
+output streams per line, not per token. It handles ATX headings,
+`-`/`*`/`+`/`1.`/`1)` list markers (normalised to `•`), blockquotes,
+thematic breaks, fenced code blocks (a gutter, no inline processing inside),
+and inline `` `code` ``/`**bold**`/`*em*`/`[text](url)`. Fuller CommonMark
+(tables, nested lists) is out of scope. Piped (non-TTY) output skips markdown
+and prints raw text.
 
-Ctrl+C during either kind of continuation (`state.continuation == true`)
-aborts the whole in-progress multi-line entry, not just the current segment.
+Interrupt and approval are covered under "The HIL round-trip" above:
+`renderer.watch` consumes the shared `keys` channel during a turn, routing
+each byte either to the approval `y`/`a`/`n` reader (`decide`) or, on Ctrl+C
+/ Esc, to an `{type: "interrupt"}` frame. A `tool` frame with a multi-line
+message (a file diff) is printed under a `+n -n` header with per-line numbers
+by `writeDiff`.
 
-### Running bash
+### `/bash` and `/!bash`
 
-`runBash`/`runNested` (`exec.go`) run each shell-mode line — `$SHELL` `-c
-<line>`, with `-i` added when `$SHELL` is bash (so `~/.bashrc` loads and
-rc-file aliases like `alias ls='ls --color=auto'` apply) — or, for
-`su`/`sudo`, re-exec `mininaru shell` itself as the target user, carrying
-`--session` and `--agent` over so a privilege switch does not lose the
-conversation. Both go through `runForeground()` (`tty.go`): the child is
-placed in its own process group and handed the terminal's foreground
-process group via `TIOCSPGRP` (`SIGTTOU`/`SIGTTIN` ignored around the
-handoff, standard job-control practice), then the shell reclaims the
-foreground group when the child exits. Without this a `Ctrl+C` meant for a
-running child would land on the whole process group and kill the mininaru
-shell along with it.
-
-`runBash` records the child's exit code into `state.lastExitCode`
-(`exitCode()`, reading `cmd.ProcessState.ExitCode()` after `Wait` returns)
-for the prompt's `✗ <code>` segment, and only prints its own red error
-notice when the failure is **not** a plain non-zero exit
-(`errors.As(err, &exitErr)` against `*exec.ExitError`) — a command that
-simply returned non-zero (`false`, a no-match `grep`) is silent, the way a
-real shell is; only a genuine failure to run the command at all (bash
-itself couldn't start, for instance) gets the notice.
-
-**Shell mode is not a persistent process** — every line is its own fresh
-`$SHELL` invocation, not a pty-attached long-lived shell. `-i` restores
-rc-file aliases, but anything set up *interactively* — an ad-hoc `export`, a
-function or `alias` typed at the prompt — would otherwise vanish when that
-line's process exits. `stateWrappedLine` (`exec.go`) closes that gap without
-a pty: it wraps the line as `source <state> …; <line>;
-__mininaru_status=$?; { export -p; declare -f; alias -p; } > <state> …; (
-exit $__mininaru_status )`, where `<state>` is a per-session temp file
-(`state.shellState`, `mininaru-shell-<pid>.state` under `os.TempDir()`,
-created in `Run()` and removed on exit — one PID, one file, so concurrent
-shells never collide). Each command restores whatever the *previous* one
-exported/defined and ends by overwriting the file with the *current* full
-state (not a delta — `unset`/`unalias` is reflected next time, nothing
-accumulates). The dump goes straight to the state file from inside the
-script, never touching `cmd.Stdout`. `$__mininaru_status` is captured
-before the dump resets `$?`, and the trailing `( exit … )` is a **subshell**
-rather than the bare `exit` builtin — an interactive bash echoes `exit` to
-the terminal when the `exit` builtin runs, a subshell doesn't, and bash
-still exits with its last command's status. `quote()` (also used for the
-`su -c` re-exec argv above) quotes the state path. `runNested`'s `su`/`sudo`
-re-exec is left unwrapped — a different process as a different user has no
-state to share across that boundary.
-
-`bashPath()` resolves `$SHELL` and only falls back to `/bin/bash` when it's
-unset, so on a machine where the login shell is zsh or fish, "shell mode"
-launches *that* binary. `stateWrappedLine`'s `export -p`/`declare -f`/`alias
--p`/`$?` syntax and `multiline.go`'s `bash -n -c` syntax probe
-(`bashIncomplete`, grepping stderr for bash's "unexpected EOF" phrasing)
-are bash-specific — zsh's `alias` has no `-p` flag, fish's syntax differs
-enough that the wrapped script would fail to parse. `isBash(path string)
-bool` (`exec.go`, `filepath.Base(path) == "bash"`) gates the bash-only
-paths: `shellInvokeFlags(path)` adds `-i` only when `isBash(path)`, `runBash`
-wraps with `stateWrappedLine` only when `isBash(bashPath())` (otherwise the
-line runs unwrapped), and `bashIncomplete` returns `false` for a non-bash
-shell so `incomplete()` falls back to the trailing-backslash check only. A
-non-bash `$SHELL` loses `-i` rc-loading, state persistence, and bash-aware
-continuation detection, but command execution itself works.
-
-**`MININARU_ACTIVE`** (`activeEnvVar`, `shell.go`) — set to `"1"` via
-`os.Setenv` near the top of `Run()`, so every process this session spawns
-inherits it (`exec.Cmd` inherits the parent's environment whenever
-`cmd.Env` is `nil`, which every spawn site here leaves it). It exists so a
-user can add an `exec narush`-on-interactive-shell hook to their
-`~/.bashrc`/`~/.zshrc` (README's "Using narush as your interactive shell")
-without it recursing: shell mode's own `-i` per-command child is itself an
-interactive shell that sources the same rc file, so without the guard such
-a hook would re-launch narush on every shell-mode command. Nothing else in
-this codebase reads `MININARU_ACTIVE`.
-
-### Agent mode
-
-**Session creation is lazy.** `connect()`/`openSession()` (`client.go`)
-resolve *which agent* a fresh shell talks to (so the prompt's agent-name/
-effort badge shows immediately) without a `POST /sessions`: `openSession`
-returns the resolved agent's `Id`/`Name`/`ThinkingLevel`, leaves
-`state.session` empty, and `adoptConn` stores the id into `state.agentId`
-and skips the `attach` frame while there's no session to attach to.
-`ensureSession(sh)`, called from `sendAgent()` right before the first chat
-frame, creates the row — a no-op once `state.session` is set. Only the
-*first* message of a fresh launch is affected; `--session <id>` (resuming)
-and every later message aren't. `core.SessionCreate` (`core/session.go`)
-gives any session created without an explicit name a random `adjective-noun`
-label (`core/sessionname.go`, `math/rand/v2`, no uniqueness check — a
-friendly label, not a key), which is what the model-facing `session_list`
-tool shows for picking a `session_send` target.
-
-`sendAgent()` posts `{session_id, content, cwd}` over the
-websocket and streams the reply back, rendering `reply.Reasoning` — dimmed,
-under a "thinking" heading — ahead of the answer text. The answer text runs
-through `mdRenderer` (`cli/shell/markdown.go`), a dependency-free,
-line-buffered markdown→ANSI pass: a line is styled and emitted only once its
-newline arrives (the trailing partial line is held until the next delta or a
-final `flush()` at block close), so output is streamed per-line rather than
-per-token. It handles ATX headings, `-`/`*`/`1.` list markers (normalised to
-`•`), blockquotes, thematic breaks, fenced code blocks (a gutter, no inline
-processing inside), and inline `` `code` ``/`**bold**`/`*em*`/`[text](url)`.
-Fuller CommonMark (tables, nested lists) is deliberately out of scope.
-`isReasoningFiller`
-drops any reasoning delta that's nothing but dots and whitespace before
-rendering it — some providers stream literal `.` characters as a heartbeat
-while a reasoning summary is still being generated, instead of holding the
-delta back until there's real content; the header only appears once real
-text arrives. While a turn is in flight, a
-background goroutine (`interruptWatch.reader`) polls stdin so pressing Esc
-cancels the wait: it closes the websocket, then reconnects **reusing the
-existing session id** (harmless even before the first message — `state.session` is
-still empty at that point, so the reconnect's `openSession` call resolves
-the agent again but still doesn't create anything), and hands control back
-to the prompt. Polling is used instead of `SetReadDeadline` because raw-mode
-stdin does not support read deadlines on this platform; the poll goes
-through `golang.org/x/sys/unix.Poll` on the raw fd instead.
-
-Any other byte typed while that watcher is running — i.e., while a response
-is streaming — is captured, not discarded, and replayed into the next
-`readLine()` call through `state.pendingInput` once the turn ends, so keys
-like Ctrl+C or Ctrl+U that land during or just after a streaming response
-aren't silently lost.
-
-The stdin reader lives on `interruptWatch` (`client.go`), which exists for
-one reason: a tool-approval prompt (`approvalPrompt`) also reads raw stdin
-synchronously, and two goroutines can't safely read the same fd at once.
-`interruptWatch.pause()` stops the reader goroutine (idempotent — safe from
-both the approval case and `sendAgent`'s cleanup) before that read;
-`resume()` starts a new reader against the same `interrupted` channel and
-`captured` buffer, so the approval case restores ESC-to-interrupt right
-after it writes the decision. The `interrupted` channel is closed at most
-once (guarded by the watch's mutex), so a resumed reader firing after an
-earlier one is harmless.
+`cmdBash` / `cmdBashQuiet` (`command.go`) run one `$SHELL -c <args>` in
+`sh.cwd`, output tee'd to the terminal and to an `strings.Builder`
+(`crlfWriter` rewrites `\n`→`\r\n` for raw mode). The child is put in its own
+process group (`setGroup`); a `0x03` byte on the shared `keys` channel while
+it runs calls `killGroup` (`feedChild`). `/bash` then POSTs the command, exit
+status, and captured output (capped at `bashShareLimit`, 8000 bytes) to
+`POST /api/sessions/:id/messages` as a `user` message, so the agent reads it
+on its next turn; `/!bash` skips that POST. `/help` prints a standing warning
+that `/bash` output is recorded in the session.
 
 ### Slash commands
 
-`/help`, `/reset` (start a fresh session against the same agent, or the one
-set with `/agent` if any), `/session` (show the current session id, name,
-agent, and creation time), `/agent <global|current> <id-or-name>` (switch
-agent **immediately**, not just for the next `/reset`: it resolves the
-target the same way `resolveAgentByIdOrName` in `client.go` always has —
-`GET /agents/<id>` first, then a name match against `GET /agents`, the same
-list `pickAgent` uses — then sets `state.agent`/`state.name`/
-`state.thinkingLevel`/`state.agentId` from it right away, so the prompt's
-agent-name/effort badge updates on the spot, and clears `state.session` so
-the *next* message lazily starts a fresh session against the new agent
-(`ensureSession`, see "Agent mode" below) rather than continuing the old
-session under a stale agent. Both scopes do this for the running process;
-`global` additionally persists the choice via `cli/shell/preferences.go` to
-`.mininaru/shell.json`, so `Run()` loads it back into `state.agent` on the
-next `mininaru shell` launch whenever `--agent` wasn't passed explicitly,
-while `current` leaves that file alone so the change doesn't outlive this
-shell), `/clear`,
-`/bash` (back to shell mode), `/exit` (quit the shell — `quitShellCommand`
-returns `commandResult{Quit: true}`, and `dispatchCommand` turns that into
-`io.EOF`, the same sentinel shell-mode `exit`/`quit` return to break
-`Run()`'s loop), `/yolo <off|persist|on>` (set the dangerous-tool trust mode
-for the shell's current directory — see "Tool calling" above), `/model
-<model>` and `/effort <off|low|medium|high|max>` (PATCH the connected
-agent's settings on the server) — a small name-keyed registry (`command.go`),
-dispatched only in agent mode when a line starts with `/`. Handlers take
-`*state` directly and read/write it in place; there is no adapter interface.
-
-`/model`/`effortCommand` (`command.go`) share `currentAgent(sh, base)`,
-which resolves the *actually connected* agent via `resolveAgentByIdOrName`
-using `state.name` (falling back to `state.agent` if that's empty) — not
-`state.agent` first, since that field only holds a requested override and
-can be blank when `pickAgent` picked the default. Both PATCH
-`base+"/agents/"+target.Id` through `apiPatch` (`client.go`, a thin wrapper
-over the same `apiSend` helper `apiPost` uses, `http.MethodPatch` instead of
-`POST`) against `AgentUpdate`'s "only touch non-empty fields" semantics
-(`core/agent.go`) — a request with just `{"model": "…"}` or
-`{"thinking_level": "…"}` leaves everything else on the agent untouched.
-`effortCommand` writes the response's `ThinkingLevel` straight into
-`state.thinkingLevel` so the prompt's effort badge updates immediately,
-without reconnecting.
-
-**`@path/to/file` references** — typing `@` anywhere in an agent-mode
-message tab-completes like a path (`atCandidates`, `complete.go`, a thin
-wrapper around `fileCandidates` that re-prepends the `@`) and, on submit,
-gets expanded before the message becomes the outgoing frame content
-(`expandFileReferences`, `fileref.go`, called from `dispatch()`'s agent
-branch right before `sendAgent`). `fileRefPattern` (a regexp anchored on a
-leading space-or-start boundary so it doesn't match an `@` mid-word) finds
-every `@token` in the line; the message text sent to the model has the `@`
-stripped but the path left in place, and each referenced file's content
-(capped at 64KB, same truncation convention as `modules/skill`/
-`modules/memory`) is appended after the message as `<file path="...">...
-</file>` blocks. A path that can't be read (typo, doesn't exist) is left as
-plain text with the `@` still stripped — no error, no attachment; this
-mirrors `fileCandidates`' own resolution rules (relative to `state.cwd`,
-`~` expansion via the same `expandUser` helper) so what completes is what
-resolves.
+A name-keyed registry (`commands`, `command.go`); `dispatch` (`repl.go`)
+splits `/<name> <args>` and runs the handler, which takes `*Shell` directly.
+`/help`, `/clear`, `/exit` (sets `sh.quit`), `/bash`, `/!bash` (above),
+`/session [id-or-name]` (show, or switch — `findSession` tries
+`GET /api/sessions/:ref` then a name match against the agent's sessions, then
+re-`attach`es), `/agent <id-or-name>` (resolve via `GET /api/agents`,
+`POST /api/sessions` for a fresh session on that agent, re-`attach`),
+`/model <model>` and `/effort <off|low|medium|high|max>` (PATCH
+`/api/agents/:id` via `sh.patchAgent`, which replaces `sh.agent` whole with
+the response — against `AgentUpdate`'s "only touch non-empty fields"
+semantics, so `{"model": …}` leaves the rest alone), and
+`/yolo [off|persist|on]` (see "Yolo mode" above). There is no `/reset`
+(`/agent <same>` or a fresh launch covers it) and no persisted client
+preferences file.
 
 ## Development
 
