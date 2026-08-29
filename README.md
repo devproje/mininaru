@@ -26,19 +26,32 @@ fit together.
 > `install.sh` / `install.ps1` refuse to auto-install a release that resolves
 > to a `0.x` tag (pass `--tag` to override, at your own risk).
 
+**Linux / macOS**
+
 ```sh
 curl -fsSL https://raw.githubusercontent.com/devproje/mininaru/master/scripts/install.sh | sh
 ```
 
-Downloads the latest release for your platform, checks it against the
-release's `SHA256SUMS`, and installs `mininaru` into `~/.local/bin`. Set
-`BINDIR` or `PREFIX` to change that, `--tag` to
-pin a version; if `mininaru` is already on `PATH` the script hands off to
-`mininaru update` instead. On Windows run `scripts/install.ps1` from
-PowerShell. Building from a checkout instead is covered below.
+**Windows** (PowerShell)
 
-`--path <dir>` sets the data directory (default `~/.mininaru`); `--uninstall`
-removes the binary.
+```powershell
+irm https://raw.githubusercontent.com/devproje/mininaru/master/scripts/install.ps1 | iex
+```
+
+Downloads the latest release for your platform, checks it against the
+release's `SHA256SUMS`, and installs `mininaru` — into `~/.local/bin` on
+Linux/macOS (set `BINDIR` or `PREFIX` to change), or
+`%LOCALAPPDATA%\mininaru\bin` on Windows (set `MININARU_BINDIR`); the Windows
+script also adds that directory to your user `PATH`. Pass `--tag` (`-Tag` on
+Windows) to pin a version; if `mininaru` is already on `PATH` the script
+hands off to
+`mininaru update` instead. To pass flags through the pipe on Windows, run
+`& ([scriptblock]::Create((irm <url>))) -Tag v1.0.0-alpha.4` instead.
+Building from a checkout is covered below.
+
+`--path <dir>` (`-Path` on Windows) sets the data directory (default
+`~/.mininaru`); `--uninstall` (`-Uninstall`) removes the binary, and on
+Windows also clears the `NARU_PATH` user environment variable.
 
 Run interactively (not piped) it also offers to run `mininaru daemon
 install` — the background service described next — unless one is already
@@ -56,7 +69,13 @@ directory) and starts it — `--host` and `--port` to change the bind address.
 - **Linux** — a `systemd --user` unit; run `loginctl enable-linger` to keep
   it running after logout.
 - **macOS** — a `launchd` agent in `~/Library/LaunchAgents`.
-- **Windows** — a Scheduled Task named `mininaru` that starts at logon.
+- **Windows** — a per-user Scheduled Task named `mininaru` that starts at
+  logon (runs `mininaru serve` in the background, `NARU_PATH` taken from your
+  user environment). `mininaru daemon restart` re-runs it;
+  `mininaru daemon uninstall` deletes the task.
+
+`mininaru daemon` needs systemd on Linux; it prints a clear error on a
+platform where none of the three backends is available.
 
 ## Build from source
 
