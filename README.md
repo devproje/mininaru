@@ -6,10 +6,11 @@ An LLM harness in one Go binary: the agent runtime — a tool-calling loop with
 bash, file edit, headless-browser, and MCP tools, plus persistent memory,
 skills, and one-level delegation — reachable two ways.
 
-- **`mininaru shell` / `narush`** — a terminal that runs a real shell and an
-  agent chat in one line editor. Shift+Tab switches between them; shell mode
-  has argument completion through bash's own completion engine, agent mode
-  has `@file` references, and dangerous tools are gated per directory.
+- **`mininaru`** — a terminal REPL where every line goes straight to the
+  agent; `/bash` runs one shell command on request (`/!bash` does the same
+  without sharing the output with the agent), and dangerous tools are gated
+  per directory. `narush` is a deprecated alias kept for backward
+  compatibility only — use `mininaru` for anything new.
 - **An OpenAI-compatible HTTP + websocket API** backed by SQLite, with an
   admin CLI for providers, agents, and sessions.
 
@@ -31,8 +32,8 @@ curl -fsSL https://raw.githubusercontent.com/devproje/mininaru/master/scripts/in
 ```
 
 Downloads the latest release for your platform, checks it against the
-release's `SHA256SUMS`, and installs `mininaru` (plus the `narush` alias)
-into `~/.local/bin`. Set `BINDIR` or `PREFIX` to change that, `--tag` to
+release's `SHA256SUMS`, and installs `mininaru` (plus the deprecated
+`narush` alias) into `~/.local/bin`. Set `BINDIR` or `PREFIX` to change that, `--tag` to
 pin a version; if `mininaru` is already on `PATH` the script hands off to
 `mininaru update` instead. On Windows run `scripts/install.ps1` from
 PowerShell. Building from a checkout instead is covered below.
@@ -49,10 +50,11 @@ service described next, unless one is already registered.
 To keep a server up, `scripts/register-daemon.sh` installs a
 `systemd --user` unit that runs `mininaru serve` — `--host`, `--port`,
 `--path` to set the data directory, `--linger` to survive logout, `--shell`
-to also drop the `exec narush` hook and the `NARU_PATH` export into your
-shell rc so an interactive shell shares the service's data directory,
-`--disable` to undo all of it. On Windows `scripts/register-daemon.ps1`
-registers a per-user Scheduled Task that starts it at logon.
+to also pin the `NARU_PATH` export into your shell rc (plus a deprecated
+`exec narush` hook — not recommended for new setups; it replaces your whole
+terminal session with the REPL), `--disable` to undo all of it. On Windows
+`scripts/register-daemon.ps1` registers a per-user Scheduled Task that
+starts it at logon.
 
 ## Build from source
 
@@ -63,48 +65,18 @@ make build
 ./out/mininaru --version
 ```
 
-`make build` also creates `out/narush`, an alias for `mininaru shell` — run
-it directly (with the same `--url`/`--session`/`--agent`/`--api-key` flags)
-instead of typing `mininaru shell`.
+`make build` also creates `out/narush`, a deprecated plain alias for
+`out/mininaru` kept for backward compatibility — prefer `out/mininaru`.
 
 `make dist GOOS=linux GOARCH=arm64` cross-compiles a single release layout
 into `dist/` — this is what the release workflow runs for each target on a
-pushed `v*` tag. `dist/` carries the same `narush` alias alongside
-`mininaru`.
+pushed `v*` tag. `dist/` carries the same deprecated `narush` alias
+alongside `mininaru`.
 
 From a local checkout, `make install` installs `out/mininaru` (plus the
-`narush` alias) into `~/.local/bin` — `make install PREFIX=/usr/local` or
-`BINDIR=...` for another location, `make uninstall` to remove it.
-
-### Using narush as your interactive shell
-
-Don't set `$SHELL`/your login shell to `narush` directly — it has no
-non-interactive `-c` mode, so anything that invokes `$SHELL -c '...'`
-(`ssh host 'command'`, git hooks, editor/terminal integrations, cron) would
-break, and `bashPath()` (what shell mode itself execs commands through)
-falls back to `$SHELL` too, so it would try to run every shell-mode command
-through `narush` instead of an actual shell.
-
-The safe way to get "narush opens automatically in every terminal" is an
-`exec` hook at the *end* of `~/.bashrc`/`~/.zshrc`, guarded against both
-non-interactive shells and recursion:
-
-```sh
-if [[ $- == *i* ]] && [ -z "$MININARU_ACTIVE" ]; then
-    exec narush
-fi
-```
-
-`$SHELL` stays your real shell — `-c` invocations never hit this line at
-all, since it only runs for interactive shells. The `$MININARU_ACTIVE`
-check matters because shell mode itself launches an interactive
-`bash -i -c` per command (so `.bashrc` aliases/functions work, see
-[The interactive shell](#the-interactive-shell)) — without the guard,
-every single shell-mode command would immediately re-launch narush instead
-of running. `mininaru shell` sets `MININARU_ACTIVE=1` in its own
-environment as one of the first things it does, which every process it
-spawns inherits, so the guard only ever suppresses the hook while already
-inside a narush-owned shell tree.
+deprecated `narush` alias) into `~/.local/bin` — `make install
+PREFIX=/usr/local` or `BINDIR=...` for another location, `make uninstall` to
+remove it.
 
 ### Verifying a release download
 
@@ -145,7 +117,7 @@ architecture once a stable release exists again.
 Once a day, at most, mininaru checks GitHub for the latest release tag in
 the background and caches the answer in `update.json` under `NARU_PATH`. The
 check never blocks a command: the result is written for the *next* run,
-which is when the notice appears at the top of `mininaru shell` and under
+which is when the notice appears at the top of the REPL and under
 `--version`.
 
 ```
@@ -160,14 +132,14 @@ check off entirely.
 Everything lives under `.mininaru/` by default; set `NARU_PATH` to use
 another directory. The default is resolved **relative to the working
 directory** each process starts in, so running `mininaru` from different
-places gives you different data directories — and a shell talking to a
+places gives you different data directories — and the REPL talking to a
 loopback server won't find its key unless both sides agree. `NARU_PATH` is
 never re-exported, so pin it yourself for a stable location; the installers
 do this (`export NARU_PATH=~/.mininaru` in your shell rc, a `User` variable
 on Windows). The directory is created at mode `0700`, and an existing
 one is tightened to `0700` on every start. Chat history is SQLite
-(`.mininaru/data.db`, WAL mode); the shell's bash command history is a plain
-text file (`.mininaru/shell_history` by default, or `$HISTFILE`); the server's
+(`.mininaru/data.db`, WAL mode); the REPL's input history is a plain text
+file (`.mininaru/history` by default, or `$NARU_HISTFILE`); the server's
 API key is `.mininaru/mininaru.key` (mode `0600`, generated the first time
 anything needs it); yolo trust state is `.mininaru/directory.json`, managed
 through `/yolo` rather than hand-edited; MCP servers are configured in
@@ -176,12 +148,8 @@ through `/yolo` rather than hand-edited; MCP servers are configured in
 memory (see [Tools](#tools)) lives under
 `.mininaru/memory/<agent-id>/`, an `MEMORY.md` index plus one markdown
 file per saved memory, managed entirely by the agent itself through the
-`memory_*` tools rather than hand-edited; the shell's default agent
-(set via `/agent global <id-or-name>`) is persisted in `.mininaru/shell.json`,
-so it carries over to the next `mininaru shell` launch without needing
-`--agent` again — `/agent current <id-or-name>` skips this file, affecting
-only the running shell; the daily background update check caches the latest
-known release tag in `.mininaru/update.json`.
+`memory_*` tools rather than hand-edited; the daily background update check
+caches the latest known release tag in `.mininaru/update.json`.
 
 ## Set up a provider and an agent
 
@@ -213,8 +181,8 @@ mininaru agent remove naru
 `session remove <id>` inspect and clean up conversations directly against
 the local database — no server needs to be running for any of this. Provider
 and agent administration always operates on the local `NARU_PATH` database;
-`serve` and `shell` are the two commands that can instead point at a remote
-one over `--url`.
+`serve` and the REPL are the two that can instead point at a remote one over
+`--url`.
 
 ## Serving
 
@@ -233,10 +201,10 @@ first time anything needs it, and stored at `NARU_PATH/mininaru.key` (mode
 cat .mininaru/mininaru.key   # or $NARU_PATH/mininaru.key
 ```
 
-`mininaru shell` picks this up automatically when it's talking to a loopback
+`mininaru` picks this up automatically when it's talking to a loopback
 address (the default). Talking to a server on another host needs the key
-passed explicitly — `mininaru shell --url ws://host:8223/ws --api-key '<KEY>'`
-or `MININARU_API_KEY` — since the local key file is never sent anywhere but
+passed explicitly — `mininaru --url ws://host:8223/ws --api-key '<KEY>'` or
+`MININARU_API_KEY` — since the local key file is never sent anywhere but
 loopback.
 
 ## Tools
@@ -279,15 +247,15 @@ approval prompt — since they're confined to that agent's own memory
 directory, never an arbitrary path.
 
 Every dangerous tool above is gated by **yolo mode**, set per directory with
-`/yolo <off|persist|on>` in the shell:
+`/yolo <off|persist|on>` in the REPL:
 
 - `off` (default) — always ask before running one.
 - `persist` — auto-run inside the directory you set it in.
 - `on` — auto-run everywhere, no prompts; `/yolo on` asks you to confirm
   once before switching.
 
-When a call needs asking, the shell shows the tool name and arguments and
-you answer once / for the rest of the session / no.
+When a call needs asking, the REPL shows the tool name and arguments and you
+answer once / for the rest of the session / no.
 
 ## MCP servers
 
@@ -309,79 +277,51 @@ override always wins over a per-server one. A running `mininaru serve`
 reloads its MCP connections on `SIGHUP` (`kill -HUP <pid>`), so changes made
 with `mininaru mcp` take effect without restarting it.
 
-## The interactive shell
+## The interactive REPL
 
 ```sh
-mininaru shell                                    # connects to ws://127.0.0.1:8223/ws
-mininaru shell --url ws://example.com:8223/ws --api-key '<KEY>'
-mininaru shell --session <id>                     # resume an existing conversation
-mininaru shell --agent coder                       # pick an agent by name for a new session
+mininaru                                          # connects to ws://127.0.0.1:8223/ws
+mininaru --url ws://example.com:8223/ws --api-key '<KEY>'
+mininaru --session <id>                           # resume an existing conversation
+mininaru --agent coder                            # pick an agent by name for a new session
 ```
 
-`mininaru shell` runs a shell prompt and an agent chat over the same line
-editor. **Shift+Tab** switches between them; if the server is unreachable it
-starts in shell mode, so a running `mininaru serve` is optional for local
-shell use. The connection is not something you have to manage: whenever
-there isn't one, the shell keeps retrying in the background with a backoff,
-and when it lands it re-attaches to the same session and puts you back in
-whichever mode you were in. Restarting the server looks like a short pause.
-Shift+Tab still retries immediately if you don't want to wait.
+Every line you type goes straight to the agent — there's no shell mode to
+switch into; `/bash`/`/!bash` cover running a one-off shell command instead
+(see [Tools](#tools) below for what the agent itself can run). A session is
+created as soon as the REPL starts (unless `--session` names an existing
+one), named at that point with a random `adjective-noun` pair
+(`quiet-otter`, `still-meadow`, ...) rather than anything you have to pick.
 
-No session is created just by starting the shell — it picks an agent right
-away (so the prompt shows its name and reasoning effort immediately), but
-the session itself only comes into existence when you send your first
-agent-mode message, named at that point with a random `adjective-noun`
-pair (`quiet-otter`, `still-meadow`, ...) rather than anything you have to
-pick yourself.
-
-| Key | Shell mode | Agent mode |
-|---|---|---|
-| `Tab` | complete commands, args (real bash completion — branches, subcommands), and paths | complete `/`-commands and `@`-file references |
-| `↑` / `↓` | recall shell history | recall agent history (kept separate) |
-| `Ctrl+J` | insert a newline, keep typing | same — compose a multi-line message |
-| `Ctrl+A` / `Ctrl+E` | start / end of line | same |
-| `Ctrl+K` / `Ctrl+U` / `Ctrl+W` | kill to end / kill to start / kill word back | same |
-| `Ctrl+Y` | yank the last kill back in | same |
-| `Ctrl+L` | clear the screen | same |
-| `Ctrl+←` / `Ctrl+→`, `Home` / `End` | word-wise and line-edge cursor movement | same |
-| `Esc` / `Ctrl+C` | interrupt the shell's own subshell input | interrupt the response in flight |
-| `Ctrl+D` | exit the shell | same |
-
-Typing an incomplete bash construct (an open `for`/`if`, an unclosed quote,
-a trailing `\`) automatically continues onto a `> ` prompt until it parses,
-the same way an interactive `bash` does. `su` and `sudo` re-exec the shell
-itself as the target user, carrying the session over, so the prompt and
-history survive a privilege switch.
-
-Each shell-mode line still runs as its own process — this isn't a single
-persistent shell — but `export`ed variables, functions, and aliases you
-define at the prompt carry over to the next line anyway; only things like
-`cd` already worked this way before.
-
-Inside agent mode, `@path/to/file` anywhere in a message pulls that file's
-content into what gets sent to the agent (path resolved relative to the
-shell's cwd, `~` expanded, tab-completes like a path) — the `@` is stripped
-from the message text itself and the content is appended after it; a path
-that doesn't resolve is left as plain text with nothing attached, no error.
+| Key | Effect |
+|---|---|
+| `↑` / `↓` | recall input history |
+| `Shift+Enter` | insert a newline, keep composing |
+| `Ctrl+A` / `Ctrl+E` | start / end of line |
+| `Ctrl+K` / `Ctrl+U` / `Ctrl+W` | kill to end / kill to start / kill word back |
+| `Ctrl+Y` | yank the last kill back in |
+| `Ctrl+L` | clear the screen |
+| `Ctrl+←` / `Ctrl+→`, `Home` / `End` | word-wise and line-edge cursor movement |
+| `Ctrl+C` (typing) | cancel the current line |
+| `Esc` / `Ctrl+C` (response in flight) | interrupt the agent's turn |
+| `Ctrl+D` | exit |
 
 ```
 /help       list available commands
-/reset      start a fresh session with the same agent
-/session    show the current session id, name, agent, and creation time
-/agent      switch agent now: global <id-or-name> also persists as the default; current <id-or-name> is this shell only
+/exit       quit
+/clear      clear the terminal screen
+/bash       run one shell command; the command and its output are posted to the agent
+/!bash      same, without sharing the output with the agent
+/session    show or switch the current session
+/agent      switch agent on a new session
 /model      change the connected agent's model
 /effort     change the connected agent's reasoning effort (off|low|medium|high|max)
-/clear      clear the terminal screen
-/bash       back to shell mode
-/exit       quit mininaru shell
 /yolo       set dangerous-tool trust for this directory (off|persist|on)
 ```
 
-`history` is a GNU-bash-compatible builtin in shell mode: `history N`,
-`history -c` (clear), `history -d offset` (delete one entry, a negative
-offset counts from the end), `history -w`/`-r` (write/read the history
-file). `HISTSIZE`, `HISTFILESIZE`, and `HISTFILE` are honored the way bash
-honors them.
+Input history is a plain text file, `.mininaru/history` by default (or
+`$NARU_HISTFILE`); `$HISTSIZE`/`$HISTFILESIZE` cap what's kept in memory and
+written back, the same way bash honors them.
 
 ## API
 
@@ -409,14 +349,15 @@ the session store, and `messages` in the request body is the entire history
 you want considered — there is no server-side history for this endpoint.
 
 `/api` exposes plain REST CRUD for agents, providers, sessions, and messages
-(`GET/POST/PATCH/DELETE`), which is what `cli/shell` and the `provider`/
+(`GET/POST/PATCH/DELETE`), which is what the REPL and the `provider`/
 `agent`/`session` commands ultimately talk to. A provider's API key is never
 returned in full over this API; list and read responses mask it.
 
-`/ws` is what `mininaru shell` uses for agent-mode chat: send
+`/ws` is what the REPL uses for chat: send
 `{"session_id": "...", "content": "...", "cwd": "..."}` and receive a stream
 of `{"type": "chunk"|"tool"|"approval_request"|"done"|"error", ...}` frames.
-An `approval_request` frame blocks the turn until you answer with
+Sending `{"type": "interrupt", "session_id": "..."}` cancels that session's
+turn mid-stream. An `approval_request` frame blocks the turn until you answer with
 `{"type": "approval", "session_id": "...", "decision": "once"|"session"|"deny"}`
 — see "Tools" above.
 
