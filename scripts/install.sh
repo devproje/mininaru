@@ -44,8 +44,6 @@ fail() {
 	exit 1
 }
 
-script_dir="$(dirname -- "$0")"
-
 maybe_register_daemon() {
 	[ -t 0 ] || return 0
 	{ command -v systemctl || command -v launchctl; } >/dev/null 2>&1 || return 0
