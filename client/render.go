@@ -138,27 +138,53 @@ func (r *renderer) decide(name string, arguments string) string {
 }
 
 func (r *renderer) halt() {
-	if r.stop == nil {
-		return
-	}
+	var stop func()
 
-	r.stop()
+	r.mu.Lock()
+	stop = r.stop
 	r.stop = nil
+	r.mu.Unlock()
+
+	if stop != nil {
+		stop()
+	}
+}
+
+func (r *renderer) setStop(stop func()) {
+	r.mu.Lock()
+	r.stop = stop
+	r.mu.Unlock()
+}
+
+func (r *renderer) getMode() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	return r.mode
+}
+
+func (r *renderer) setMode(mode string) {
+	r.mu.Lock()
+	r.mode = mode
+	r.mu.Unlock()
 }
 
 func (r *renderer) endLine() {
+	var mode string
+
 	r.halt()
 
-	if r.mode == "" {
+	mode = r.getMode()
+	if mode == "" {
 		return
 	}
 
-	if r.rich && r.mode == "content" {
+	if r.rich && mode == "content" {
 		write("%s", r.md.flush())
 	}
 
 	write("%s\n", RESET)
-	r.mode = ""
+	r.setMode("")
 }
 
 func (r *renderer) text(next string, text string) {
@@ -166,14 +192,14 @@ func (r *renderer) text(next string, text string) {
 		return
 	}
 
-	if next != r.mode {
+	if next != r.getMode() {
 		r.endLine()
 
 		if next == "reasoning" {
 			write("%s● thinking%s\n%s", DIM, RESET, DIM)
 		}
 
-		r.mode = next
+		r.setMode(next)
 	}
 
 	if r.rich && next == "content" {
@@ -195,7 +221,7 @@ func (r *renderer) tool(name string, status string, message string) {
 	r.endLine()
 
 	if status == "started" {
-		r.stop = spinner(fmt.Sprintf("%s %s", name, status))
+		r.setStop(spinner(fmt.Sprintf("%s %s", name, status)))
 
 		return
 	}
