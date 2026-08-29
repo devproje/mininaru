@@ -204,7 +204,10 @@ func (r *renderer) tool(name string, status string, message string) {
 	r.endLine()
 
 	if strings.Contains(message, "\n") {
-		write("%s· %s %s%s\n", DIM, name, status, RESET)
+		var added, removed int
+
+		added, removed = diffStat(message)
+		write("%s· %s %s %s+%d %s-%d%s\n", DIM, name, status, GREEN, added, RED, removed, RESET)
 		writeDiff(message)
 
 		return
@@ -213,23 +216,56 @@ func (r *renderer) tool(name string, status string, message string) {
 	write("%s· %s %s %s%s\n", DIM, name, status, message, RESET)
 }
 
+func diffStat(diff string) (added, removed int) {
+	var line string
+
+	for _, line = range strings.Split(diff, "\n") {
+		switch {
+		case strings.HasPrefix(line, "+++"), strings.HasPrefix(line, "---"):
+		case strings.HasPrefix(line, "+"):
+			added++
+		case strings.HasPrefix(line, "-"):
+			removed++
+		}
+	}
+
+	return added, removed
+}
+
 func writeDiff(diff string) {
 	var line string
 	var color string
+	var oldLine, newLine int
 
 	for _, line = range strings.Split(strings.TrimRight(diff, "\n"), "\n") {
 		switch {
-		case strings.HasPrefix(line, "+++"), strings.HasPrefix(line, "---"), strings.HasPrefix(line, "@@"):
-			color = DIM
+		case strings.HasPrefix(line, "+++"), strings.HasPrefix(line, "---"):
+			write("%s%s%s\n", DIM, line, RESET)
+
+			continue
+		case strings.HasPrefix(line, "@@"):
+			fmt.Sscanf(line, "@@ -%d", &oldLine)
+			fmt.Sscanf(strings.SplitN(line, "+", 2)[1], "%d", &newLine)
+			write("%s%s%s\n", DIM, line, RESET)
+
+			continue
 		case strings.HasPrefix(line, "+"):
-			color = GREEN
+			write("%s%6d %s%s%s\n", DIM, newLine, GREEN, line, RESET)
+			newLine++
+
+			continue
 		case strings.HasPrefix(line, "-"):
-			color = RED
+			write("%s%6d %s%s%s\n", DIM, oldLine, RED, line, RESET)
+			oldLine++
+
+			continue
 		default:
 			color = DIM
 		}
 
-		write("%s%s%s\n", color, line, RESET)
+		write("%s%6d %s%s%s\n", DIM, oldLine, color, line, RESET)
+		oldLine++
+		newLine++
 	}
 }
 
