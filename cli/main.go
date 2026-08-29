@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/devproje/mininaru/client"
+	"github.com/devproje/mininaru/modules/client"
 	"github.com/devproje/mininaru/util"
 	"github.com/spf13/cobra"
 )
@@ -114,6 +114,7 @@ func main() {
 	root.Flags().StringVar(&promptApiKeyRef, "api-key", "", "api key for the mininaru server")
 
 	root.AddCommand(serve)
+	root.AddCommand(daemonCmd)
 	root.AddCommand(providerCmd)
 	root.AddCommand(agentCmd)
 	root.AddCommand(mcpCmd)

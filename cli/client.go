@@ -4,7 +4,7 @@
 package main
 
 import (
-	"github.com/devproje/mininaru/client"
+	"github.com/devproje/mininaru/modules/client"
 )
 
 func clientExecute() error {

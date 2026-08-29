@@ -46,10 +46,8 @@ if (-not $Path) {
 	$Path = if ($env:NARU_PATH) { $env:NARU_PATH } else { Join-Path $env:USERPROFILE '.mininaru' }
 }
 
-$names = @('mininaru.exe', 'narush.exe')
-
 if ($Uninstall) {
-	foreach ($name in $names) {
+	foreach ($name in @('mininaru.exe', 'narush.exe')) {
 		$path = Join-Path $BinDir $name
 		if (Test-Path $path) { Remove-Item $path -Force }
 	}
@@ -124,9 +122,7 @@ try {
 	$extracted = Join-Path $work "mininaru_windows_${arch}"
 
 	New-Item -ItemType Directory -Force -Path $BinDir | Out-Null
-	foreach ($name in $names) {
-		Copy-Item (Join-Path $extracted $name) (Join-Path $BinDir $name) -Force
-	}
+	Copy-Item (Join-Path $extracted 'mininaru.exe') (Join-Path $BinDir 'mininaru.exe') -Force
 	Write-Host "installed mininaru $Tag into $BinDir"
 	& (Join-Path $BinDir 'mininaru.exe') --version
 }

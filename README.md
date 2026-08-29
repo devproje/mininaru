@@ -9,8 +9,7 @@ skills, and one-level delegation — reachable two ways.
 - **`mininaru`** — a terminal REPL where every line goes straight to the
   agent; `/bash` runs one shell command on request (`/!bash` does the same
   without sharing the output with the agent), and dangerous tools are gated
-  per directory. `narush` is a deprecated alias kept for backward
-  compatibility only — use `mininaru` for anything new.
+  per directory.
 - **An OpenAI-compatible HTTP + websocket API** backed by SQLite, with an
   admin CLI for providers, agents, and sessions.
 
@@ -27,34 +26,56 @@ fit together.
 > `install.sh` / `install.ps1` refuse to auto-install a release that resolves
 > to a `0.x` tag (pass `--tag` to override, at your own risk).
 
+**Linux / macOS**
+
 ```sh
 curl -fsSL https://raw.githubusercontent.com/devproje/mininaru/master/scripts/install.sh | sh
 ```
 
+**Windows** (PowerShell)
+
+```powershell
+irm https://raw.githubusercontent.com/devproje/mininaru/master/scripts/install.ps1 | iex
+```
+
 Downloads the latest release for your platform, checks it against the
-release's `SHA256SUMS`, and installs `mininaru` (plus the deprecated
-`narush` alias) into `~/.local/bin`. Set `BINDIR` or `PREFIX` to change that, `--tag` to
-pin a version; if `mininaru` is already on `PATH` the script hands off to
-`mininaru update` instead. On Windows run `scripts/install.ps1` from
-PowerShell. Building from a checkout instead is covered below.
+release's `SHA256SUMS`, and installs `mininaru` — into `~/.local/bin` on
+Linux/macOS (set `BINDIR` or `PREFIX` to change), or
+`%LOCALAPPDATA%\mininaru\bin` on Windows (set `MININARU_BINDIR`); the Windows
+script also adds that directory to your user `PATH`. Pass `--tag` (`-Tag` on
+Windows) to pin a version; if `mininaru` is already on `PATH` the script
+hands off to
+`mininaru update` instead. To pass flags through the pipe on Windows, run
+`& ([scriptblock]::Create((irm <url>))) -Tag v1.0.0-alpha.4` instead.
+Building from a checkout is covered below.
 
-It also pins `export NARU_PATH=~/.mininaru` in your shell rc (a `User`
-environment variable on Windows), so `mininaru` uses one data directory no
-matter which working directory you start it from — see [Storage](#storage).
-`--path <dir>` to choose another; `--uninstall` removes both the binary and
-the pin.
+`--path <dir>` (`-Path` on Windows) sets the data directory (default
+`~/.mininaru`); `--uninstall` (`-Uninstall`) removes the binary, and on
+Windows also clears the `NARU_PATH` user environment variable.
 
-Run interactively (not piped) it also offers to set up the background
-service described next, unless one is already registered.
+Run interactively (not piped) it also offers to run `mininaru daemon
+install` — the background service described next — unless one is already
+registered. That is also what pins `export NARU_PATH` in your shell rc (a
+`User` environment variable on Windows), so `mininaru` uses one data
+directory no matter which working directory you start it from — see
+[Storage](#storage).
 
-To keep a server up, `scripts/register-daemon.sh` installs a
-`systemd --user` unit that runs `mininaru serve` — `--host`, `--port`,
-`--path` to set the data directory, `--linger` to survive logout, `--shell`
-to also pin the `NARU_PATH` export into your shell rc (plus a deprecated
-`exec narush` hook — not recommended for new setups; it replaces your whole
-terminal session with the REPL), `--disable` to undo all of it. On Windows
-`scripts/register-daemon.ps1` registers a per-user Scheduled Task that
-starts it at logon.
+To keep a server up, `mininaru daemon install` registers a per-user service
+that runs `mininaru serve` (with `NARU_PATH` pinned to the current data
+directory) and starts it — `--host` and `--port` to change the bind address.
+`mininaru daemon restart` restarts it after config changes;
+`mininaru daemon uninstall` removes it. The backend is:
+
+- **Linux** — a `systemd --user` unit; run `loginctl enable-linger` to keep
+  it running after logout.
+- **macOS** — a `launchd` agent in `~/Library/LaunchAgents`.
+- **Windows** — a per-user Scheduled Task named `mininaru` that starts at
+  logon (runs `mininaru serve` in the background, `NARU_PATH` taken from your
+  user environment). `mininaru daemon restart` re-runs it;
+  `mininaru daemon uninstall` deletes the task.
+
+`mininaru daemon` needs systemd on Linux; it prints a clear error on a
+platform where none of the three backends is available.
 
 ## Build from source
 
@@ -65,18 +86,13 @@ make build
 ./out/mininaru --version
 ```
 
-`make build` also creates `out/narush`, a deprecated plain alias for
-`out/mininaru` kept for backward compatibility — prefer `out/mininaru`.
-
 `make dist GOOS=linux GOARCH=arm64` cross-compiles a single release layout
 into `dist/` — this is what the release workflow runs for each target on a
-pushed `v*` tag. `dist/` carries the same deprecated `narush` alias
-alongside `mininaru`.
+pushed `v*` tag.
 
-From a local checkout, `make install` installs `out/mininaru` (plus the
-deprecated `narush` alias) into `~/.local/bin` — `make install
-PREFIX=/usr/local` or `BINDIR=...` for another location, `make uninstall` to
-remove it.
+From a local checkout, `make install` installs `out/mininaru` into
+`~/.local/bin` — `make install PREFIX=/usr/local` or `BINDIR=...` for another
+location, `make uninstall` to remove it.
 
 ### Verifying a release download
 

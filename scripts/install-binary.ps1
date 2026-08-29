@@ -4,9 +4,9 @@
 
 <#
 .SYNOPSIS
-  Install the locally built mininaru.exe (and narush.exe) into a bin directory.
+  Install the locally built mininaru.exe into a bin directory.
 .DESCRIPTION
-  Installs out\mininaru.exe and out\narush.exe (build them first with `make build`).
+  Installs out\mininaru.exe (build it first with `make build`).
   This is the Windows counterpart of scripts/install-binary.sh.
 .PARAMETER BinDir
   Target directory. Defaults to $env:MININARU_BINDIR, then $env:LOCALAPPDATA\mininaru\bin.
@@ -32,10 +32,8 @@ if (-not $BinDir) {
 	}
 }
 
-$names = @('mininaru.exe', 'narush.exe')
-
 if ($Uninstall) {
-	foreach ($name in $names) {
+	foreach ($name in @('mininaru.exe', 'narush.exe')) {
 		$path = Join-Path $BinDir $name
 		if (Test-Path $path) {
 			Remove-Item $path -Force
@@ -52,12 +50,8 @@ if (-not (Test-Path $source)) {
 }
 
 New-Item -ItemType Directory -Force -Path $BinDir | Out-Null
-foreach ($name in $names) {
-	$from = Join-Path $outDir $name
-	if (-not (Test-Path $from)) { $from = $source }
-	Copy-Item $from (Join-Path $BinDir $name) -Force
-}
-Write-Host "installed mininaru and narush into $BinDir"
+Copy-Item $source (Join-Path $BinDir 'mininaru.exe') -Force
+Write-Host "installed mininaru into $BinDir"
 
 $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
 if (($userPath -split ';') -notcontains $BinDir) {

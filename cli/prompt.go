@@ -9,8 +9,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/devproje/mininaru/client"
 	"github.com/devproje/mininaru/core"
+	"github.com/devproje/mininaru/modules/client"
 	"github.com/gorilla/websocket"
 )
 
