@@ -37,6 +37,7 @@ func init() {
 	register(&command{name: "exit", short: "leave the client", run: cmdExit})
 	register(&command{name: "clear", short: "clear the screen", run: cmdClear})
 	register(&command{name: "bash", usage: "<command...>", short: "run one shell command", run: cmdBash})
+	register(&command{name: "!bash", usage: "<command...>", short: "run one shell command, don't share it with the agent", run: cmdBashQuiet})
 	register(&command{name: "session", usage: "[id-or-name]", short: "show or switch session", run: cmdSession})
 	register(&command{name: "agent", usage: "<id-or-name>", short: "switch agent on a new session", run: cmdAgent})
 	register(&command{name: "model", usage: "<model>", short: "change the agent model", run: cmdModel})
@@ -79,6 +80,7 @@ func cmdHelp(sh *Shell, args string) error {
 
 	write("\n  %s⚠ /bash commands and their output are recorded in the session, so the agent reads them.%s\n", YELLOW, RESET)
 	write("  %s  do not run anything that reveals passwords, tokens or keys.%s\n", YELLOW, RESET)
+	write("  %s  use /!bash to run without sharing the output with the agent.%s\n", YELLOW, RESET)
 
 	return nil
 }
@@ -157,6 +159,14 @@ func feedChild(stream keys, stdin io.WriteCloser, cmd *exec.Cmd, done chan struc
 }
 
 func cmdBash(sh *Shell, args string) error {
+	return runBash(sh, args, true)
+}
+
+func cmdBashQuiet(sh *Shell, args string) error {
+	return runBash(sh, args, false)
+}
+
+func runBash(sh *Shell, args string, share bool) error {
 	var shellPath string
 	var cmd *exec.Cmd
 	var stdin io.WriteCloser
@@ -198,6 +208,10 @@ func cmdBash(sh *Shell, args string) error {
 
 	if err != nil {
 		write("%s✗ %s%s\n", RED, err, RESET)
+	}
+
+	if !share {
+		return nil
 	}
 
 	return Api(http.MethodPost, sh.base+"/sessions/"+sh.session.Id+"/messages", sh.apiKey,

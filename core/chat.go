@@ -209,6 +209,7 @@ func SendChatMessage(ctx context.Context, agent *Agent, session *Session, anchor
 	var call openai.ChatCompletionMessageToolCall
 	var record *ToolCall
 	var result string
+	var finishedMessage string
 	var memoryIndex string
 	var skillCatalog string
 	var assistant Message
@@ -328,7 +329,12 @@ func SendChatMessage(ctx context.Context, agent *Agent, session *Session, anchor
 			}
 
 			if onTool != nil {
-				onTool(record.Name, "finished", "")
+				finishedMessage = ""
+				if record.Name == "file_write" || record.Name == "file_edit" {
+					finishedMessage = result
+				}
+
+				onTool(record.Name, "finished", finishedMessage)
 			}
 
 			union = append(union, openai.ToolMessage(result, call.ID))

@@ -202,7 +202,35 @@ func (r *renderer) tool(name string, status string, message string) {
 	}
 
 	r.endLine()
+
+	if strings.Contains(message, "\n") {
+		write("%s· %s %s%s\n", DIM, name, status, RESET)
+		writeDiff(message)
+
+		return
+	}
+
 	write("%s· %s %s %s%s\n", DIM, name, status, message, RESET)
+}
+
+func writeDiff(diff string) {
+	var line string
+	var color string
+
+	for _, line = range strings.Split(strings.TrimRight(diff, "\n"), "\n") {
+		switch {
+		case strings.HasPrefix(line, "+++"), strings.HasPrefix(line, "---"), strings.HasPrefix(line, "@@"):
+			color = DIM
+		case strings.HasPrefix(line, "+"):
+			color = GREEN
+		case strings.HasPrefix(line, "-"):
+			color = RED
+		default:
+			color = DIM
+		}
+
+		write("%s%s%s\n", color, line, RESET)
+	}
 }
 
 func (r *renderer) frame(reply Reply) (bool, error) {
