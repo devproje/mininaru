@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Wonhyeok Kim (Project_IO)
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package main
+package client
 
 import (
 	"net/http"
@@ -13,10 +13,10 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-func TestPromptReceiveApproval(t *testing.T) {
+func TestReceiveApproval(t *testing.T) {
 	var srv *httptest.Server
 	var conn *websocket.Conn
-	var got promptFrame
+	var got Frame
 	var read, write *os.File
 	var stdin *os.File
 	var done chan struct{}
@@ -28,7 +28,7 @@ func TestPromptReceiveApproval(t *testing.T) {
 	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var up websocket.Upgrader
 		var server *websocket.Conn
-		var reply promptReply
+		var reply Reply
 
 		var err error
 
@@ -41,7 +41,7 @@ func TestPromptReceiveApproval(t *testing.T) {
 		}
 		defer server.Close()
 
-		for _, reply = range []promptReply{
+		for _, reply = range []Reply{
 			{Type: "chunk", SessionId: "s1", Reasoning: "thinking"},
 			{Type: "approval_request", SessionId: "s1", Name: "bash", Arguments: `{"cmd":"ls"}`},
 		} {
@@ -58,7 +58,7 @@ func TestPromptReceiveApproval(t *testing.T) {
 			return
 		}
 
-		err = server.WriteJSON(promptReply{Type: "done", SessionId: "s1"})
+		err = server.WriteJSON(Reply{Type: "done", SessionId: "s1"})
 		if err != nil {
 			t.Error(err)
 		}
@@ -85,7 +85,7 @@ func TestPromptReceiveApproval(t *testing.T) {
 	}
 	defer conn.Close()
 
-	err = promptReceive(conn, "s1")
+	err = Receive(conn, "s1", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,5 +94,71 @@ func TestPromptReceiveApproval(t *testing.T) {
 
 	if got.Type != "approval" || got.Decision != "once" {
 		t.Fatalf("want approval/once, got %q/%q", got.Type, got.Decision)
+	}
+}
+
+func TestReceiveInterruptOnCtrlC(t *testing.T) {
+	var srv *httptest.Server
+	var conn *websocket.Conn
+	var stream keys
+	var got Frame
+	var done chan struct{}
+
+	var err error
+
+	done = make(chan struct{})
+
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var up websocket.Upgrader
+		var server *websocket.Conn
+
+		var err error
+
+		defer close(done)
+
+		server, err = up.Upgrade(w, r, nil)
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		defer server.Close()
+
+		err = server.WriteJSON(Reply{Type: "chunk", SessionId: "s1", Reasoning: "working"})
+		if err != nil {
+			t.Error(err)
+			return
+		}
+
+		err = server.ReadJSON(&got)
+		if err != nil {
+			t.Error(err)
+			return
+		}
+
+		err = server.WriteJSON(Reply{Type: "done", SessionId: "s1"})
+		if err != nil {
+			t.Error(err)
+		}
+	}))
+	defer srv.Close()
+
+	conn, _, err = websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(srv.URL, "http"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+
+	stream = make(keys, 4)
+	stream <- 0x03
+
+	err = Receive(conn, "s1", stream)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	<-done
+
+	if got.Type != "interrupt" || got.SessionId != "s1" {
+		t.Fatalf("want interrupt/s1, got %q/%q", got.Type, got.SessionId)
 	}
 }

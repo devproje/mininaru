@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/devproje/mininaru/client"
 	"github.com/devproje/mininaru/util"
 	"github.com/spf13/cobra"
 )
@@ -51,13 +52,24 @@ func showVersion() {
 }
 
 func execute(cmd *cobra.Command, args []string) error {
+	var err error
 	if versionRef {
 		showVersion()
 		return nil
 	}
 
 	if promptRef != "" {
-		return shortPrompt(promptRef)
+		err = shortPrompt(promptRef)
+		if err != nil {
+			return err
+		}
+
+		return nil
+	}
+
+	err = clientExecute()
+	if err != nil {
+		return err
 	}
 
 	return nil
@@ -96,7 +108,7 @@ func main() {
 
 	root.Flags().BoolVar(&versionRef, "version", false, "checking mininaru version")
 	root.Flags().StringVarP(&promptRef, "prompt", "p", "", "sending short stateless prompt")
-	root.Flags().StringVar(&promptUrlRef, "url", promptDefaultUrl, "websocket endpoint of the mininaru server")
+	root.Flags().StringVar(&promptUrlRef, "url", client.DefaultUrl, "websocket endpoint of the mininaru server")
 	root.Flags().StringVar(&promptSessionRef, "session", "", "existing session id to prompt on")
 	root.Flags().StringVar(&promptAgentRef, "agent", "", "agent name to open a new session with")
 	root.Flags().StringVar(&promptApiKeyRef, "api-key", "", "api key for the mininaru server")

@@ -134,6 +134,24 @@ func approveFunc(conn *safeConn, router *approvalRouter, sessionId, anchor strin
 	}
 }
 
+func interruptSession(running *sync.Map, sessionId string) {
+	var stored any
+	var cancel context.CancelFunc
+	var ok bool
+
+	stored, ok = running.Load(sessionId)
+	if !ok {
+		return
+	}
+
+	cancel, ok = stored.(context.CancelFunc)
+	if !ok {
+		return
+	}
+
+	cancel()
+}
+
 func handleAttach(conn *safeConn, sessionId string, seen *sync.Map) {
 	var err error
 
@@ -157,12 +175,13 @@ func handleAttach(conn *safeConn, sessionId string, seen *sync.Map) {
 	seen.Store(sessionId, struct{}{})
 }
 
-func handleFrame(ctx context.Context, remoteAddr string, conn *safeConn, frame inboundFrame, router *approvalRouter, seen *sync.Map) {
+func handleFrame(ctx context.Context, remoteAddr string, conn *safeConn, frame inboundFrame, router *approvalRouter, seen *sync.Map, running *sync.Map) {
 	var session *core.Session
 	var agent *core.Agent
 	var msg core.Message
 	var anchor string
 	var unlock func()
+	var cancel context.CancelFunc
 
 	var err error
 
@@ -193,6 +212,12 @@ func handleFrame(ctx context.Context, remoteAddr string, conn *safeConn, frame i
 
 	unlock = core.SessionLock(session.Id)
 	defer unlock()
+
+	ctx, cancel = context.WithCancel(ctx)
+	defer cancel()
+
+	running.Store(session.Id, cancel)
+	defer running.Delete(session.Id)
 
 	msg = core.Message{Id: uuid.NewString(), SessionId: session.Id, Role: "user", Content: frame.Content}
 
@@ -228,6 +253,7 @@ func SockHandler(ctx *gin.Context) {
 	var cancel context.CancelFunc
 	var wg sync.WaitGroup
 	var seen sync.Map
+	var running sync.Map
 
 	var err error
 
@@ -298,6 +324,11 @@ func SockHandler(ctx *gin.Context) {
 			continue
 		}
 
+		if frame.Type == "interrupt" {
+			interruptSession(&running, frame.SessionId)
+			continue
+		}
+
 		if frame.Type == "approval" {
 			router.deliver(frame.SessionId, frame.Decision)
 			continue
@@ -311,7 +342,7 @@ func SockHandler(ctx *gin.Context) {
 		wg.Add(1)
 		go func(f inboundFrame) {
 			defer wg.Done()
-			handleFrame(handlerCtx, remoteAddr, conn, f, router, &seen)
+			handleFrame(handlerCtx, remoteAddr, conn, f, router, &seen, &running)
 		}(frame)
 	}
 }
