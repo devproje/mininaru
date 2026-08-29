@@ -6,14 +6,10 @@ package main
 import (
 	"fmt"
 	"os"
-	"path/filepath"
-	"strings"
 
 	"github.com/devproje/mininaru/util"
 	"github.com/spf13/cobra"
 )
-
-const narushAlias string = "narush"
 
 var (
 	version string
@@ -21,6 +17,12 @@ var (
 	hash    string
 
 	versionRef bool
+	promptRef  string
+
+	promptUrlRef     string
+	promptSessionRef string
+	promptAgentRef   string
+	promptApiKeyRef  string
 )
 
 var root *cobra.Command = &cobra.Command{
@@ -54,16 +56,11 @@ func execute(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
+	if promptRef != "" {
+		return shortPrompt(promptRef)
+	}
+
 	return nil
-}
-
-func invokedAs(name string) bool {
-	var base string
-
-	base = filepath.Base(os.Args[0])
-	base = strings.TrimSuffix(base, ".exe")
-
-	return strings.EqualFold(base, name)
 }
 
 func main() {
@@ -98,9 +95,13 @@ func main() {
 	}
 
 	root.Flags().BoolVar(&versionRef, "version", false, "checking mininaru version")
+	root.Flags().StringVarP(&promptRef, "prompt", "p", "", "sending short stateless prompt")
+	root.Flags().StringVar(&promptUrlRef, "url", promptDefaultUrl, "websocket endpoint of the mininaru server")
+	root.Flags().StringVar(&promptSessionRef, "session", "", "existing session id to prompt on")
+	root.Flags().StringVar(&promptAgentRef, "agent", "", "agent name to open a new session with")
+	root.Flags().StringVar(&promptApiKeyRef, "api-key", "", "api key for the mininaru server")
 
 	root.AddCommand(serve)
-	root.AddCommand(shellCmd)
 	root.AddCommand(providerCmd)
 	root.AddCommand(agentCmd)
 	root.AddCommand(mcpCmd)
@@ -113,10 +114,6 @@ func main() {
 		panic(err)
 	}
 	defer util.DB.Close()
-
-	if invokedAs(narushAlias) {
-		os.Args = append([]string{os.Args[0], "shell"}, os.Args[1:]...)
-	}
 
 	err = root.Execute()
 	if err != nil {
