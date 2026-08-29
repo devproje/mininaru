@@ -63,6 +63,7 @@ const (
 	BLUE   string = "\x1b[38;5;110m"
 	PURPLE string = "\x1b[38;5;141m"
 	GRAY   string = "\x1b[38;5;245m"
+	WHITE  string = "\x1b[38;5;255m"
 )
 
 const (

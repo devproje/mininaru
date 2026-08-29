@@ -240,30 +240,30 @@ func writeDiff(diff string) {
 	for _, line = range strings.Split(strings.TrimRight(diff, "\n"), "\n") {
 		switch {
 		case strings.HasPrefix(line, "+++"), strings.HasPrefix(line, "---"):
-			write("%s%s%s\n", DIM, line, RESET)
+			write("%s%s%s\n", WHITE, line, RESET)
 
 			continue
 		case strings.HasPrefix(line, "@@"):
 			fmt.Sscanf(line, "@@ -%d", &oldLine)
 			fmt.Sscanf(strings.SplitN(line, "+", 2)[1], "%d", &newLine)
-			write("%s%s%s\n", DIM, line, RESET)
+			write("%s%s%s\n", WHITE, line, RESET)
 
 			continue
 		case strings.HasPrefix(line, "+"):
-			write("%s%6d %s%s%s\n", DIM, newLine, GREEN, line, RESET)
+			write("%s%6d %s%s%s\n", WHITE, newLine, GREEN, line, RESET)
 			newLine++
 
 			continue
 		case strings.HasPrefix(line, "-"):
-			write("%s%6d %s%s%s\n", DIM, oldLine, RED, line, RESET)
+			write("%s%6d %s%s%s\n", WHITE, oldLine, RED, line, RESET)
 			oldLine++
 
 			continue
 		default:
-			color = DIM
+			color = WHITE
 		}
 
-		write("%s%6d %s%s%s\n", DIM, oldLine, color, line, RESET)
+		write("%s%6d %s%s%s\n", WHITE, oldLine, color, line, RESET)
 		oldLine++
 		newLine++
 	}

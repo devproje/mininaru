@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/devproje/mininaru/core"
 	"github.com/devproje/mininaru/util"
@@ -162,20 +163,24 @@ func (sh *Shell) banner() {
 	write("\n")
 }
 
+const reconnectAttempts int = 3
+const reconnectDelay time.Duration = 300 * time.Millisecond
+
 func (sh *Shell) turn(prompt string) error {
+	var attempt int
 	var err error
 
-	err = sh.conn.WriteJSON(Frame{SessionId: sh.session.Id, Content: prompt, Cwd: sh.cwd})
-	if err != nil {
-		err = sh.reconnect()
-		if err != nil {
+	for attempt = 0; ; attempt++ {
+		err = sh.conn.WriteJSON(Frame{SessionId: sh.session.Id, Content: prompt, Cwd: sh.cwd})
+		if err == nil {
+			break
+		}
+		if attempt >= reconnectAttempts {
 			return err
 		}
 
-		err = sh.conn.WriteJSON(Frame{SessionId: sh.session.Id, Content: prompt, Cwd: sh.cwd})
-		if err != nil {
-			return err
-		}
+		time.Sleep(reconnectDelay)
+		sh.reconnect()
 	}
 
 	return Receive(sh.conn, sh.session.Id, sh.keys)

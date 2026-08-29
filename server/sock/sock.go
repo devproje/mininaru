@@ -54,8 +54,8 @@ type safeConn struct {
 }
 
 const (
-	pongWait   = 60 * time.Second
-	pingPeriod = 25 * time.Second
+	pongWait   = 30 * time.Minute
+	pingPeriod = 5 * time.Minute
 	writeWait  = 10 * time.Second
 )
 
