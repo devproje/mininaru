@@ -4,6 +4,7 @@
 package shell
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -12,20 +13,15 @@ import (
 	"golang.org/x/term"
 )
 
-var subcommandSets = map[string][]string{
-	"git": {"add", "branch", "checkout", "clone", "commit", "diff", "fetch",
-		"init", "log", "merge", "pull", "push", "rebase", "remote",
-		"reset", "restore", "revert", "rm", "show", "stash", "status",
-		"switch", "tag", "worktree"},
-	"go": {"build", "clean", "doc", "env", "fmt", "generate", "get",
-		"install", "list", "mod", "run", "test", "tool", "vet", "work"},
-	"npm": {"install", "ci", "run", "start", "test", "build", "publish",
-		"init", "update", "uninstall", "list", "outdated", "audit"},
-	"docker": {"build", "run", "ps", "images", "pull", "push", "exec", "logs",
-		"stop", "start", "rm", "rmi", "compose", "network", "volume"},
-	"cargo": {"build", "run", "test", "check", "clean", "doc", "new", "init",
-		"add", "remove", "update", "publish"},
+type completion struct {
+	items     []string
+	replace   int
+	filenames bool
+	noSpace   bool
+	noSort    bool
 }
+
+const queryItems = 100
 
 func wordStart(line string) int {
 	var i int
@@ -175,21 +171,6 @@ func agentCommandCandidates(word string) []string {
 	return items
 }
 
-func subcommandCandidates(command, word string) []string {
-	var name string
-	var items []string
-
-	for _, name = range subcommandSets[command] {
-		if strings.HasPrefix(name, word) {
-			items = append(items, name)
-		}
-	}
-
-	sort.Strings(items)
-
-	return items
-}
-
 func atCandidates(sh *state, word string) []string {
 	var raw []string
 	var item string
@@ -203,41 +184,35 @@ func atCandidates(sh *state, word string) []string {
 	return items
 }
 
-func candidates(sh *state, line string) []string {
+func candidates(sh *state, line string) completion {
 	var word string
-	var fields []string
-	var items []string
+	var start int
+	var res completion
+	var ok bool
 
-	word = line[wordStart(line):]
+	start = wordStart(line)
+	word = line[start:]
 
-	if sh.mode == MODE_SHELL && wordStart(line) == 0 && !strings.Contains(word, "/") {
-		return commandCandidates(word)
+	if sh.mode == MODE_SHELL && start == 0 && !strings.Contains(word, "/") {
+		return completion{items: commandCandidates(word), replace: len(word)}
 	}
 
-	if sh.mode == MODE_AGENT && wordStart(line) == 0 && strings.HasPrefix(word, "/") {
-		return agentCommandCandidates(word)
+	if sh.mode == MODE_AGENT && start == 0 && strings.HasPrefix(word, "/") {
+		return completion{items: agentCommandCandidates(word), replace: len(word)}
 	}
 
 	if sh.mode == MODE_AGENT && strings.HasPrefix(word, "@") {
-		return atCandidates(sh, word)
+		return completion{items: atCandidates(sh, word), replace: len(word), filenames: true}
 	}
 
-	if sh.mode == MODE_SHELL && wordStart(line) > 0 {
-		items = bashComplete(sh, line)
-		if len(items) > 0 {
-			return items
-		}
-
-		fields = strings.Fields(line[:wordStart(line)])
-		if len(fields) == 1 {
-			items = subcommandCandidates(fields[0], word)
-			if len(items) > 0 {
-				return items
-			}
+	if sh.mode == MODE_SHELL && start > 0 {
+		res, ok = bashComplete(sh, line)
+		if ok && len(res.items) > 0 {
+			return res
 		}
 	}
 
-	return fileCandidates(sh, word)
+	return completion{items: fileCandidates(sh, word), replace: len(word), filenames: true}
 }
 
 func commonPrefix(items []string) string {
@@ -260,7 +235,11 @@ func commonPrefix(items []string) string {
 	return prefix
 }
 
-func candidateName(item string) string {
+func display(item string, filenames bool) string {
+	if !filenames {
+		return item
+	}
+
 	if strings.HasSuffix(item, "/") {
 		return filepath.Base(item) + "/"
 	}
@@ -268,7 +247,7 @@ func candidateName(item string) string {
 	return filepath.Base(item)
 }
 
-func showCandidates(items []string) {
+func showCandidates(c completion) {
 	var item string
 	var name string
 	var width int
@@ -278,9 +257,13 @@ func showCandidates(items []string) {
 
 	var err error
 
-	for _, item = range items {
-		if displayWidth(candidateName(item)) > width {
-			width = displayWidth(candidateName(item))
+	if len(c.items) > queryItems && !confirmPrompt(fmt.Sprintf("Display all %d possibilities?", len(c.items))) {
+		return
+	}
+
+	for _, item = range c.items {
+		if displayWidth(display(item, c.filenames)) > width {
+			width = displayWidth(display(item, c.filenames))
 		}
 	}
 
@@ -291,11 +274,14 @@ func showCandidates(items []string) {
 	}
 
 	columns = column / width
+	if columns < 1 {
+		columns = 1
+	}
 
 	write("\n")
 
-	for i, item = range items {
-		name = candidateName(item)
+	for i, item = range c.items {
+		name = display(item, c.filenames)
 
 		if strings.HasSuffix(item, "/") {
 			write("%s%s%s%s", BLUE, name, RESET, strings.Repeat(" ", width-displayWidth(name)))
@@ -308,42 +294,46 @@ func showCandidates(items []string) {
 		}
 	}
 
-	if len(items)%columns != 0 {
+	if len(c.items)%columns != 0 {
 		write("\n")
 	}
 }
 
-func complete(sh *state, line string, repeated bool) (string, bool) {
-	var items []string
-	var start int
+func complete(sh *state, line string, repeated bool) (string, bool, bool) {
+	var c completion
+	var head string
 	var word string
 	var prefix string
 
-	items = candidates(sh, line)
-	if len(items) == 0 {
-		return line, false
+	c = candidates(sh, line)
+	if len(c.items) == 0 {
+		return line, false, false
 	}
 
-	start = wordStart(line)
-	word = line[start:]
-	prefix = commonPrefix(items)
+	if c.replace > len(line) {
+		c.replace = len(line)
+	}
 
-	if len(items) == 1 {
-		if strings.HasSuffix(prefix, "/") {
-			return line[:start] + prefix, false
+	head = line[:len(line)-c.replace]
+	word = line[len(line)-c.replace:]
+	prefix = commonPrefix(c.items)
+
+	if len(c.items) == 1 {
+		if strings.HasSuffix(prefix, "/") || c.noSpace {
+			return head + prefix, false, false
 		}
 
-		return line[:start] + prefix + " ", false
+		return head + prefix + " ", false, false
 	}
 
 	if prefix != word {
-		return line[:start] + prefix, false
+		return head + prefix, false, false
 	}
 
 	if repeated {
-		showCandidates(items)
-		return line, true
+		showCandidates(c)
+		return line, true, true
 	}
 
-	return line, true
+	return line, true, false
 }

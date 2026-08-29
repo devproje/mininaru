@@ -58,11 +58,13 @@ type state struct {
 	lastExitCode  int
 	shellState    string
 	completeCache completeCache
+	bashComp      *bashCompProc
 }
 
 type completeCache struct {
-	line  string
-	items []string
+	line string
+	res  completion
+	ok   bool
 }
 
 const (
@@ -185,7 +187,8 @@ func Run(opts Options) error {
 	loadHistory(&sh)
 	defer saveHistory(&sh)
 
-	warmBashComplete()
+	startBashComplete(&sh)
+	defer stopBashComplete(&sh)
 
 	err = connect(&sh)
 	if err != nil {

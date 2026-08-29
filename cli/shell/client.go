@@ -67,6 +67,7 @@ type renderState struct {
 	stopSpinner func()
 	watch       *interruptWatch
 	active      bool
+	md          mdRenderer
 }
 
 type inbound struct {
@@ -750,6 +751,8 @@ func (rs *renderState) closeBlocks() {
 	}
 
 	if rs.streaming {
+		write("%s", rs.md.flush())
+		rs.md.reset()
 		write("%s\n", RESET)
 		rs.streaming = false
 	}
@@ -813,7 +816,7 @@ func renderFrame(sh *state, rs *renderState, reply reply) (bool, error) {
 			rs.streaming = true
 		}
 
-		write("%s", text)
+		write("%s", rs.md.write(text))
 	case "tool":
 		rs.stop()
 		rs.closeBlocks()
@@ -872,13 +875,9 @@ func renderFrame(sh *state, rs *renderState, reply reply) (bool, error) {
 		return true, nil
 	case "done":
 		rs.stop()
-
-		if rs.thinking && !rs.streaming {
-			write("%s", RESET)
-		}
-
+		rs.closeBlocks()
 		rs.stopToolSpin()
-		write("\n\n")
+		write("\n")
 
 		return true, nil
 	}
