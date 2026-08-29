@@ -13,6 +13,62 @@ import (
 	"golang.org/x/term"
 )
 
+const (
+	spinnerTick  time.Duration = 80 * time.Millisecond
+	barWidth     int           = 10
+	barSegment   int           = 3
+	barStepTicks int           = 2
+)
+
+func barFrame(tick int) string {
+	var span int
+	var pos int
+
+	span = barWidth - barSegment + 1
+	pos = (tick / barStepTicks) % span
+
+	return fmt.Sprintf("%s%s%s",
+		strings.Repeat("░", pos),
+		strings.Repeat("█", barSegment),
+		strings.Repeat("░", barWidth-pos-barSegment))
+}
+
+func spinner(label string) func() {
+	var stop chan struct{}
+	var done chan struct{}
+	var once sync.Once
+
+	stop = make(chan struct{})
+	done = make(chan struct{})
+
+	go func() {
+		var tick *time.Ticker
+		var i int
+
+		tick = time.NewTicker(spinnerTick)
+		defer tick.Stop()
+		defer close(done)
+
+		for {
+			select {
+			case <-stop:
+				return
+			case <-tick.C:
+				write("\r\x1b[2K%s%s%s %s%s%s", PURPLE, barFrame(i), RESET, WHITE, label, RESET)
+				i++
+			}
+		}
+	}()
+
+	return func() {
+		once.Do(func() {
+			close(stop)
+			<-done
+			write("\r\x1b[2K")
+		})
+	}
+}
+
 func termWidth() int {
 	var cols int
 
@@ -66,13 +122,6 @@ const (
 	WHITE  string = "\x1b[38;5;255m"
 )
 
-const (
-	spinnerTick  time.Duration = 80 * time.Millisecond
-	barWidth     int           = 10
-	barSegment   int           = 3
-	barStepTicks int           = 2
-)
-
 func write(format string, args ...any) {
 	fmt.Print(strings.ReplaceAll(fmt.Sprintf(format, args...), "\n", "\r\n"))
 }
@@ -106,55 +155,6 @@ func displayWidth(text string) int {
 	}
 
 	return width
-}
-
-func barFrame(tick int) string {
-	var span int
-	var pos int
-
-	span = barWidth - barSegment + 1
-	pos = (tick / barStepTicks) % span
-
-	return fmt.Sprintf("%s%s%s",
-		strings.Repeat("░", pos),
-		strings.Repeat("█", barSegment),
-		strings.Repeat("░", barWidth-pos-barSegment))
-}
-
-func spinner(label string) func() {
-	var stop chan struct{}
-	var done chan struct{}
-	var once sync.Once
-
-	stop = make(chan struct{})
-	done = make(chan struct{})
-
-	go func() {
-		var tick *time.Ticker
-		var i int
-
-		tick = time.NewTicker(spinnerTick)
-		defer tick.Stop()
-		defer close(done)
-
-		for {
-			select {
-			case <-stop:
-				return
-			case <-tick.C:
-				write("\r\x1b[2K%s%s%s %s%s%s", PURPLE, barFrame(i), RESET, DIM, label, RESET)
-				i++
-			}
-		}
-	}()
-
-	return func() {
-		once.Do(func() {
-			close(stop)
-			<-done
-			write("\r\x1b[2K")
-		})
-	}
 }
 
 func shortPath(cwd string) string {

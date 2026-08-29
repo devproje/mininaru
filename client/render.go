@@ -166,13 +166,11 @@ func (r *renderer) text(next string, text string) {
 		return
 	}
 
-	r.halt()
-
 	if next != r.mode {
 		r.endLine()
 
 		if next == "reasoning" {
-			write("%s⋮ thinking%s\n%s", GRAY, RESET, DIM)
+			write("%s● thinking%s\n%s", DIM, RESET, DIM)
 		}
 
 		r.mode = next
@@ -194,26 +192,36 @@ func (r *renderer) text(next string, text string) {
 }
 
 func (r *renderer) tool(name string, status string, message string) {
+	r.endLine()
+
 	if status == "started" {
-		r.endLine()
-		r.stop = spinner(fmt.Sprintf("%s %s", name, message))
+		r.stop = spinner(fmt.Sprintf("%s %s", name, status))
 
 		return
 	}
-
-	r.endLine()
 
 	if strings.Contains(message, "\n") {
 		var added, removed int
 
 		added, removed = diffStat(message)
-		write("%s· %s %s %s+%d %s-%d%s\n", DIM, name, status, GREEN, added, RED, removed, RESET)
+		write("%s %s%s %s %s+%d %s-%d%s\n", statusDot(status), WHITE, name, status, GREEN, added, RED, removed, RESET)
 		writeDiff(message)
 
 		return
 	}
 
-	write("%s· %s %s %s%s\n", DIM, name, status, message, RESET)
+	write("%s %s%s %s %s%s\n", statusDot(status), WHITE, name, status, message, RESET)
+}
+
+func statusDot(status string) string {
+	switch status {
+	case "finished":
+		return GREEN + "●" + RESET
+	case "failed":
+		return RED + "●" + RESET
+	default:
+		return WHITE + "●" + RESET
+	}
 }
 
 func diffStat(diff string) (added, removed int) {
