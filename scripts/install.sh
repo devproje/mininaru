@@ -19,11 +19,11 @@ When mininaru is already on PATH this hands off to `mininaru update`, which
 verifies and replaces the running executable in place. Otherwise the latest
 release archive is downloaded, checked against SHA256SUMS, and installed.
 
-It also pins `export NARU_PATH=<dir>` (default ~/.mininaru) in your shell rc
-file so mininaru uses one data directory regardless of the working directory
-it is started from. On an interactive terminal, after a fresh install it
-offers to register the `mininaru serve` systemd --user service; it stays
-silent when one already exists or when there is no tty (`curl | sh`).
+On an interactive terminal, after a fresh install it offers to run
+`mininaru daemon install`, which registers a per-user background service and
+pins `export NARU_PATH` in your shell rc so mininaru uses one data directory
+regardless of the working directory. It stays silent when a service already
+exists or when there is no tty (`curl | sh`).
 
 Directory resolution (first match wins):
   --bindir <dir> / $BINDIR
@@ -46,56 +46,17 @@ fail() {
 
 script_dir="$(dirname -- "$0")"
 
-ENV_BEGIN='# >>> mininaru env >>>'
-ENV_END='# <<< mininaru env <<<'
-
-rc_file() {
-	case "$(basename "${SHELL:-sh}")" in
-		zsh) printf '%s\n' "${ZDOTDIR:-$HOME}/.zshrc" ;;
-		*) printf '%s\n' "$HOME/.bashrc" ;;
-	esac
-}
-
-ensure_env_block() {
-	rc="$(rc_file)"
-	if [ -f "$rc" ] && grep -qF "$ENV_BEGIN" "$rc"; then
-		return 0
-	fi
-	tmp="$(mktemp)"
-	{
-		printf '%s\n' "$ENV_BEGIN"
-		printf 'export NARU_PATH="%s"\n' "$1"
-		printf '%s\n' "$ENV_END"
-		if [ -f "$rc" ]; then
-			cat "$rc"
-		fi
-	} >"$tmp"
-	cat "$tmp" >"$rc"
-	rm -f "$tmp"
-	log "pinned NARU_PATH=$1 in $rc"
-}
-
-remove_env_block() {
-	rc="$(rc_file)"
-	{ [ -f "$rc" ] && grep -qF "$ENV_BEGIN" "$rc"; } || return 0
-	tmp="$(mktemp)"
-	sed "/^${ENV_BEGIN}\$/,/^${ENV_END}\$/d" "$rc" >"$tmp"
-	cat "$tmp" >"$rc"
-	rm -f "$tmp"
-	log "removed the NARU_PATH pin from $rc"
-}
-
 maybe_register_daemon() {
 	[ -t 0 ] || return 0
-	command -v systemctl >/dev/null 2>&1 || return 0
+	{ command -v systemctl || command -v launchctl; } >/dev/null 2>&1 || return 0
 	[ -f "${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/mininaru.service" ] && return 0
-	[ -f "$script_dir/register-daemon.sh" ] || return 0
+	[ -f "$HOME/Library/LaunchAgents/net.projecttl.mininaru.plist" ] && return 0
 
-	printf 'register the "mininaru serve" systemd --user service now? [y/N] '
+	printf 'run "mininaru serve" as a background service now? [y/N] '
 	read -r ans || return 0
 	case "$ans" in
-		[yY] | [yY][eE][sS]) BINDIR="$bindir" sh "$script_dir/register-daemon.sh" --path "$naru_path" ;;
-		*) log "skipped; run scripts/register-daemon.sh later to set it up" ;;
+		[yY] | [yY][eE][sS]) NARU_PATH="$naru_path" "$bindir/mininaru" daemon install ;;
+		*) log "skipped; run \`mininaru daemon install\` later to set it up" ;;
 	esac
 }
 
@@ -147,15 +108,10 @@ naru_path="${path_arg:-${NARU_PATH:-$HOME/.mininaru}}"
 
 if [ "$uninstall" -eq 1 ]; then
 	rm -f "$bindir/mininaru"
-	if [ -L "$bindir/narush" ] && [ "$(readlink "$bindir/narush")" = "mininaru" ]; then
-		rm -f "$bindir/narush"
-	fi
-	remove_env_block
-	log "removed mininaru from $bindir"
+	rm -f "$bindir/narush"
+	log "removed mininaru from $bindir (run \`mininaru daemon uninstall\` first if a service is registered)"
 	exit 0
 fi
-
-ensure_env_block "$naru_path"
 
 if [ -z "$tag" ] && command -v mininaru >/dev/null 2>&1; then
 	log "mininaru is already installed, delegating to \`mininaru update\`"
@@ -254,7 +210,6 @@ extracted="$work/mininaru_${os}_${arch}/mininaru"
 
 mkdir -p "$bindir"
 install -m 0755 "$extracted" "$bindir/mininaru"
-ln -sf mininaru "$bindir/narush"
 log "installed mininaru $tag into $bindir"
 "$bindir/mininaru" --version || true
 

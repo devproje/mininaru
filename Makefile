@@ -9,7 +9,7 @@ LD_FLAGS := -s -w						\
 			-X main.hash=$(GIT_HASH)$(DIRTY)
 
 TARGET  = out/mininaru
-FMT_DIR = cli/ core/ client/ server/ modules/ util/
+FMT_DIR = cli/ core/ server/ modules/ util/
 
 COVER_OUT = out/coverage.out
 
@@ -18,7 +18,6 @@ GOOS    ?= $(shell go env GOOS)
 GOARCH  ?= $(shell go env GOARCH)
 DIST_NAME  = mininaru_$(GOOS)_$(GOARCH)
 DIST_BIN   = $(DIST_DIR)/$(DIST_NAME)/mininaru$(if $(filter windows,$(GOOS)),.exe,)
-DIST_ALIAS = $(DIST_DIR)/$(DIST_NAME)/narush$(if $(filter windows,$(GOOS)),.exe,)
 
 PREFIX ?= $(HOME)/.local
 BINDIR ?= $(PREFIX)/bin
@@ -34,9 +33,8 @@ dist:
 	@mkdir -p $(dir $(DIST_BIN))
 	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) \
 		go build -trimpath -ldflags "$(LD_FLAGS)" -o $(DIST_BIN) ./cli
-	@cp $(DIST_BIN) $(DIST_ALIAS)
 	@cp LICENSE COPYRIGHT.md README.md $(dir $(DIST_BIN))
-	@echo "built $(DIST_BIN) and $(DIST_ALIAS)"
+	@echo "built $(DIST_BIN)"
 
 install: build
 	@BINDIR="$(BINDIR)" DESTDIR="$(DESTDIR)" scripts/install-binary.sh
@@ -69,5 +67,5 @@ test-cover: fmt vet
 test-all: test-race test-cover
 
 clean:
-	@rm -f $(TARGET) $(ALIAS) $(COVER_OUT)
+	@rm -f $(TARGET) $(COVER_OUT)
 	@rm -rf out/ $(DIST_DIR)/
