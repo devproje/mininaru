@@ -19,10 +19,17 @@ import (
 )
 
 type Options struct {
-	Url     string
-	Session string
-	Agent   string
-	ApiKey  string
+	Url      string
+	Session  string
+	Agent    string
+	ApiKey   string
+	Gateways []Gateway
+}
+
+type Gateway struct {
+	Name   string
+	Url    string
+	ApiKey string
 }
 
 type Shell struct {

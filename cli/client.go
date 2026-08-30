@@ -8,10 +8,20 @@ import (
 )
 
 func clientExecute() error {
+	var gateways []client.Gateway
+
+	var err error
+
+	gateways, err = gatewayList()
+	if err != nil {
+		return err
+	}
+
 	return client.Run(client.Options{
-		Url:     promptUrlRef,
-		Session: promptSessionRef,
-		Agent:   promptAgentRef,
-		ApiKey:  promptApiKeyRef,
+		Url:      promptUrlRef,
+		Session:  promptSessionRef,
+		Agent:    promptAgentRef,
+		ApiKey:   promptApiKeyRef,
+		Gateways: gateways,
 	})
 }
