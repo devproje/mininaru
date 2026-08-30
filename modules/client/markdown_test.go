@@ -58,6 +58,12 @@ func TestMarkdownRendersElements(t *testing.T) {
 	if !strings.Contains(out, "│ "+RESET+"fmt.Println") {
 		t.Error("fenced code line missing gutter / got inline-processed")
 	}
+	if !strings.Contains(out, RED+"code"+RESET) {
+		t.Error("inline code not styled as red text")
+	}
+	if strings.Contains(out, "\x1b[7m") {
+		t.Error("inline code still using reverse-video")
+	}
 	if strings.Contains(out, "```") {
 		t.Error("fence markers leaked into output")
 	}
@@ -72,6 +78,73 @@ func TestMarkdownFenceSuppressesInline(t *testing.T) {
 	out = renderWhole("```\n**not bold** `not code`\n```\n")
 	if !strings.Contains(out, "**not bold** `not code`") {
 		t.Errorf("inline markup was processed inside a fence: %q", out)
+	}
+}
+
+const mdTableSample = "before\n\n| Name | Size | Note |\n|:-----|-----:|:----:|\n| a | 1 | x |\n| bb | 22 | yy |\n\nafter\n"
+
+func TestMarkdownRendersTable(t *testing.T) {
+	var out string
+	var line string
+	var header string
+	var rule string
+	var first string
+
+	out = renderWhole(mdTableSample)
+
+	if strings.Contains(out, "|") {
+		t.Fatalf("table pipes leaked:\n%s", out)
+	}
+
+	for _, line = range strings.Split(out, "\n") {
+		switch {
+		case strings.Contains(line, "Name") && strings.Contains(line, "Note"):
+			header = line
+		case strings.Contains(line, "─"):
+			rule = line
+		case strings.Contains(line, "bb"):
+			first = line
+		}
+	}
+
+	if header == "" || rule == "" || first == "" {
+		t.Fatalf("missing header/rule/body row:\n%s", out)
+	}
+
+	if !strings.Contains(header, BOLD+"Name"+RESET) {
+		t.Errorf("header cell not bold: %q", header)
+	}
+
+	if !strings.Contains(first, "  22") {
+		t.Errorf("right-aligned Size column not padded on the left: %q", first)
+	}
+
+	if !strings.Contains(first, "bb  ") {
+		t.Errorf("left-aligned Name column not padded on the right: %q", first)
+	}
+}
+
+func TestMarkdownTableStreamingInvariant(t *testing.T) {
+	var whole string
+	var got string
+	var i int
+
+	whole = renderWhole(mdTableSample)
+
+	for i = 0; i <= len(mdTableSample); i++ {
+		got = renderSplit(mdTableSample, i)
+		if got != whole {
+			t.Fatalf("split at %d changed output:\n split: %q\n whole: %q", i, got, whole)
+		}
+	}
+}
+
+func TestMarkdownNonTablePipes(t *testing.T) {
+	var out string
+
+	out = renderWhole("| just some | text |\nnot a table\n")
+	if !strings.Contains(out, "| just some | text |") {
+		t.Fatalf("pipe line without a separator row should render literally: %q", out)
 	}
 }
 

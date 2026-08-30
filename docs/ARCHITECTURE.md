@@ -811,9 +811,14 @@ trailing partial is held until the next delta or a `flush()` at close), so
 output streams per line, not per token. It handles ATX headings,
 `-`/`*`/`+`/`1.`/`1)` list markers (normalised to `•`), blockquotes,
 thematic breaks, fenced code blocks (a gutter, no inline processing inside),
-and inline `` `code` ``/`**bold**`/`*em*`/`[text](url)`. Fuller CommonMark
-(tables, nested lists) is out of scope. Piped (non-TTY) output skips markdown
-and prints raw text.
+inline `` `code` `` (red text) / `**bold**` / `*em*` /
+`[text](url)`, and GFM pipe tables. A table can't stream row-by-row — column
+widths need every row — so `line()` buffers consecutive `|…|` rows into
+`mdRenderer.table` and `drainTable()` renders the block (bold header, a `─`
+rule, alignment from the `:---`/`---:`/`:---:` separator) when the table ends
+or at `flush()`; a `|…|` run with no separator row is emitted verbatim. Nested
+lists are still out of scope. Piped (non-TTY) output skips markdown and prints
+raw text.
 
 Interrupt and approval are covered under "The HIL round-trip" above:
 `renderer.watch` consumes the shared `keys` channel during a turn, routing
