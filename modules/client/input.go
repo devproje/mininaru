@@ -7,16 +7,19 @@ import (
 	"errors"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 	"unicode"
 	"unicode/utf8"
 )
 
 const (
-	shiftEnterParams string = "13;2"
-	ctrlArrowParams  string = "1;5"
-	homeKeyParams    string = "1"
-	endKeyParams     string = "4"
+	ctrlArrowParams string = "1;5"
+	homeKeyParams   string = "1"
+	endKeyParams    string = "4"
+	enterKey        int    = 13
+	kittyKbEnable   string = "\x1b[>1u"
+	kittyKbDisable  string = "\x1b[<u"
 )
 
 var errInterrupted error = errors.New("interrupted")
@@ -152,6 +155,35 @@ func rowsFor(cols int, text string) int {
 	return rows
 }
 
+func csiUCode(params string) (int, int) {
+	var fields []string
+	var code int
+	var mods int
+
+	var err error
+
+	fields = strings.Split(params, ";")
+
+	code, err = strconv.Atoi(strings.SplitN(fields[0], ":", 2)[0])
+	if err != nil {
+		return 0, 1
+	}
+
+	mods = 1
+	if len(fields) > 1 {
+		mods, err = strconv.Atoi(strings.SplitN(fields[1], ":", 2)[0])
+		if err != nil || mods < 1 {
+			mods = 1
+		}
+	}
+
+	return code, mods
+}
+
+func modHas(mods int, bit int) bool {
+	return (mods-1)&bit != 0
+}
+
 func (e *editor) redraw(before string, line []rune, pos int) {
 	var cols int
 	var oldRows int
@@ -174,6 +206,8 @@ func (e *editor) redraw(before string, line []rune, pos int) {
 
 func (e *editor) readLine() (string, error) {
 	var buf []byte
+	var synth byte
+	var haveSynth bool
 	var line []rune
 	var pending []byte
 	var before string
@@ -181,6 +215,8 @@ func (e *editor) readLine() (string, error) {
 	var params string
 	var letter rune
 	var final byte
+	var code int
+	var mods int
 	var pos int
 	var killFrom int
 	var histPos int
@@ -193,9 +229,14 @@ func (e *editor) readLine() (string, error) {
 	write("%s", e.prompt)
 
 	for {
-		buf[0], err = e.keys.next()
-		if err != nil {
-			return "", err
+		if haveSynth {
+			buf[0] = synth
+			haveSynth = false
+		} else {
+			buf[0], err = e.keys.next()
+			if err != nil {
+				return "", err
+			}
 		}
 
 		switch buf[0] {
@@ -297,13 +338,19 @@ func (e *editor) readLine() (string, error) {
 
 			switch final {
 			case 'u':
-				if params != shiftEnterParams {
+				code, mods = csiUCode(params)
+
+				if code == enterKey {
+					line = append(line, '\n')
+					pos = len(line)
+					write("\n")
 					continue
 				}
 
-				line = append(line, '\n')
-				pos = len(line)
-				write("\n")
+				if modHas(mods, 0x04) && code >= 'a' && code <= 'z' {
+					synth = byte(code) - 0x60
+					haveSynth = true
+				}
 			case 'D':
 				if params == ctrlArrowParams {
 					pos = wordBoundaryLeft(line, pos)
