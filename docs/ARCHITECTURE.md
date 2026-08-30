@@ -57,11 +57,15 @@ its callers.
 front end. It imports `core` for its `Agent`/`Session` types and `util`, and
 reaches a `mininaru serve` instance only through its public `/api` and `/ws`
 surface; it never touches SQLite and nothing in `core` imports it. The admin
-subcommands (`provider`, `agent`, `session`) are the opposite: `cli/main.go`
-opens the local SQLite file itself and those commands call `core/*`
-directly, so they always operate on the `NARU_PATH` database the CLI process
-was started against, never on a remote server the way `serve` or a client
-`--url` can.
+subcommands (`provider`, `agent`, `session`) default to the opposite:
+`cli/main.go` opens the local SQLite file itself and those commands call
+`core/*` directly against the `NARU_PATH` database. Passing `--gateway <name>`
+(a saved endpoint from `cli/gateway.go`, `.mininaru/gateways.json`) or a bare
+`--url`/`--api-key` flips the read paths (`list`, `show`) and the
+`session remove` / `provider remove` / `provider activate` paths to the
+remote's `/api` instead, via `cli/remote.go`'s helpers over `client.Api`.
+`add` and `set` are always local; `mcp` and `skill` have no `/api` and are
+always local.
 
 ## Storage
 
@@ -632,7 +636,10 @@ error means an ordinary failure like "session not found" prints one clean
 small `resolveX(idOrName)` helper that tries reading by id first and falls
 back to a name match, so `agent show naru` and `agent show <uuid>` both
 work. `session list` defaults to every session (`core.SessionListAll`) and
-narrows to one agent with `--agent`. `mcp` and `skill` are the other two
+narrows to one agent with `--agent`. Against a `--gateway`/`--url` remote
+these read paths scan the `/api` list instead (the `/api/sessions` route
+needs an `agent_id`, so a remote `session list` sweeps every agent). `mcp`
+and `skill` are the other two
 admin groups — `mcp` in its own section above, `skill` with `list`/`show
 <name>`/`uses`.
 

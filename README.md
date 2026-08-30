@@ -382,15 +382,26 @@ mininaru gateway remove prod
 Entries live in `.mininaru/gateways.json` (file mode `0600`, api keys stored
 in the clear, same as `.mininaru/mininaru.key`).
 
-`--gateway <name>` then works anywhere `--url`/`--api-key` would:
+`--gateway <name>` (or a bare `--url`/`--api-key`) then works anywhere:
 
 ```sh
 mininaru --gateway prod                 # REPL against the remote
 mininaru -p "hi" --gateway prod         # one-shot against the remote
+
+mininaru agent list --gateway prod      # inspect the remote's agents
+mininaru provider list --gateway prod
+mininaru session list --gateway prod
+mininaru session remove <id> --gateway prod
+mininaru provider activate <name> --gateway prod
 ```
 
-`--gateway` cannot be combined with an explicit `--url` or `--api-key`. With no
-`--gateway`, nothing changes — the client still uses `ws://127.0.0.1:8223/ws`.
+Management commands hit the remote's `/api` for reads (`list`, `show`) and for
+`session remove` / `provider remove` / `provider activate`. `add` and `set` stay
+local — configure a remote box on that box. `mcp` and `skill` have no remote API
+and are always local.
+
+`--gateway` cannot be combined with an explicit `--url`. With neither,
+everything is local: `ws://127.0.0.1:8223/ws` and the local SQLite DB.
 
 ## API
 
