@@ -39,6 +39,7 @@ func init() {
 	register(&command{name: "bash", usage: "<command...>", short: "run one shell command", run: cmdBash})
 	register(&command{name: "!bash", usage: "<command...>", short: "run one shell command, don't share it with the agent", run: cmdBashQuiet})
 	register(&command{name: "session", usage: "[id-or-name]", short: "show or switch session", run: cmdSession})
+	register(&command{name: "gateway", short: "pick a remote endpoint and session, then reconnect", run: cmdGateway})
 	register(&command{name: "agent", usage: "<id-or-name>", short: "switch agent on a new session", run: cmdAgent})
 	register(&command{name: "model", usage: "<model>", short: "change the agent model", run: cmdModel})
 	register(&command{name: "effort", usage: "off|low|medium|high|max", short: "change the thinking level", run: cmdEffort})

@@ -329,6 +329,7 @@ one), named at that point with a random `adjective-noun` pair
 /bash       run one shell command; the command and its output are posted to the agent
 /!bash      same, without sharing the output with the agent
 /session    show or switch the current session
+/gateway    pick a saved gateway and a session on it, then reconnect
 /agent      switch agent on a new session
 /model      change the connected agent's model
 /effort     change the connected agent's reasoning effort (off|low|medium|high|max)
@@ -402,6 +403,10 @@ and are always local.
 
 `--gateway` cannot be combined with an explicit `--url`. With neither,
 everything is local: `ws://127.0.0.1:8223/ws` and the local SQLite DB.
+
+Inside the REPL, `/gateway` opens an arrow-key picker over the saved
+gateways, then over that gateway's sessions (or `＋ new session`), and
+reconnects the shell to the chosen one — no restart needed.
 
 ## API
 
