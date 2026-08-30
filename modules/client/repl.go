@@ -183,7 +183,7 @@ func (sh *Shell) turn(prompt string) error {
 		sh.reconnect()
 	}
 
-	return Receive(sh.conn, sh.session.Id, sh.keys)
+	return Receive(sh.conn, sh.session.Id, sh.keys, "")
 }
 
 func (sh *Shell) handle(line string) {

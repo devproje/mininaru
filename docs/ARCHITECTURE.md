@@ -735,6 +735,15 @@ session (deleting it on exit unless `--session` was given), dial, `attach`,
 send one frame, and `Receive` with a `nil` key stream so there is no
 interrupt watcher.
 
+`--format` / `-f` (`string` default, or `json`/`xml`) is checked by
+`client.ValidFormat` and threaded into `Receive`. For `string` the read loop
+drives `renderer.frame` exactly as the REPL does; for `json`/`xml` it drives
+`renderer.collect` instead, which writes nothing to stdout — it accumulates the
+content deltas and terminal `tool` statuses, auto-denies `approval_request`
+(no TTY to ask), and on `done`/`error` marshals one `client.Result`
+(`format.go`) via `marshalResult` and prints it. An `error` frame still prints
+the object and returns the error, so the process exits non-zero.
+
 ### Platform split — `exec_unix.go` / `exec_windows.go`
 
 Two functions, `setGroup` and `killGroup`, are the only OS-specific surface,
