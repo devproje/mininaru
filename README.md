@@ -339,6 +339,33 @@ Input history is a plain text file, `.mininaru/history` by default (or
 `$NARU_HISTFILE`); `$HISTSIZE`/`$HISTFILESIZE` cap what's kept in memory and
 written back, the same way bash honors them.
 
+## Non-interactive (`-p`)
+
+```sh
+mininaru -p "<prompt>"                            # one-shot, streams the transcript
+mininaru -p "<prompt>" --session <id>             # run the turn on an existing session
+mininaru -p "<prompt>" --format json              # -f json | xml | string (default)
+```
+
+`-p` runs a single turn without the REPL and exits. With no `--session` the
+throwaway session it creates is deleted on exit.
+
+`--format string` (the default) prints the same streamed transcript the REPL
+shows. `--format json` and `--format xml` suppress the transcript and print one
+object when the turn ends:
+
+```json
+{
+  "session_id": "quiet-otter",
+  "content": "the final answer text",
+  "tools": [{ "name": "bash", "status": "finished" }]
+}
+```
+
+In `json`/`xml` mode there is no prompt to approve tool calls, so any
+approval request is auto-denied; a failed turn still prints the object (with an
+`error` field) and exits non-zero.
+
 ## API
 
 `POST /api/v1/chat/completions` and `GET /api/v1/models` are OpenAI-compatible.

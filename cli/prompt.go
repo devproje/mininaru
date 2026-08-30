@@ -28,6 +28,10 @@ func shortPrompt(prompt string) error {
 		return fmt.Errorf("prompt is empty")
 	}
 
+	if !client.ValidFormat(promptFormatRef) {
+		return fmt.Errorf("unknown --format %q (want string|json|xml)", promptFormatRef)
+	}
+
 	apiKey = client.ResolveApiKey(promptApiKeyRef, promptUrlRef)
 
 	base, err = client.ApiBase(promptUrlRef)
@@ -65,5 +69,5 @@ func shortPrompt(prompt string) error {
 		return err
 	}
 
-	return client.Receive(conn, session.Id, nil)
+	return client.Receive(conn, session.Id, nil, promptFormatRef)
 }

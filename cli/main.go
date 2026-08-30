@@ -24,6 +24,7 @@ var (
 	promptSessionRef string
 	promptAgentRef   string
 	promptApiKeyRef  string
+	promptFormatRef  string
 )
 
 var root *cobra.Command = &cobra.Command{
@@ -112,6 +113,7 @@ func main() {
 	root.Flags().StringVar(&promptSessionRef, "session", "", "existing session id to prompt on")
 	root.Flags().StringVar(&promptAgentRef, "agent", "", "agent name to open a new session with")
 	root.Flags().StringVar(&promptApiKeyRef, "api-key", "", "api key for the mininaru server")
+	root.Flags().StringVarP(&promptFormatRef, "format", "f", client.FormatString, "output format for -p: string|json|xml")
 
 	root.AddCommand(serve)
 	root.AddCommand(daemonCmd)

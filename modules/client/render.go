@@ -22,6 +22,9 @@ type renderer struct {
 	md       mdRenderer
 	mode     string
 	rich     bool
+	format   string
+	content  strings.Builder
+	tools    []ToolResult
 	stop     func()
 	mu       sync.Mutex
 	awaiting atomic.Bool
@@ -352,16 +355,72 @@ func (r *renderer) frame(reply Reply) (bool, error) {
 	return false, nil
 }
 
-func Receive(conn *websocket.Conn, session string, stream keys) error {
+func (r *renderer) emit(failure string) (bool, error) {
+	var result Result
+	var out []byte
+
+	var err error
+
+	result = Result{
+		SessionId: r.session,
+		Content:   r.content.String(),
+		Tools:     r.tools,
+		Error:     failure,
+	}
+
+	out, err = marshalResult(r.format, result)
+	if err != nil {
+		return true, err
+	}
+
+	fmt.Println(string(out))
+
+	if failure != "" {
+		return true, fmt.Errorf("%s", failure)
+	}
+
+	return true, nil
+}
+
+func (r *renderer) collect(reply Reply) (bool, error) {
+	var err error
+
+	switch reply.Type {
+	case "chunk":
+		if reply.Chunk != nil && len(reply.Chunk.Choices) > 0 {
+			r.content.WriteString(reply.Chunk.Choices[0].Delta.Content)
+		}
+	case "tool":
+		if reply.Status == "finished" || reply.Status == "failed" {
+			r.tools = append(r.tools, ToolResult{Name: reply.Name, Status: reply.Status})
+		}
+	case "approval_request":
+		err = r.send(Frame{Type: "approval", SessionId: r.session, Decision: "deny"})
+		if err != nil {
+			return true, err
+		}
+	case "error":
+		return r.emit(reply.Message)
+	case "done":
+		return r.emit("")
+	}
+
+	return false, nil
+}
+
+func Receive(conn *websocket.Conn, session string, stream keys, format string) error {
 	var render *renderer
 	var reply Reply
+	var structured bool
 	var done chan struct{}
 	var stop bool
 
 	var err error
 
-	render = &renderer{conn: conn, session: session, keys: stream, rich: isTty(), answers: make(chan byte, 1)}
+	render = &renderer{conn: conn, session: session, keys: stream, rich: isTty(), format: format, answers: make(chan byte, 1)}
 	defer render.halt()
+
+	structured = format != "" && format != FormatString
 
 	if stream != nil {
 		done = make(chan struct{})
@@ -378,7 +437,12 @@ func Receive(conn *websocket.Conn, session string, stream keys) error {
 			return err
 		}
 
-		stop, err = render.frame(reply)
+		if structured {
+			stop, err = render.collect(reply)
+		} else {
+			stop, err = render.frame(reply)
+		}
+
 		if stop {
 			return err
 		}
