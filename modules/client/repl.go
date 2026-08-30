@@ -292,7 +292,13 @@ func Run(opts Options) error {
 	if err != nil {
 		return err
 	}
-	defer term.Restore(int(os.Stdin.Fd()), sh.state)
+
+	write(kittyKbEnable)
+
+	defer func() {
+		write(kittyKbDisable)
+		term.Restore(int(os.Stdin.Fd()), sh.state)
+	}()
 
 	sh.keys = newKeys()
 
