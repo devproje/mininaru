@@ -366,6 +366,32 @@ In `json`/`xml` mode there is no prompt to approve tool calls, so any
 approval request is auto-denied; a failed turn still prints the object (with an
 `error` field) and exits non-zero.
 
+## Gateways
+
+A gateway is a saved name for a remote mininaru's websocket URL and api key,
+so you don't retype `--url`/`--api-key` every time.
+
+```sh
+mininaru gateway add prod ws://box:8223/ws --api-key '<KEY>'
+mininaru gateway list
+mininaru gateway show prod          # api key is masked
+mininaru gateway set prod --api-key '<NEW>'
+mininaru gateway remove prod
+```
+
+Entries live in `.mininaru/gateways.json` (file mode `0600`, api keys stored
+in the clear, same as `.mininaru/mininaru.key`).
+
+`--gateway <name>` then works anywhere `--url`/`--api-key` would:
+
+```sh
+mininaru --gateway prod                 # REPL against the remote
+mininaru -p "hi" --gateway prod         # one-shot against the remote
+```
+
+`--gateway` cannot be combined with an explicit `--url` or `--api-key`. With no
+`--gateway`, nothing changes — the client still uses `ws://127.0.0.1:8223/ws`.
+
 ## API
 
 `POST /api/v1/chat/completions` and `GET /api/v1/models` are OpenAI-compatible.

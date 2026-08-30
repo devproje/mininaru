@@ -59,6 +59,11 @@ func execute(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
+	err = applyGateway(cmd)
+	if err != nil {
+		return err
+	}
+
 	if promptRef != "" {
 		err = shortPrompt(promptRef)
 		if err != nil {
@@ -114,8 +119,10 @@ func main() {
 	root.Flags().StringVar(&promptAgentRef, "agent", "", "agent name to open a new session with")
 	root.Flags().StringVar(&promptApiKeyRef, "api-key", "", "api key for the mininaru server")
 	root.Flags().StringVarP(&promptFormatRef, "format", "f", client.FormatString, "output format for -p: string|json|xml")
+	root.PersistentFlags().StringVar(&gatewayRef, "gateway", "", "named remote endpoint from 'mininaru gateway'")
 
 	root.AddCommand(serve)
+	root.AddCommand(gatewayCmd)
 	root.AddCommand(daemonCmd)
 	root.AddCommand(providerCmd)
 	root.AddCommand(agentCmd)
