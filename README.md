@@ -312,7 +312,7 @@ one), named at that point with a random `adjective-noun` pair
 | Key | Effect |
 |---|---|
 | `↑` / `↓` | recall input history |
-| `Shift+Enter` | insert a newline, keep composing |
+| `Shift+Enter` (or `Ctrl+J`) | insert a newline, keep composing |
 | `Ctrl+A` / `Ctrl+E` | start / end of line |
 | `Ctrl+K` / `Ctrl+U` / `Ctrl+W` | kill to end / kill to start / kill word back |
 | `Ctrl+Y` | yank the last kill back in |

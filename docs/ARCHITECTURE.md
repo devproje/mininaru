@@ -770,9 +770,14 @@ expansion — both were shell-era features.
   boundary logic), Ctrl+Y yank the last kill. Ctrl+L clears the screen.
 - Ctrl+C returns `errInterrupted` (the loop just re-prompts), Ctrl+D returns
   `io.EOF` (quit).
-- Ctrl+J, or Shift+Enter when the terminal sends the Kitty CSI-u `13;2u`
-  sequence, inserts a literal newline instead of submitting; mininaru never
-  turns the Kitty protocol on itself, so Ctrl+J is the portable path.
+- `Run` (`repl.go`) writes `ESC [ > 1 u` after `MakeRaw` to push the Kitty
+  keyboard protocol (and `ESC [ < u` to pop it on exit). With it on, Shift+Enter
+  arrives as CSI-u `13;2u`; `csiUCode` parses any `<code>;<mods>u`, a modified
+  Enter (`code == 13`) inserts a literal newline instead of submitting, and a
+  Ctrl+letter event — which the protocol also reports as CSI-u — is turned back
+  into its control byte and re-fed through `synth`/`haveSynth` so Ctrl+C/D and
+  the kill/yank keys keep working. Ctrl+J is the fallback on terminals that
+  ignore the push.
 - Up/Down recall `sh.history` — one list, since there is only one mode.
   `history.go` loads/saves it to `NARU_PATH/history` (`NARU_HISTFILE` to
   override), trimmed to `HISTSIZE`/`HISTFILESIZE` (default 500);
