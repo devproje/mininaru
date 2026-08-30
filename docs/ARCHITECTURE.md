@@ -727,13 +727,27 @@ frame, prints the banner, seeds yolo mode, puts the terminal in raw mode
 (`golang.org/x/term`), and runs `loop()`: read a line, record it in
 history, and either `dispatch` it or `sh.turn(line)` it. `sh.turn` writes
 the chat frame and calls `Receive` to stream the reply; on a write error it
-reconnects and retries up to `reconnectAttempts` (3).
+reconnects once and retries the send.
+
+One goroutine owns every `/ws` read for the session's lifetime: `Pump`
+(`client.go`) loops `conn.ReadJSON` into a buffered `<-chan Reply` and closes
+it when the socket drops. Both `Receive` (during a turn) and `editor.readLine`
+(at the prompt) consume that one channel, so a frame is never lost to whichever
+side isn't looking — `session_send` from another agent, which the session lock
+serialises to only arrive while your session is idle, reaches the editor
+instead of sitting in the socket buffer until your next turn. `readLine`
+`select`s the frame channel against the key channel; a `session_send` round is
+folded into an `ambient` (`ambient.go`) — name, injected prompt, reply deltas,
+tool names — and printed as one blue-`┆`-guttered block above a redrawn prompt
+when the round's `done`/`error` lands. A closed channel surfaces as `errGone`
+from either consumer; `loop()` reconnects and carries on, `turn()` reports it
+and the user re-sends.
 
 Non-TTY stdin is refused with a pointer to `-p`. `mininaru -p "<prompt>"`
 (`cli/prompt.go`) runs the same wire protocol without the editor: resolve a
 session (deleting it on exit unless `--session` was given), dial, `attach`,
-send one frame, and `Receive` with a `nil` key stream so there is no
-interrupt watcher.
+send one frame, and `Receive` (fed by its own `Pump`) with a `nil` key stream
+so there is no interrupt watcher.
 
 `--format` / `-f` (`string` default, or `json`/`xml`) is checked by
 `client.ValidFormat` and threaded into `Receive`. For `string` the read loop
@@ -758,18 +772,20 @@ escapes arrive the same way a unix pty sends them).
 
 ### Reconnecting
 
-There is no background dialer. `sh.turn` (`repl.go`) retries a failed
-`WriteJSON` up to `reconnectAttempts` (3) with a `reconnectDelay` pause,
-calling `sh.reconnect()` — dial a fresh `/ws`, close the old conn, re-send
-the `attach` frame for the **existing** session id — between tries, so a
-`mininaru serve` restart between turns is invisible. A drop *during* a
-streamed reply surfaces as the turn's error; the next line reconnects.
+There is no background dialer. `sh.reconnect()` (`repl.go`) dials a fresh
+`/ws`, closes the old conn, re-sends the `attach` frame for the **existing**
+session id, and starts a new `Pump`. `sh.turn` calls it once on a failed
+`WriteJSON` and retries the send; `Receive` and `readLine` call it when the
+frame channel closes mid-stream. A `mininaru serve` restart between turns is
+invisible; a drop *during* a streamed reply loses that turn and the user
+re-sends.
 
 ### Line editing
 
-`editor.readLine()` (`input.go`) is a byte-at-a-time raw-terminal reader
-over the shared `keys` channel. There is no Tab completion and no `@file`
-expansion — both were shell-era features.
+`editor.readLine()` (`input.go`) is a byte-at-a-time raw-terminal reader that
+`select`s the shared `keys` channel against the `Pump` frame channel (see "One
+mode"). There is no Tab completion and no `@file` expansion — both were
+shell-era features.
 
 - Left/Right by character; Ctrl+Left/Right (`ESC [ 1;5 D/C`) and Home/End
   (`ESC [ H/F` or VT220 `ESC [ 1~`/`4~`) by word / line end. Typing and

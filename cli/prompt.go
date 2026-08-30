@@ -69,5 +69,5 @@ func shortPrompt(prompt string) error {
 		return err
 	}
 
-	return client.Receive(conn, session.Id, nil, promptFormatRef)
+	return client.Receive(conn, client.Pump(conn), session.Id, nil, promptFormatRef)
 }

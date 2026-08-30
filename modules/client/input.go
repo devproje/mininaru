@@ -24,6 +24,8 @@ const (
 
 var errInterrupted error = errors.New("interrupted")
 
+var errGone error = errors.New("connection lost")
+
 type keys chan byte
 
 func newKeys() keys {
@@ -72,6 +74,8 @@ func (k keys) next() (byte, error) {
 
 type editor struct {
 	keys    keys
+	frames  <-chan Reply
+	onFrame func(Reply) string
 	history []string
 	kill    []rune
 	prompt  string
@@ -184,7 +188,7 @@ func modHas(mods int, bit int) bool {
 	return (mods-1)&bit != 0
 }
 
-func (e *editor) redraw(before string, line []rune, pos int) {
+func (e *editor) repaint(above string, before string, line []rune, pos int) {
 	var cols int
 	var oldRows int
 	var trailing int
@@ -196,7 +200,7 @@ func (e *editor) redraw(before string, line []rune, pos int) {
 		write("\x1b[%dA", oldRows-1)
 	}
 
-	write("\r\x1b[0J%s%s", e.prompt, string(line))
+	write("\r\x1b[0J%s%s%s", above, e.prompt, string(line))
 
 	trailing = displayWidth(string(line[pos:]))
 	if trailing > 0 {
@@ -204,10 +208,17 @@ func (e *editor) redraw(before string, line []rune, pos int) {
 	}
 }
 
+func (e *editor) redraw(before string, line []rune, pos int) {
+	e.repaint("", before, line, pos)
+}
+
 func (e *editor) readLine() (string, error) {
 	var buf []byte
 	var synth byte
 	var haveSynth bool
+	var reply Reply
+	var ok bool
+	var block string
 	var line []rune
 	var pending []byte
 	var before string
@@ -221,8 +232,6 @@ func (e *editor) readLine() (string, error) {
 	var killFrom int
 	var histPos int
 
-	var err error
-
 	buf = make([]byte, 1)
 	histPos = len(e.history)
 
@@ -233,9 +242,22 @@ func (e *editor) readLine() (string, error) {
 			buf[0] = synth
 			haveSynth = false
 		} else {
-			buf[0], err = e.keys.next()
-			if err != nil {
-				return "", err
+			select {
+			case reply, ok = <-e.frames:
+				if !ok {
+					return "", errGone
+				}
+
+				block = e.onFrame(reply)
+				if block != "" {
+					e.repaint(block, string(line), line, pos)
+				}
+
+				continue
+			case buf[0], ok = <-e.keys:
+				if !ok {
+					return "", io.EOF
+				}
 			}
 		}
 

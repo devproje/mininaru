@@ -408,11 +408,12 @@ func (r *renderer) collect(reply Reply) (bool, error) {
 	return false, nil
 }
 
-func Receive(conn *websocket.Conn, session string, stream keys, format string) error {
+func Receive(conn *websocket.Conn, frames <-chan Reply, session string, stream keys, format string) error {
 	var render *renderer
 	var reply Reply
 	var structured bool
 	var done chan struct{}
+	var ok bool
 	var stop bool
 
 	var err error
@@ -430,11 +431,9 @@ func Receive(conn *websocket.Conn, session string, stream keys, format string) e
 	}
 
 	for {
-		reply = Reply{}
-
-		err = conn.ReadJSON(&reply)
-		if err != nil {
-			return err
+		reply, ok = <-frames
+		if !ok {
+			return errGone
 		}
 
 		if structured {

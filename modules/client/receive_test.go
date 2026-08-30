@@ -96,7 +96,7 @@ func TestReceiveApproval(t *testing.T) {
 	}
 	defer conn.Close()
 
-	err = Receive(conn, "s1", nil, "")
+	err = Receive(conn, Pump(conn), "s1", nil, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,7 +162,7 @@ func TestReceiveInterruptOnCtrlC(t *testing.T) {
 	stream = make(keys, 4)
 	stream <- 0x03
 
-	err = Receive(conn, "s1", stream, "")
+	err = Receive(conn, Pump(conn), "s1", stream, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -234,7 +234,7 @@ func TestReceiveJSONFormat(t *testing.T) {
 	}
 	defer conn.Close()
 
-	err = Receive(conn, "s1", nil, FormatJSON)
+	err = Receive(conn, Pump(conn), "s1", nil, FormatJSON)
 	write.Close()
 	os.Stdout = stdout
 	if err != nil {
