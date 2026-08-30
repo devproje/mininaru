@@ -219,6 +219,30 @@ func ResolveApiKey(explicit string, endpoint string) string {
 	return strings.TrimSpace(string(fromFile))
 }
 
+func Pump(conn *websocket.Conn) <-chan Reply {
+	var out chan Reply
+
+	out = make(chan Reply, 64)
+
+	go func() {
+		var reply Reply
+
+		for {
+			reply = Reply{}
+
+			if conn.ReadJSON(&reply) != nil {
+				close(out)
+
+				return
+			}
+
+			out <- reply
+		}
+	}()
+
+	return out
+}
+
 func Dial(endpoint string, apiKey string) (*websocket.Conn, error) {
 	var dialer websocket.Dialer
 	var header http.Header

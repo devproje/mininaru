@@ -11,7 +11,6 @@ import (
 	"net/url"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/devproje/mininaru/core"
 	"github.com/devproje/mininaru/util"
@@ -37,6 +36,8 @@ type Shell struct {
 	session *core.Session
 	history []string
 	keys    keys
+	frames  <-chan Reply
+	inbox   ambient
 	state   *term.State
 	quit    bool
 }
@@ -102,7 +103,14 @@ func (sh *Shell) reconnect() error {
 
 	sh.conn = conn
 
-	return sh.attach()
+	err = sh.attach()
+	if err != nil {
+		return err
+	}
+
+	sh.frames = Pump(sh.conn)
+
+	return nil
 }
 
 func (sh *Shell) raw() error {
@@ -163,27 +171,36 @@ func (sh *Shell) banner() {
 	write("\n")
 }
 
-const reconnectAttempts int = 3
-const reconnectDelay time.Duration = 300 * time.Millisecond
-
-func (sh *Shell) turn(prompt string) error {
-	var attempt int
+func (sh *Shell) send(prompt string) error {
 	var err error
 
-	for attempt = 0; ; attempt++ {
-		err = sh.conn.WriteJSON(Frame{SessionId: sh.session.Id, Content: prompt, Cwd: sh.cwd})
-		if err == nil {
-			break
-		}
-		if attempt >= reconnectAttempts {
-			return err
-		}
+	err = sh.conn.WriteJSON(Frame{SessionId: sh.session.Id, Content: prompt, Cwd: sh.cwd})
+	if err == nil {
+		return nil
+	}
 
-		time.Sleep(reconnectDelay)
+	err = sh.reconnect()
+	if err != nil {
+		return err
+	}
+
+	return sh.conn.WriteJSON(Frame{SessionId: sh.session.Id, Content: prompt, Cwd: sh.cwd})
+}
+
+func (sh *Shell) turn(prompt string) error {
+	var err error
+
+	err = sh.send(prompt)
+	if err != nil {
+		return err
+	}
+
+	err = Receive(sh.conn, sh.frames, sh.session.Id, sh.keys, "")
+	if errors.Is(err, errGone) {
 		sh.reconnect()
 	}
 
-	return Receive(sh.conn, sh.session.Id, sh.keys, "")
+	return err
 }
 
 func (sh *Shell) handle(line string) {
@@ -204,19 +221,38 @@ func (sh *Shell) handle(line string) {
 	}
 }
 
+func (sh *Shell) ambientBlock(reply Reply) string {
+	sh.inbox.feed(reply)
+
+	if reply.Type != "done" && reply.Type != "error" {
+		return ""
+	}
+
+	return sh.inbox.flush()
+}
+
 func (sh *Shell) loop() error {
 	var line string
 	var input editor
 
 	var err error
 
-	input = editor{keys: sh.keys, history: sh.history}
+	input = editor{keys: sh.keys, onFrame: sh.ambientBlock, history: sh.history}
 
 	for !sh.quit {
 		input.prompt = sh.prompt()
 		input.history = sh.history
+		input.frames = sh.frames
 
 		line, err = input.readLine()
+		if errors.Is(err, errGone) {
+			err = sh.reconnect()
+			if err != nil {
+				return err
+			}
+
+			continue
+		}
 		if errors.Is(err, errInterrupted) {
 			continue
 		}
@@ -301,6 +337,7 @@ func Run(opts Options) error {
 	}()
 
 	sh.keys = newKeys()
+	sh.frames = Pump(sh.conn)
 
 	err = sh.loop()
 
