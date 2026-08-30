@@ -33,20 +33,21 @@ type Gateway struct {
 }
 
 type Shell struct {
-	url     string
-	base    string
-	apiKey  string
-	cwd     string
-	yolo    string
-	conn    *websocket.Conn
-	agent   *core.Agent
-	session *core.Session
-	history []string
-	keys    keys
-	frames  <-chan Reply
-	inbox   ambient
-	state   *term.State
-	quit    bool
+	url      string
+	base     string
+	apiKey   string
+	cwd      string
+	yolo     string
+	conn     *websocket.Conn
+	agent    *core.Agent
+	session  *core.Session
+	history  []string
+	gateways []Gateway
+	keys     keys
+	frames   <-chan Reply
+	inbox    ambient
+	state    *term.State
+	quit     bool
 }
 
 func (sh *Shell) patchAgent(payload map[string]string) error {
@@ -293,7 +294,7 @@ func Run(opts Options) error {
 		return fmt.Errorf("stdin is not a terminal — use -p for a one-shot prompt")
 	}
 
-	sh = Shell{url: opts.Url, apiKey: ResolveApiKey(opts.ApiKey, opts.Url)}
+	sh = Shell{url: opts.Url, apiKey: ResolveApiKey(opts.ApiKey, opts.Url), gateways: opts.Gateways}
 
 	sh.cwd, err = os.Getwd()
 	if err != nil {

@@ -736,6 +736,14 @@ history, and either `dispatch` it or `sh.turn(line)` it. `sh.turn` writes
 the chat frame and calls `Receive` to stream the reply; on a write error it
 reconnects once and retries the send.
 
+`/gateway` (`gateway.go`) is the one command that re-points the whole shell:
+`selectFrom` (`selector.go`, an arrow-key list picker over `sh.keys`) chooses a
+saved `Gateway` (passed in via `Options.Gateways`), then a session on it
+(sweeping every agent, since `/api/sessions` needs an `agent_id`) or a fresh
+one, then `switchGateway` sets `sh.url`/`base`/`apiKey`/`session`/`agent` and
+calls `sh.reconnect()` — which already re-dials `sh.url`, re-attaches, and
+starts a new `Pump`.
+
 One goroutine owns every `/ws` read for the session's lifetime: `Pump`
 (`client.go`) loops `conn.ReadJSON` into a buffered `<-chan Reply` and closes
 it when the socket drops. Both `Receive` (during a turn) and `editor.readLine`
