@@ -10,6 +10,7 @@ import (
 
 type mdRenderer struct {
 	buf     string
+	table   []string
 	inFence bool
 }
 
@@ -55,7 +56,7 @@ func inlineMarkdown(s string) string {
 		if s[i] == '`' {
 			end = strings.IndexByte(s[i+1:], '`')
 			if end >= 0 {
-				out = fmt.Sprintf("%s\x1b[7m %s \x1b[27m", out, s[i+1:i+1+end])
+				out = fmt.Sprintf("%s%s%s%s", out, RED, s[i+1:i+1+end], RESET)
 				i = i + end + 1
 				continue
 			}
@@ -166,6 +167,186 @@ func listItem(trimmed string) (string, bool) {
 	return "", false
 }
 
+func isTableRow(trimmed string) bool {
+	return len(trimmed) >= 2 && strings.HasPrefix(trimmed, "|") && strings.HasSuffix(trimmed, "|")
+}
+
+func splitCells(row string) []string {
+	var cells []string
+	var i int
+
+	cells = strings.Split(strings.Trim(strings.TrimSpace(row), "|"), "|")
+
+	for i = 0; i < len(cells); i++ {
+		cells[i] = strings.TrimSpace(cells[i])
+	}
+
+	return cells
+}
+
+func isSeparatorCell(cell string) bool {
+	var i int
+
+	cell = strings.TrimSuffix(strings.TrimPrefix(cell, ":"), ":")
+
+	for i = 0; i < len(cell); i++ {
+		if cell[i] != '-' {
+			return false
+		}
+	}
+
+	return len(cell) > 0
+}
+
+func isTableSeparator(trimmed string) bool {
+	var cells []string
+	var cell string
+
+	cells = splitCells(trimmed)
+	if len(cells) == 0 {
+		return false
+	}
+
+	for _, cell = range cells {
+		if !isSeparatorCell(cell) {
+			return false
+		}
+	}
+
+	return true
+}
+
+func cellAligns(sep string) []int {
+	var cells []string
+	var aligns []int
+	var i int
+	var cell string
+
+	cells = splitCells(sep)
+	aligns = make([]int, len(cells))
+
+	for i = 0; i < len(cells); i++ {
+		cell = cells[i]
+
+		if strings.HasPrefix(cell, ":") && strings.HasSuffix(cell, ":") {
+			aligns[i] = 2
+			continue
+		}
+
+		if strings.HasSuffix(cell, ":") {
+			aligns[i] = 1
+		}
+	}
+
+	return aligns
+}
+
+func padCell(text string, width int, align int) string {
+	var gap int
+
+	gap = width - displayWidth(stripAnsi(text))
+	if gap <= 0 {
+		return text
+	}
+
+	switch align {
+	case 1:
+		return strings.Repeat(" ", gap) + text
+	case 2:
+		return strings.Repeat(" ", gap/2) + text + strings.Repeat(" ", gap-gap/2)
+	}
+
+	return text + strings.Repeat(" ", gap)
+}
+
+func renderTable(rows []string) string {
+	var aligns []int
+	var cells []string
+	var grid [][]string
+	var cols int
+	var widths []int
+	var cell string
+	var span int
+	var align int
+	var out strings.Builder
+	var r int
+	var c int
+
+	aligns = cellAligns(rows[1])
+
+	for r = 0; r < len(rows); r++ {
+		if r == 1 {
+			continue
+		}
+
+		cells = splitCells(rows[r])
+		grid = append(grid, cells)
+
+		if len(cells) > cols {
+			cols = len(cells)
+		}
+	}
+
+	widths = make([]int, cols)
+
+	for r = 0; r < len(grid); r++ {
+		for c = 0; c < cols && c < len(grid[r]); c++ {
+			grid[r][c] = inlineMarkdown(grid[r][c])
+
+			span = displayWidth(stripAnsi(grid[r][c]))
+			if span > widths[c] {
+				widths[c] = span
+			}
+		}
+	}
+
+	for r = 0; r < len(grid); r++ {
+		out.WriteString("  ")
+
+		for c = 0; c < cols; c++ {
+			cell = ""
+			if c < len(grid[r]) {
+				cell = grid[r][c]
+			}
+
+			if r == 0 {
+				cell = BOLD + cell + RESET
+			}
+
+			align = 0
+			if c < len(aligns) {
+				align = aligns[c]
+			}
+
+			out.WriteString(padCell(cell, widths[c], align))
+
+			if c < cols-1 {
+				out.WriteString("  ")
+			}
+		}
+
+		out.WriteString("\n")
+
+		if r != 0 {
+			continue
+		}
+
+		out.WriteString("  ")
+
+		for c = 0; c < cols; c++ {
+			out.WriteString(DIM + strings.Repeat("─", widths[c]) + RESET)
+
+			if c < cols-1 {
+				out.WriteString("  ")
+			}
+		}
+
+		out.WriteString("\n")
+	}
+
+	return out.String()
+}
+
 func (m *mdRenderer) formatLine(line string) string {
 	var trimmed string
 	var indent string
@@ -215,6 +396,43 @@ func (m *mdRenderer) formatLine(line string) string {
 	return indent + inlineMarkdown(strings.TrimLeft(line, " \t"))
 }
 
+func (m *mdRenderer) drainTable() string {
+	var rows []string
+	var out string
+	var row string
+
+	if len(m.table) == 0 {
+		return ""
+	}
+
+	rows = m.table
+	m.table = nil
+
+	if len(rows) < 2 || !isTableSeparator(rows[1]) {
+		for _, row = range rows {
+			out = out + m.formatLine(row) + "\n"
+		}
+
+		return out
+	}
+
+	return renderTable(rows)
+}
+
+func (m *mdRenderer) line(raw string) string {
+	var trimmed string
+
+	trimmed = strings.TrimSpace(raw)
+
+	if !m.inFence && isTableRow(trimmed) {
+		m.table = append(m.table, trimmed)
+
+		return ""
+	}
+
+	return m.drainTable() + m.formatLine(raw) + "\n"
+}
+
 func (m *mdRenderer) write(delta string) string {
 	var out string
 	var i int
@@ -225,7 +443,7 @@ func (m *mdRenderer) write(delta string) string {
 			continue
 		}
 
-		out = fmt.Sprintf("%s%s\n", out, m.formatLine(m.buf))
+		out = out + m.line(m.buf)
 		m.buf = ""
 	}
 
@@ -233,19 +451,23 @@ func (m *mdRenderer) write(delta string) string {
 }
 
 func (m *mdRenderer) flush() string {
+	var out string
 	var line string
 
+	out = m.drainTable()
+
 	if m.buf == "" {
-		return ""
+		return strings.TrimRight(out, "\n")
 	}
 
 	line = m.buf
 	m.buf = ""
 
-	return m.formatLine(line)
+	return out + m.formatLine(line)
 }
 
 func (m *mdRenderer) reset() {
 	m.buf = ""
+	m.table = nil
 	m.inFence = false
 }
