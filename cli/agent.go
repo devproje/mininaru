@@ -148,14 +148,22 @@ func agentAddExecute(cmd *cobra.Command, args []string) error {
 }
 
 func agentListExecute(cmd *cobra.Command, args []string) error {
+	var remote bool
 	var list []*core.Agent
 	var agent *core.Agent
 
 	var err error
 
-	list, err = core.AgentList()
+	remote, err = remoteGet(cmd, "/agents", &list)
 	if err != nil {
 		return err
+	}
+
+	if !remote {
+		list, err = core.AgentList()
+		if err != nil {
+			return err
+		}
 	}
 
 	if len(list) == 0 {
@@ -171,18 +179,38 @@ func agentListExecute(cmd *cobra.Command, args []string) error {
 }
 
 func agentShowExecute(cmd *cobra.Command, args []string) error {
+	var remote bool
+	var list []*core.Agent
+	var item *core.Agent
 	var agent *core.Agent
 
 	var err error
 
-	agent, err = resolveAgent(args[0])
+	remote, err = remoteGet(cmd, "/agents", &list)
 	if err != nil {
 		return err
 	}
 
-	printAgent(agent)
+	if !remote {
+		agent, err = resolveAgent(args[0])
+		if err != nil {
+			return err
+		}
 
-	return nil
+		printAgent(agent)
+
+		return nil
+	}
+
+	for _, item = range list {
+		if item.Id == args[0] || item.Name == args[0] {
+			printAgent(item)
+
+			return nil
+		}
+	}
+
+	return fmt.Errorf("agent %q not found", args[0])
 }
 
 func agentSetExecute(cmd *cobra.Command, args []string) error {

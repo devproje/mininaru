@@ -7,6 +7,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/url"
 
 	"github.com/devproje/mininaru/core"
 	"github.com/spf13/cobra"
@@ -78,14 +80,61 @@ func printSession(session *core.Session) {
 	fmt.Printf("  created_at  %s\n", session.CreatedAt)
 }
 
-func sessionListExecute(cmd *cobra.Command, args []string) error {
-	var agent *core.Agent
+func remoteSessions(cmd *cobra.Command, agentRef string) ([]*core.Session, error) {
+	var id string
 	var list []*core.Session
+	var part []*core.Session
+	var agents []*core.Agent
+	var one *core.Agent
+
+	var err error
+
+	if agentRef != "" {
+		id, _, err = remoteResolveId(cmd, "/agents", agentRef)
+		if err != nil {
+			return nil, err
+		}
+
+		_, err = remoteGet(cmd, "/sessions?agent_id="+url.QueryEscape(id), &list)
+
+		return list, err
+	}
+
+	_, err = remoteGet(cmd, "/agents", &agents)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, one = range agents {
+		part = nil
+
+		_, err = remoteGet(cmd, "/sessions?agent_id="+url.QueryEscape(one.Id), &part)
+		if err != nil {
+			return nil, err
+		}
+
+		list = append(list, part...)
+	}
+
+	return list, nil
+}
+
+func sessionListExecute(cmd *cobra.Command, args []string) error {
+	var remote bool
+	var list []*core.Session
+	var agent *core.Agent
 	var session *core.Session
 
 	var err error
 
-	if sessionListAgentRef != "" {
+	remote, err = remoteEnabled(cmd)
+	if err != nil {
+		return err
+	}
+
+	if remote {
+		list, err = remoteSessions(cmd, sessionListAgentRef)
+	} else if sessionListAgentRef != "" {
 		agent, err = resolveAgent(sessionListAgentRef)
 		if err != nil {
 			return err
@@ -112,22 +161,60 @@ func sessionListExecute(cmd *cobra.Command, args []string) error {
 }
 
 func sessionShowExecute(cmd *cobra.Command, args []string) error {
+	var remote bool
+	var list []*core.Session
+	var item *core.Session
 	var session *core.Session
 
 	var err error
 
-	session, err = resolveSession(args[0])
+	remote, err = remoteEnabled(cmd)
 	if err != nil {
 		return err
 	}
 
-	printSession(session)
+	if !remote {
+		session, err = resolveSession(args[0])
+		if err != nil {
+			return err
+		}
 
-	return nil
+		printSession(session)
+
+		return nil
+	}
+
+	list, err = remoteSessions(cmd, "")
+	if err != nil {
+		return err
+	}
+
+	for _, item = range list {
+		if item.Id == args[0] || item.Name == args[0] {
+			printSession(item)
+
+			return nil
+		}
+	}
+
+	return fmt.Errorf("session %q not found", args[0])
 }
 
 func sessionRemoveExecute(cmd *cobra.Command, args []string) error {
+	var remote bool
+
 	var err error
+
+	remote, err = remoteDo(cmd, http.MethodDelete, "/sessions/"+args[0])
+	if err != nil {
+		return err
+	}
+
+	if remote {
+		fmt.Printf("session %s removed\n", args[0])
+
+		return nil
+	}
 
 	_, err = resolveSession(args[0])
 	if err != nil {

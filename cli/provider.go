@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"net/http"
 
 	"github.com/devproje/mininaru/core"
 	"github.com/google/uuid"
@@ -167,14 +168,22 @@ func providerAddExecute(cmd *cobra.Command, args []string) error {
 }
 
 func providerListExecute(cmd *cobra.Command, args []string) error {
+	var remote bool
 	var list []*core.Provider
 	var prov *core.Provider
 
 	var err error
 
-	list, err = core.ProviderList()
+	remote, err = remoteGet(cmd, "/providers", &list)
 	if err != nil {
 		return err
+	}
+
+	if !remote {
+		list, err = core.ProviderList()
+		if err != nil {
+			return err
+		}
 	}
 
 	if len(list) == 0 {
@@ -190,18 +199,38 @@ func providerListExecute(cmd *cobra.Command, args []string) error {
 }
 
 func providerShowExecute(cmd *cobra.Command, args []string) error {
+	var remote bool
+	var list []*core.Provider
+	var item *core.Provider
 	var prov *core.Provider
 
 	var err error
 
-	prov, err = resolveProvider(args[0])
+	remote, err = remoteGet(cmd, "/providers", &list)
 	if err != nil {
 		return err
 	}
 
-	printProvider(prov)
+	if !remote {
+		prov, err = resolveProvider(args[0])
+		if err != nil {
+			return err
+		}
 
-	return nil
+		printProvider(prov)
+
+		return nil
+	}
+
+	for _, item = range list {
+		if item.Id == args[0] || item.Name == args[0] {
+			printProvider(item)
+
+			return nil
+		}
+	}
+
+	return fmt.Errorf("provider %q not found", args[0])
 }
 
 func providerSetExecute(cmd *cobra.Command, args []string) error {
@@ -225,9 +254,27 @@ func providerSetExecute(cmd *cobra.Command, args []string) error {
 }
 
 func providerRemoveExecute(cmd *cobra.Command, args []string) error {
+	var id string
+	var remote bool
 	var prov *core.Provider
 
 	var err error
+
+	id, remote, err = remoteResolveId(cmd, "/providers", args[0])
+	if err != nil {
+		return err
+	}
+
+	if remote {
+		_, err = remoteDo(cmd, http.MethodDelete, "/providers/"+id)
+		if err != nil {
+			return err
+		}
+
+		fmt.Printf("provider %s removed\n", id)
+
+		return nil
+	}
 
 	prov, err = resolveProvider(args[0])
 	if err != nil {
@@ -245,9 +292,27 @@ func providerRemoveExecute(cmd *cobra.Command, args []string) error {
 }
 
 func providerActivateExecute(cmd *cobra.Command, args []string) error {
+	var id string
+	var remote bool
 	var prov *core.Provider
 
 	var err error
+
+	id, remote, err = remoteResolveId(cmd, "/providers", args[0])
+	if err != nil {
+		return err
+	}
+
+	if remote {
+		_, err = remoteDo(cmd, http.MethodPost, "/providers/"+id+"/activate")
+		if err != nil {
+			return err
+		}
+
+		fmt.Printf("provider %s is now active\n", id)
+
+		return nil
+	}
 
 	prov, err = resolveProvider(args[0])
 	if err != nil {
