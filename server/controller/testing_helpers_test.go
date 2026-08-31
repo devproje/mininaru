@@ -41,6 +41,7 @@ func newRouter() *gin.Engine {
 	var providers *gin.RouterGroup
 	var sessions *gin.RouterGroup
 	var messages *gin.RouterGroup
+	var mcpServers *gin.RouterGroup
 
 	router = gin.New()
 	api = router.Group("/api")
@@ -74,6 +75,15 @@ func newRouter() *gin.Engine {
 	messages.GET("/:id", MessageRead)
 	messages.PATCH("/:id", MessageUpdate)
 	messages.DELETE("/:id", MessageDelete)
+
+	mcpServers = api.Group("/mcp")
+	mcpServers.GET("", McpList)
+	mcpServers.POST("", McpCreate)
+	mcpServers.POST("/reload", McpReload)
+	mcpServers.GET("/:name", McpRead)
+	mcpServers.DELETE("/:name", McpDelete)
+	mcpServers.POST("/:name/enable", McpEnable)
+	mcpServers.POST("/:name/disable", McpDisable)
 
 	api.POST("/yolo", YoloSet)
 	api.GET("/yolo", YoloGet)
