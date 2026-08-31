@@ -164,8 +164,10 @@ through `/yolo` rather than hand-edited; MCP servers are configured in
 memory (see [Tools](#tools)) lives under
 `.mininaru/memory/<agent-id>/`, an `MEMORY.md` index plus one markdown
 file per saved memory, managed entirely by the agent itself through the
-`memory_*` tools rather than hand-edited; the daily background update check
-caches the latest known release tag in `.mininaru/update.json`.
+`memory_*` tools rather than hand-edited; uploaded chat images live under
+`.mininaru/attachments/` with a row per file in the `attachments` table
+(cascades with its session); the daily background update check caches the
+latest known release tag in `.mininaru/update.json`.
 
 ## Set up a provider and an agent
 
@@ -451,6 +453,14 @@ model, `GET /api/skill/uses?session=<id>` the load counts.
 `/api/agents/:id/memory` is that agent's persistent memory store —
 `GET` (the `MEMORY.md` index plus the file list), `GET /:file`,
 `PUT /:file` (body `{description, type, content}`), `DELETE /:file`.
+
+**Images.** `POST /api/sessions/:id/attachments` takes a multipart `file`
+(image only, ≤20 MiB), stores it under `.mininaru/attachments/`, and returns
+`{id, mime, bytes}`; `GET /api/attachments/:id` streams it back. Reference the
+ids when you create the turn — `images: ["<id>", …]` on
+`POST /api/sessions/:id/messages` or on the `/ws` chat frame — and they're
+inlined as data URIs for the model. The OpenAI endpoint takes the standard
+form directly: `content` as `[{"type":"text","text":"…"},{"type":"image_url","image_url":{"url":"data:image/png;base64,…"}}]`.
 
 `/ws` is what the REPL uses for chat: send
 `{"session_id": "...", "content": "...", "cwd": "..."}` and receive a stream

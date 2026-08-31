@@ -23,6 +23,7 @@ var streamIdleTimeout = 2 * time.Minute
 type ChatMessage struct {
 	Role    string
 	Content string
+	Images  []string
 }
 
 func chatClient(prov *Provider) openai.Client {
@@ -50,6 +51,11 @@ func chatParams(agent *Agent, messages []ChatMessage) openai.ChatCompletionNewPa
 		case "assistant":
 			union = append(union, openai.AssistantMessage(msg.Content))
 		default:
+			if len(msg.Images) > 0 {
+				union = append(union, imageUserMessage(msg.Content, msg.Images))
+				continue
+			}
+
 			union = append(union, openai.UserMessage(msg.Content))
 		}
 	}

@@ -21,11 +21,12 @@ import (
 )
 
 type inboundFrame struct {
-	Type      string `json:"type,omitempty"`
-	SessionId string `json:"session_id"`
-	Content   string `json:"content,omitempty"`
-	Cwd       string `json:"cwd,omitempty"`
-	Decision  string `json:"decision,omitempty"`
+	Type      string   `json:"type,omitempty"`
+	SessionId string   `json:"session_id"`
+	Content   string   `json:"content,omitempty"`
+	Cwd       string   `json:"cwd,omitempty"`
+	Decision  string   `json:"decision,omitempty"`
+	Images    []string `json:"images,omitempty"`
 }
 
 type outboundFrame struct {
@@ -222,6 +223,12 @@ func handleFrame(ctx context.Context, remoteAddr string, conn *safeConn, frame i
 	msg = core.Message{Id: uuid.NewString(), SessionId: session.Id, Role: "user", Content: frame.Content}
 
 	err = core.MessageCreate(&msg)
+	if err != nil {
+		writeErrorFrame(conn, frame.SessionId, err.Error())
+		return
+	}
+
+	err = core.AttachmentBindMessage(session.Id, msg.Id, frame.Images)
 	if err != nil {
 		writeErrorFrame(conn, frame.SessionId, err.Error())
 		return

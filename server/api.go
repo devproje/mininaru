@@ -43,6 +43,7 @@ func apiRoutes(api *gin.RouterGroup) {
 	sessions.DELETE("/:id", controller.SessionDelete)
 	sessions.POST("/:id/messages", controller.MessageCreate)
 	sessions.GET("/:id/messages", controller.MessageList)
+	sessions.POST("/:id/attachments", controller.AttachmentUpload)
 
 	messages = api.Group("/messages")
 	messages.GET("/:id", controller.MessageRead)
@@ -62,6 +63,8 @@ func apiRoutes(api *gin.RouterGroup) {
 	skills.GET("", controller.SkillList)
 	skills.GET("/uses", controller.SkillUses)
 	skills.GET("/:name", controller.SkillRead)
+
+	api.GET("/attachments/:id", controller.AttachmentDownload)
 
 	api.POST("/yolo", controller.YoloSet)
 	api.GET("/yolo", controller.YoloGet)

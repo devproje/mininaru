@@ -22,7 +22,7 @@ func TestMigrationsCreateExpectedTables(t *testing.T) {
 	}
 	defer db.Close()
 
-	for _, table = range []string{"providers", "agents", "sessions", "messages"} {
+	for _, table = range []string{"providers", "agents", "sessions", "messages", "tool_calls", "skill_uses", "attachments"} {
 		err = db.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?;", table).Scan(&count)
 		if err != nil {
 			t.Fatalf("checking table %q failed: %v", table, err)
