@@ -332,6 +332,7 @@ one), named at that point with a random `adjective-noun` pair
 /!bash      same, without sharing the output with the agent
 /session    show or switch the current session
 /gateway    pick a saved gateway and a session on it, then reconnect
+/img        attach an image file to your next message
 /agent      switch agent on a new session
 /model      change the connected agent's model
 /effort     change the connected agent's reasoning effort (off|low|medium|high|max)
@@ -348,6 +349,7 @@ written back, the same way bash honors them.
 mininaru -p "<prompt>"                            # one-shot, streams the transcript
 mininaru -p "<prompt>" --session <id>             # run the turn on an existing session
 mininaru -p "<prompt>" --format json              # -f json | xml | string (default)
+mininaru -p "<prompt>" --image shot.png           # attach an image, repeatable
 ```
 
 `-p` runs a single turn without the REPL and exits. With no `--session` the
@@ -461,6 +463,9 @@ ids when you create the turn — `images: ["<id>", …]` on
 `POST /api/sessions/:id/messages` or on the `/ws` chat frame — and they're
 inlined as data URIs for the model. The OpenAI endpoint takes the standard
 form directly: `content` as `[{"type":"text","text":"…"},{"type":"image_url","image_url":{"url":"data:image/png;base64,…"}}]`.
+
+The client does the upload for you: `mininaru -p "…" --image a.png --image b.png`,
+or `/img <path>` in the REPL (queued and sent with your next message).
 
 `/ws` is what the REPL uses for chat: send
 `{"session_id": "...", "content": "...", "cwd": "..."}` and receive a stream

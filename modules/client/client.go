@@ -8,9 +8,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -26,11 +28,12 @@ const (
 )
 
 type Frame struct {
-	Type      string `json:"type,omitempty"`
-	SessionId string `json:"session_id"`
-	Content   string `json:"content,omitempty"`
-	Cwd       string `json:"cwd,omitempty"`
-	Decision  string `json:"decision,omitempty"`
+	Type      string   `json:"type,omitempty"`
+	SessionId string   `json:"session_id"`
+	Content   string   `json:"content,omitempty"`
+	Cwd       string   `json:"cwd,omitempty"`
+	Decision  string   `json:"decision,omitempty"`
+	Images    []string `json:"images,omitempty"`
 }
 
 type Reply struct {
@@ -117,6 +120,76 @@ func Api(method string, endpoint string, apiKey string, payload any, out any) er
 	}
 
 	return json.Unmarshal(body, out)
+}
+
+func Upload(base string, apiKey string, sessionId string, path string) (string, error) {
+	var file *os.File
+	var body bytes.Buffer
+	var writer *multipart.Writer
+	var part io.Writer
+	var req *http.Request
+	var res *http.Response
+	var raw []byte
+	var parsed struct {
+		Id string `json:"id"`
+	}
+
+	var err error
+
+	file, err = os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+
+	writer = multipart.NewWriter(&body)
+
+	part, err = writer.CreateFormFile("file", filepath.Base(path))
+	if err != nil {
+		return "", err
+	}
+
+	_, err = io.Copy(part, file)
+	if err != nil {
+		return "", err
+	}
+
+	err = writer.Close()
+	if err != nil {
+		return "", err
+	}
+
+	req, err = http.NewRequest(http.MethodPost, base+"/sessions/"+sessionId+"/attachments", &body)
+	if err != nil {
+		return "", err
+	}
+
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	if apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+apiKey)
+	}
+
+	res, err = http.DefaultClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer res.Body.Close()
+
+	raw, err = io.ReadAll(res.Body)
+	if err != nil {
+		return "", err
+	}
+
+	if res.StatusCode >= http.StatusBadRequest {
+		return "", fmt.Errorf("%s: %s", res.Status, strings.TrimSpace(string(raw)))
+	}
+
+	err = json.Unmarshal(raw, &parsed)
+	if err != nil {
+		return "", err
+	}
+
+	return parsed.Id, nil
 }
 
 func Agent(base string, apiKey string, name string) (*core.Agent, error) {

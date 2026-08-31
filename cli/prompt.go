@@ -19,6 +19,9 @@ func shortPrompt(prompt string) error {
 	var apiKey string
 	var session *core.Session
 	var cwd string
+	var path string
+	var id string
+	var images []string
 	var conn *websocket.Conn
 
 	var err error
@@ -53,6 +56,15 @@ func shortPrompt(prompt string) error {
 		return err
 	}
 
+	for _, path = range promptImageRef {
+		id, err = client.Upload(base, apiKey, session.Id, path)
+		if err != nil {
+			return fmt.Errorf("uploading %s: %w", path, err)
+		}
+
+		images = append(images, id)
+	}
+
 	conn, err = client.Dial(promptUrlRef, apiKey)
 	if err != nil {
 		return err
@@ -64,7 +76,7 @@ func shortPrompt(prompt string) error {
 		return err
 	}
 
-	err = conn.WriteJSON(client.Frame{SessionId: session.Id, Content: prompt, Cwd: cwd})
+	err = conn.WriteJSON(client.Frame{SessionId: session.Id, Content: prompt, Cwd: cwd, Images: images})
 	if err != nil {
 		return err
 	}

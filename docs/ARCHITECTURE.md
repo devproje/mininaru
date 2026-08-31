@@ -787,7 +787,11 @@ Non-TTY stdin is refused with a pointer to `-p`. `mininaru -p "<prompt>"`
 (`cli/prompt.go`) runs the same wire protocol without the editor: resolve a
 session (deleting it on exit unless `--session` was given), dial, `attach`,
 send one frame, and `Receive` (fed by its own `Pump`) with a `nil` key stream
-so there is no interrupt watcher.
+so there is no interrupt watcher. `--image <path>` (repeatable) is uploaded
+via `client.Upload` (multipart `POST /api/sessions/:id/attachments`) before
+the frame goes out, and the returned ids ride the frame's `images` array; the
+REPL's `/img` does the same upload up front and stashes the id on
+`Shell.pending`, which `sh.turn` attaches to the next message and clears.
 
 `--format` / `-f` (`string` default, or `json`/`xml`) is checked by
 `client.ValidFormat` and threaded into `Receive`. For `string` the read loop
