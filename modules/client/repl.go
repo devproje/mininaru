@@ -43,6 +43,7 @@ type Shell struct {
 	session  *core.Session
 	history  []string
 	gateways []Gateway
+	pending  []string
 	keys     keys
 	frames   <-chan Reply
 	inbox    ambient
@@ -179,10 +180,10 @@ func (sh *Shell) banner() {
 	write("\n")
 }
 
-func (sh *Shell) send(prompt string) error {
+func (sh *Shell) send(prompt string, images []string) error {
 	var err error
 
-	err = sh.conn.WriteJSON(Frame{SessionId: sh.session.Id, Content: prompt, Cwd: sh.cwd})
+	err = sh.conn.WriteJSON(Frame{SessionId: sh.session.Id, Content: prompt, Cwd: sh.cwd, Images: images})
 	if err == nil {
 		return nil
 	}
@@ -192,16 +193,18 @@ func (sh *Shell) send(prompt string) error {
 		return err
 	}
 
-	return sh.conn.WriteJSON(Frame{SessionId: sh.session.Id, Content: prompt, Cwd: sh.cwd})
+	return sh.conn.WriteJSON(Frame{SessionId: sh.session.Id, Content: prompt, Cwd: sh.cwd, Images: images})
 }
 
 func (sh *Shell) turn(prompt string) error {
 	var err error
 
-	err = sh.send(prompt)
+	err = sh.send(prompt, sh.pending)
 	if err != nil {
 		return err
 	}
+
+	sh.pending = nil
 
 	err = Receive(sh.conn, sh.frames, sh.session.Id, sh.keys, "")
 	if errors.Is(err, errGone) {

@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -40,6 +41,7 @@ func init() {
 	register(&command{name: "!bash", usage: "<command...>", short: "run one shell command, don't share it with the agent", run: cmdBashQuiet})
 	register(&command{name: "session", usage: "[id-or-name]", short: "show or switch session", run: cmdSession})
 	register(&command{name: "gateway", short: "pick a remote endpoint and session, then reconnect", run: cmdGateway})
+	register(&command{name: "img", usage: "<path>", short: "attach an image to your next message", run: cmdImg})
 	register(&command{name: "agent", usage: "<id-or-name>", short: "switch agent on a new session", run: cmdAgent})
 	register(&command{name: "model", usage: "<model>", short: "change the agent model", run: cmdModel})
 	register(&command{name: "effort", usage: "off|low|medium|high|max", short: "change the thinking level", run: cmdEffort})
@@ -266,6 +268,29 @@ func cmdAgent(sh *Shell, args string) error {
 	sh.session = &created
 
 	return sh.attach()
+}
+
+func cmdImg(sh *Shell, args string) error {
+	var path string
+	var id string
+
+	var err error
+
+	path = strings.TrimSpace(args)
+	if path == "" {
+		return fmt.Errorf("usage: /img <path>")
+	}
+
+	id, err = Upload(sh.base, sh.apiKey, sh.session.Id, path)
+	if err != nil {
+		return err
+	}
+
+	sh.pending = append(sh.pending, id)
+
+	write("  %s⌷ %s attached (%d queued)%s\n", DIM, filepath.Base(path), len(sh.pending), RESET)
+
+	return nil
 }
 
 func cmdModel(sh *Shell, args string) error {
