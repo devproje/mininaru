@@ -13,6 +13,7 @@ func apiRoutes(api *gin.RouterGroup) {
 	var providers *gin.RouterGroup
 	var sessions *gin.RouterGroup
 	var messages *gin.RouterGroup
+	var mcpServers *gin.RouterGroup
 
 	agents = api.Group("/agents")
 	agents.POST("", controller.AgentCreate)
@@ -42,6 +43,15 @@ func apiRoutes(api *gin.RouterGroup) {
 	messages.GET("/:id", controller.MessageRead)
 	messages.PATCH("/:id", controller.MessageUpdate)
 	messages.DELETE("/:id", controller.MessageDelete)
+
+	mcpServers = api.Group("/mcp")
+	mcpServers.GET("", controller.McpList)
+	mcpServers.POST("", controller.McpCreate)
+	mcpServers.POST("/reload", controller.McpReload)
+	mcpServers.GET("/:name", controller.McpRead)
+	mcpServers.DELETE("/:name", controller.McpDelete)
+	mcpServers.POST("/:name/enable", controller.McpEnable)
+	mcpServers.POST("/:name/disable", controller.McpDisable)
 
 	api.POST("/yolo", controller.YoloSet)
 	api.GET("/yolo", controller.YoloGet)

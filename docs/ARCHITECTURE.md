@@ -64,8 +64,10 @@ subcommands (`provider`, `agent`, `session`) default to the opposite:
 `--url`/`--api-key` flips the read paths (`list`, `show`) and the
 `session remove` / `provider remove` / `provider activate` paths to the
 remote's `/api` instead, via `cli/remote.go`'s helpers over `client.Api`.
-`add` and `set` are always local; `mcp` and `skill` have no `/api` and are
-always local.
+`add` and `set` are always local; `skill` has no `/api` and is always local.
+MCP is also reachable over `/api/mcp` (`server/controller/mcp.go`) — the same
+config CRUD the `mcp` CLI does, each mutation followed by `mcp.Reload` so a
+remote server's tool set changes without a shell on the box.
 
 ## Storage
 

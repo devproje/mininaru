@@ -438,6 +438,12 @@ you want considered — there is no server-side history for this endpoint.
 `agent`/`session` commands ultimately talk to. A provider's API key is never
 returned in full over this API; list and read responses mask it.
 
+`/api/mcp` manages MCP servers the same way `mininaru mcp` does — `GET /api/mcp`
+(each server with its live connection status), `GET/DELETE /api/mcp/:name`,
+`POST /api/mcp` (body is the `mcp.json` server object), `POST /api/mcp/:name/enable`
+/ `disable`, and `POST /api/mcp/reload`. Every mutation reconnects the server's
+MCP pool, so a `--gateway` client changes a remote box's tools without shell access.
+
 `/ws` is what the REPL uses for chat: send
 `{"session_id": "...", "content": "...", "cwd": "..."}` and receive a stream
 of `{"type": "chunk"|"tool"|"approval_request"|"done"|"error", ...}` frames.
