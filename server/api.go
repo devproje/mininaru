@@ -14,6 +14,7 @@ func apiRoutes(api *gin.RouterGroup) {
 	var sessions *gin.RouterGroup
 	var messages *gin.RouterGroup
 	var mcpServers *gin.RouterGroup
+	var skills *gin.RouterGroup
 
 	agents = api.Group("/agents")
 	agents.POST("", controller.AgentCreate)
@@ -21,6 +22,10 @@ func apiRoutes(api *gin.RouterGroup) {
 	agents.GET("/:id", controller.AgentRead)
 	agents.PATCH("/:id", controller.AgentUpdate)
 	agents.DELETE("/:id", controller.AgentDelete)
+	agents.GET("/:id/memory", controller.MemoryList)
+	agents.GET("/:id/memory/:file", controller.MemoryRead)
+	agents.PUT("/:id/memory/:file", controller.MemoryWrite)
+	agents.DELETE("/:id/memory/:file", controller.MemoryDelete)
 
 	providers = api.Group("/providers")
 	providers.POST("", controller.ProviderCreate)
@@ -52,6 +57,11 @@ func apiRoutes(api *gin.RouterGroup) {
 	mcpServers.DELETE("/:name", controller.McpDelete)
 	mcpServers.POST("/:name/enable", controller.McpEnable)
 	mcpServers.POST("/:name/disable", controller.McpDisable)
+
+	skills = api.Group("/skill")
+	skills.GET("", controller.SkillList)
+	skills.GET("/uses", controller.SkillUses)
+	skills.GET("/:name", controller.SkillRead)
 
 	api.POST("/yolo", controller.YoloSet)
 	api.GET("/yolo", controller.YoloGet)

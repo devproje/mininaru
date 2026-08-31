@@ -474,3 +474,139 @@ func LoadIndex(agentId string) string {
 func Tools(agentId string) []modules.Tool {
 	return []modules.Tool{saveTool(agentId), readTool(agentId), forgetTool(agentId)}
 }
+
+func List(agentId string) (string, []string, error) {
+	var dir string
+	var index string
+	var entries []os.DirEntry
+	var entry os.DirEntry
+	var files []string
+
+	var err error
+
+	dir, err = memoryDir(agentId)
+	if err != nil {
+		return "", nil, err
+	}
+
+	index, err = readIndex(dir)
+	if err != nil {
+		return "", nil, err
+	}
+
+	entries, err = os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return index, nil, nil
+		}
+
+		return "", nil, err
+	}
+
+	for _, entry = range entries {
+		if entry.IsDir() || entry.Name() == indexFile || !strings.HasSuffix(entry.Name(), ".md") {
+			continue
+		}
+
+		files = append(files, entry.Name())
+	}
+
+	return index, files, nil
+}
+
+func Read(agentId string, name string) (string, error) {
+	var dir string
+	var file string
+	var buf []byte
+
+	var err error
+
+	dir, err = memoryDir(agentId)
+	if err != nil {
+		return "", err
+	}
+
+	file, err = slugToFile(name)
+	if err != nil {
+		return "", err
+	}
+
+	buf, err = os.ReadFile(topicPath(dir, file))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", fmt.Errorf("no memory named %q", name)
+		}
+
+		return "", err
+	}
+
+	return string(buf), nil
+}
+
+func Write(agentId string, name string, description string, memType string, content string) error {
+	var dir string
+	var file string
+
+	var err error
+
+	if description == "" {
+		return fmt.Errorf("description is required")
+	}
+	if !memoryTypes[memType] {
+		return fmt.Errorf("type must be one of user, feedback, project, reference")
+	}
+	if content == "" {
+		return fmt.Errorf("content is required")
+	}
+
+	dir, err = memoryDir(agentId)
+	if err != nil {
+		return err
+	}
+
+	file, err = slugToFile(name)
+	if err != nil {
+		return err
+	}
+
+	writeMu.Lock()
+	defer writeMu.Unlock()
+
+	err = writeTopic(dir, file, name, description, memType, content)
+	if err != nil {
+		return err
+	}
+
+	return upsertIndexLine(dir, file, name, description)
+}
+
+func Delete(agentId string, name string) error {
+	var dir string
+	var file string
+
+	var err error
+
+	dir, err = memoryDir(agentId)
+	if err != nil {
+		return err
+	}
+
+	file, err = slugToFile(name)
+	if err != nil {
+		return err
+	}
+
+	writeMu.Lock()
+	defer writeMu.Unlock()
+
+	err = os.Remove(topicPath(dir, file))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("no memory named %q", name)
+		}
+
+		return err
+	}
+
+	return removeIndexLine(dir, file)
+}

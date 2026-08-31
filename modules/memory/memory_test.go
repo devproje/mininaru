@@ -196,3 +196,93 @@ func TestLoadIndexCapsAtLineLimit(t *testing.T) {
 		t.Fatalf("LoadIndex() = %q, want a truncation notice past the cap", index)
 	}
 }
+
+func TestMemoryListReadWriteDeleteRoundTrip(t *testing.T) {
+	var index string
+	var files []string
+	var content string
+
+	var err error
+
+	setupTestMemoryFS(t)
+
+	err = Write("agent-x", "likes-pnpm", "prefers pnpm", "feedback", "# note\nalways pnpm")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	index, files, err = List("agent-x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(index, "likes-pnpm") {
+		t.Fatalf("index missing the entry: %q", index)
+	}
+	if len(files) != 1 || files[0] != "likes-pnpm.md" {
+		t.Fatalf("files = %v", files)
+	}
+
+	content, err = Read("agent-x", "likes-pnpm")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(content, "always pnpm") {
+		t.Fatalf("content = %q", content)
+	}
+
+	err = Delete("agent-x", "likes-pnpm")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = Read("agent-x", "likes-pnpm")
+	if err == nil {
+		t.Fatal("read after delete should error")
+	}
+
+	index, files, err = List("agent-x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 0 || strings.Contains(index, "likes-pnpm") {
+		t.Fatalf("delete left traces: files=%v index=%q", files, index)
+	}
+}
+
+func TestMemoryWriteRejects(t *testing.T) {
+	var err error
+
+	setupTestMemoryFS(t)
+
+	err = Write("agent-x", "x", "", "feedback", "body")
+	if err == nil {
+		t.Fatal("empty description should error")
+	}
+
+	err = Write("agent-x", "x", "d", "nonsense", "body")
+	if err == nil {
+		t.Fatal("bad type should error")
+	}
+
+	err = Write("agent-x", "../escape", "d", "feedback", "body")
+	if err == nil {
+		t.Fatal("path-escaping name should error")
+	}
+}
+
+func TestMemoryListEmptyAgent(t *testing.T) {
+	var index string
+	var files []string
+
+	var err error
+
+	setupTestMemoryFS(t)
+
+	index, files, err = List("fresh-agent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if index != "" || len(files) != 0 {
+		t.Fatalf("fresh agent should be empty: index=%q files=%v", index, files)
+	}
+}

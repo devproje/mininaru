@@ -64,10 +64,13 @@ subcommands (`provider`, `agent`, `session`) default to the opposite:
 `--url`/`--api-key` flips the read paths (`list`, `show`) and the
 `session remove` / `provider remove` / `provider activate` paths to the
 remote's `/api` instead, via `cli/remote.go`'s helpers over `client.Api`.
-`add` and `set` are always local; `skill` has no `/api` and is always local.
-MCP is also reachable over `/api/mcp` (`server/controller/mcp.go`) — the same
-config CRUD the `mcp` CLI does, each mutation followed by `mcp.Reload` so a
-remote server's tool set changes without a shell on the box.
+`add` and `set` are always local. MCP is also reachable over `/api/mcp`
+(`server/controller/mcp.go`) — the same config CRUD the `mcp` CLI does, each
+mutation followed by `mcp.Reload` so a remote server's tool set changes
+without a shell on the box. `/api/skill` (`server/controller/skill.go`,
+read-only) and `/api/agents/:id/memory` (`server/controller/memory.go`,
+read/write/delete, wrapping new `memory.List`/`Read`/`Write`/`Delete`) round
+out the surface — `skill`'s local CLI stays as-is.
 
 ## Storage
 
