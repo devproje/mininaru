@@ -202,3 +202,87 @@ func TestModelsListsAgents(t *testing.T) {
 		t.Fatalf("model id = %v, want %q", data[0].(map[string]any)["id"], agentName)
 	}
 }
+
+func TestParseOpenAIContent(t *testing.T) {
+	var text string
+	var images []string
+
+	var err error
+
+	text, images, err = parseOpenAIContent(json.RawMessage(`"just text"`))
+	if err != nil || text != "just text" || images != nil {
+		t.Fatalf("string: %q %v %v", text, images, err)
+	}
+
+	text, images, err = parseOpenAIContent(json.RawMessage(`[{"type":"text","text":"look "},{"type":"image_url","image_url":{"url":"data:image/png;base64,AAA"}}]`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if text != "look " || len(images) != 1 || images[0] != "data:image/png;base64,AAA" {
+		t.Fatalf("parts: %q %v", text, images)
+	}
+
+	_, _, err = parseOpenAIContent(json.RawMessage(`42`))
+	if err == nil {
+		t.Fatal("a bare number should be rejected")
+	}
+}
+
+func TestChatCompletionsAcceptsImageParts(t *testing.T) {
+	var router *gin.Engine
+	var upstream *httptest.Server
+	var w *httptest.ResponseRecorder
+	var req *http.Request
+	var seen map[string]any
+	var body []byte
+	var messages []any
+	var parts []any
+
+	var err error
+
+	setupTestDB(t)
+	router = newRouter()
+
+	upstream = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewDecoder(r.Body).Decode(&seen)
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"id":"c1","object":"chat.completion","created":1,"model":"m","choices":[{"index":0,"message":{"role":"assistant","content":"a red square"},"finish_reason":"stop"}]}`)
+	}))
+	t.Cleanup(upstream.Close)
+
+	err = core.ProviderCreate(&core.Provider{Id: "p1", Name: "test", BaseUrl: upstream.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = core.ProviderActivate("p1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = core.AgentCreate(&core.Agent{Id: "a1", Name: "naru", Model: "gpt-4o-mini"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	body, _ = json.Marshal(map[string]any{
+		"model": "naru",
+		"messages": []map[string]any{{
+			"role": "user",
+			"content": []map[string]any{
+				{"type": "text", "text": "what colour"},
+				{"type": "image_url", "image_url": map[string]string{"url": "data:image/png;base64,AAAA"}},
+			},
+		}},
+	})
+	w = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/chat/completions", bytes.NewReader(body))
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", w.Code, w.Body.String())
+	}
+
+	messages = seen["messages"].([]any)
+	parts = messages[0].(map[string]any)["content"].([]any)
+	if len(parts) != 2 || parts[1].(map[string]any)["type"] != "image_url" {
+		t.Fatalf("upstream did not receive image parts: %+v", parts)
+	}
+}

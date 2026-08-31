@@ -14,8 +14,9 @@ import (
 )
 
 type messageCreateRequest struct {
-	Role    string `json:"role" binding:"required"`
-	Content string `json:"content" binding:"required"`
+	Role    string   `json:"role" binding:"required"`
+	Content string   `json:"content" binding:"required"`
+	Images  []string `json:"images"`
 }
 
 type messageUpdateRequest struct {
@@ -45,6 +46,12 @@ func MessageCreate(ctx *gin.Context) {
 	err = core.MessageCreate(&msg)
 	if err != nil {
 		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	err = core.AttachmentBindMessage(sessionId, msg.Id, req.Images)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 

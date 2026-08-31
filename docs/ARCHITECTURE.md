@@ -83,7 +83,7 @@ a five-second busy timeout (`util.databaseDSN`). Migrations are `.sql` files
 embedded into the binary (`util/migrations/*.sql`), tracked one row per
 applied version in a `migrations` table, and applied inside one transaction
 per file on every `NewDatabase` call — `0001_initial_schema.sql`,
-`0002_tool_calls.sql`, `0003_skill_uses.sql`.
+`0002_tool_calls.sql`, `0003_skill_uses.sql`, `0004_attachments.sql`.
 
 ```
 providers(id, name, api_key, base_url, active)
@@ -102,6 +102,13 @@ tool_calls(id, message_id REFERENCES messages ON DELETE CASCADE, call_id,
 skill_uses(id, skill, scope, path, rel, session_id, call_id, created_at)
   -- one row per `skill` tool call (core/skilluse.go); session_id is indexed
   -- but not a foreign key, so it outlives the session it was logged in
+attachments(id, session_id REFERENCES sessions ON DELETE CASCADE,
+            message_id REFERENCES messages ON DELETE SET NULL, mime, bytes,
+            path, created_at)
+  -- uploaded chat images; the bytes live at .mininaru/attachments/<id>, only
+  -- the metadata is in SQLite. message_id is NULL between upload and the turn
+  -- that references it. deleting a session drops the rows but not the files
+  -- (ponytail: orphaned files, add a sweep if it matters)
 ```
 
 Deleting an agent or a session cascades through the foreign keys; nothing in
@@ -143,6 +150,19 @@ map an agent's stored `ThinkingLevel` to the SDK's `ReasoningEffort`
 `/api/v1/chat/completions` controller calls) never pass tools — that surface
 stays completion-only, mirroring how it takes the caller's entire message
 history with no server-side session.
+
+Images ride the OpenAI content-parts shape. `imageUserMessage`
+(`core/toolloop.go`) turns a text string plus a list of image URLs / data
+URIs into a `openai.UserMessage([]…ContentPartUnionParam{…})` — the same
+form the browser-screenshot tool path already used. The stateless path fills
+`ChatMessage.Images` from `parseOpenAIContent` (a `content` field that is
+either a JSON string or a `[{type,text},{type,image_url}]` array); the
+session-backed path's `historyUnion` calls `messageImages(msg.Id)`, which
+reads each bound `attachments` row off disk and base64-inlines it as a
+`data:` URI (a provider can't reach the mininaru server, so URLs are never
+passed through). `POST /api/sessions/:id/attachments` and the `/ws` frame's
+`images` array both carry attachment ids, bound to the message row by
+`core.AttachmentBindMessage`.
 
 `chatStreamRound` (the session-backed path's per-round streaming call) guards
 against a provider that stops sending data mid-stream without closing the

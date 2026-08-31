@@ -75,6 +75,7 @@ func newRouter() *gin.Engine {
 	sessions.DELETE("/:id", SessionDelete)
 	sessions.POST("/:id/messages", MessageCreate)
 	sessions.GET("/:id/messages", MessageList)
+	sessions.POST("/:id/attachments", AttachmentUpload)
 
 	messages = api.Group("/messages")
 	messages.GET("/:id", MessageRead)
@@ -94,6 +95,8 @@ func newRouter() *gin.Engine {
 	skills.GET("", SkillList)
 	skills.GET("/uses", SkillUses)
 	skills.GET("/:name", SkillRead)
+
+	api.GET("/attachments/:id", AttachmentDownload)
 
 	api.POST("/yolo", YoloSet)
 	api.GET("/yolo", YoloGet)

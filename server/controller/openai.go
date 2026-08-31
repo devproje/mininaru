@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/devproje/mininaru/core"
 	"github.com/gin-gonic/gin"
@@ -16,8 +17,16 @@ import (
 )
 
 type openaiMessage struct {
-	Role    string `json:"role" binding:"required"`
-	Content string `json:"content" binding:"required"`
+	Role    string          `json:"role" binding:"required"`
+	Content json.RawMessage `json:"content" binding:"required"`
+}
+
+type openaiContentPart struct {
+	Type     string `json:"type"`
+	Text     string `json:"text"`
+	ImageURL struct {
+		URL string `json:"url"`
+	} `json:"image_url"`
 }
 
 type openaiChatRequest struct {
@@ -30,15 +39,55 @@ func respondOpenAIError(ctx *gin.Context, status int, errType string, message st
 	ctx.JSON(status, gin.H{"error": gin.H{"message": message, "type": errType}})
 }
 
-func openaiChatMessages(messages []openaiMessage) []core.ChatMessage {
-	var out []core.ChatMessage
-	var msg openaiMessage
+func parseOpenAIContent(raw json.RawMessage) (string, []string, error) {
+	var asString string
+	var parts []openaiContentPart
+	var part openaiContentPart
+	var text strings.Builder
+	var images []string
 
-	for _, msg = range messages {
-		out = append(out, core.ChatMessage{Role: msg.Role, Content: msg.Content})
+	var err error
+
+	err = json.Unmarshal(raw, &asString)
+	if err == nil {
+		return asString, nil, nil
 	}
 
-	return out
+	err = json.Unmarshal(raw, &parts)
+	if err != nil {
+		return "", nil, fmt.Errorf("message content must be a string or an array of content parts")
+	}
+
+	for _, part = range parts {
+		switch part.Type {
+		case "text":
+			text.WriteString(part.Text)
+		case "image_url":
+			images = append(images, part.ImageURL.URL)
+		}
+	}
+
+	return text.String(), images, nil
+}
+
+func openaiChatMessages(messages []openaiMessage) ([]core.ChatMessage, error) {
+	var out []core.ChatMessage
+	var msg openaiMessage
+	var text string
+	var images []string
+
+	var err error
+
+	for _, msg = range messages {
+		text, images, err = parseOpenAIContent(msg.Content)
+		if err != nil {
+			return nil, err
+		}
+
+		out = append(out, core.ChatMessage{Role: msg.Role, Content: text, Images: images})
+	}
+
+	return out, nil
 }
 
 func writeOpenAIStreamError(ctx *gin.Context, flusher http.Flusher, err error) {
@@ -122,7 +171,11 @@ func ChatCompletions(ctx *gin.Context) {
 		return
 	}
 
-	messages = openaiChatMessages(req.Messages)
+	messages, err = openaiChatMessages(req.Messages)
+	if err != nil {
+		respondOpenAIError(ctx, http.StatusBadRequest, "invalid_request_error", err.Error())
+		return
+	}
 
 	if !req.Stream {
 		resp, err = core.ChatCompletion(ctx.Request.Context(), agent, messages)

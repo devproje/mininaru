@@ -55,6 +55,21 @@ func findTool(tools []modules.Tool, name string) *modules.Tool {
 	return nil
 }
 
+func imageUserMessage(text string, images []string) openai.ChatCompletionMessageParamUnion {
+	var parts []openai.ChatCompletionContentPartUnionParam
+	var image string
+
+	if text != "" {
+		parts = append(parts, openai.TextContentPart(text))
+	}
+
+	for _, image = range images {
+		parts = append(parts, openai.ImageContentPart(openai.ChatCompletionContentPartImageImageURLParam{URL: image}))
+	}
+
+	return openai.UserMessage(parts)
+}
+
 func assistantToolCallMessage(message openai.ChatCompletionMessage) openai.ChatCompletionMessageParamUnion {
 	var assistant openai.ChatCompletionAssistantMessageParam
 	var call openai.ChatCompletionMessageToolCall
@@ -154,6 +169,7 @@ func historyUnion(history []*Message) ([]openai.ChatCompletionMessageParamUnion,
 	var union []openai.ChatCompletionMessageParamUnion
 	var item *Message
 	var pending *Message
+	var images []string
 	var calls []*ToolCall
 	var call *ToolCall
 
@@ -165,7 +181,16 @@ func historyUnion(history []*Message) ([]openai.ChatCompletionMessageParamUnion,
 			continue
 		}
 
-		union = append(union, openai.UserMessage(item.Content))
+		images, err = messageImages(item.Id)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		if len(images) > 0 {
+			union = append(union, imageUserMessage(item.Content, images))
+		} else {
+			union = append(union, openai.UserMessage(item.Content))
+		}
 
 		if item.Status == "pending" {
 			pending = item
