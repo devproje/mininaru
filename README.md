@@ -444,6 +444,14 @@ returned in full over this API; list and read responses mask it.
 / `disable`, and `POST /api/mcp/reload`. Every mutation reconnects the server's
 MCP pool, so a `--gateway` client changes a remote box's tools without shell access.
 
+`/api/skill` is read-only: `GET /api/skill` lists the skills found on disk,
+`GET /api/skill/:name` returns the rendered text a skill puts in front of the
+model, `GET /api/skill/uses?session=<id>` the load counts.
+
+`/api/agents/:id/memory` is that agent's persistent memory store —
+`GET` (the `MEMORY.md` index plus the file list), `GET /:file`,
+`PUT /:file` (body `{description, type, content}`), `DELETE /:file`.
+
 `/ws` is what the REPL uses for chat: send
 `{"session_id": "...", "content": "...", "cwd": "..."}` and receive a stream
 of `{"type": "chunk"|"tool"|"approval_request"|"done"|"error", ...}` frames.

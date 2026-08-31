@@ -16,11 +16,11 @@ import (
 )
 
 type Skill struct {
-	Name        string
-	Description string
-	Body        string
-	Path        string
-	Scope       string
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Body        string `json:"body"`
+	Path        string `json:"path"`
+	Scope       string `json:"scope"`
 }
 
 type skillMeta struct {

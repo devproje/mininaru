@@ -42,6 +42,7 @@ func newRouter() *gin.Engine {
 	var sessions *gin.RouterGroup
 	var messages *gin.RouterGroup
 	var mcpServers *gin.RouterGroup
+	var skills *gin.RouterGroup
 
 	router = gin.New()
 	api = router.Group("/api")
@@ -53,6 +54,10 @@ func newRouter() *gin.Engine {
 	agents.GET("/:id", AgentRead)
 	agents.PATCH("/:id", AgentUpdate)
 	agents.DELETE("/:id", AgentDelete)
+	agents.GET("/:id/memory", MemoryList)
+	agents.GET("/:id/memory/:file", MemoryRead)
+	agents.PUT("/:id/memory/:file", MemoryWrite)
+	agents.DELETE("/:id/memory/:file", MemoryDelete)
 
 	providers = api.Group("/providers")
 	providers.POST("", ProviderCreate)
@@ -84,6 +89,11 @@ func newRouter() *gin.Engine {
 	mcpServers.DELETE("/:name", McpDelete)
 	mcpServers.POST("/:name/enable", McpEnable)
 	mcpServers.POST("/:name/disable", McpDisable)
+
+	skills = api.Group("/skill")
+	skills.GET("", SkillList)
+	skills.GET("/uses", SkillUses)
+	skills.GET("/:name", SkillRead)
 
 	api.POST("/yolo", YoloSet)
 	api.GET("/yolo", YoloGet)
