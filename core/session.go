@@ -15,6 +15,7 @@ type Session struct {
 	Id        string `json:"id"`
 	AgentId   string `json:"agent_id"`
 	Name      string `json:"name"`
+	Cwd       string `json:"cwd"`
 	CreatedAt string `json:"created_at"`
 }
 
@@ -33,8 +34,8 @@ func SessionCreate(session *Session) error {
 		session.Name = randomSessionName()
 	}
 
-	opts = []string{"id", "agent_id", "name"}
-	values = []any{session.Id, session.AgentId, session.Name}
+	opts = []string{"id", "agent_id", "name", "cwd"}
+	values = []any{session.Id, session.AgentId, session.Name, session.Cwd}
 
 	if session.Id == "" || session.AgentId == "" {
 		err = fmt.Errorf("session id or agent_id is required")
@@ -68,7 +69,7 @@ func SessionRead(id string) (*Session, error) {
 
 	var err error
 
-	stmt, err = util.DB.Prepare("SELECT id, agent_id, name, created_at FROM sessions WHERE id = ?;")
+	stmt, err = util.DB.Prepare("SELECT id, agent_id, name, cwd, created_at FROM sessions WHERE id = ?;")
 	if err != nil {
 		return nil, err
 	}
@@ -80,7 +81,7 @@ func SessionRead(id string) (*Session, error) {
 		return nil, err
 	}
 
-	err = row.Scan(&obj.Id, &obj.AgentId, &obj.Name, &obj.CreatedAt)
+	err = row.Scan(&obj.Id, &obj.AgentId, &obj.Name, &obj.Cwd, &obj.CreatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -96,7 +97,7 @@ func SessionList(agentId string) ([]*Session, error) {
 
 	var err error
 
-	stmt, err = util.DB.Prepare("SELECT id, agent_id, name, created_at FROM sessions WHERE agent_id = ? ORDER BY created_at DESC;")
+	stmt, err = util.DB.Prepare("SELECT id, agent_id, name, cwd, created_at FROM sessions WHERE agent_id = ? ORDER BY created_at DESC;")
 	if err != nil {
 		return nil, err
 	}
@@ -109,12 +110,12 @@ func SessionList(agentId string) ([]*Session, error) {
 	defer rows.Close()
 
 	for rows.Next() {
-		err = rows.Scan(&obj.Id, &obj.AgentId, &obj.Name, &obj.CreatedAt)
+		err = rows.Scan(&obj.Id, &obj.AgentId, &obj.Name, &obj.Cwd, &obj.CreatedAt)
 		if err != nil {
 			return nil, err
 		}
 
-		list = append(list, &Session{Id: obj.Id, AgentId: obj.AgentId, Name: obj.Name, CreatedAt: obj.CreatedAt})
+		list = append(list, &Session{Id: obj.Id, AgentId: obj.AgentId, Name: obj.Name, Cwd: obj.Cwd, CreatedAt: obj.CreatedAt})
 	}
 
 	err = rows.Err()
@@ -132,19 +133,19 @@ func SessionListAll() ([]*Session, error) {
 
 	var err error
 
-	rows, err = util.DB.Query("SELECT id, agent_id, name, created_at FROM sessions ORDER BY created_at DESC;")
+	rows, err = util.DB.Query("SELECT id, agent_id, name, cwd, created_at FROM sessions ORDER BY created_at DESC;")
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
 	for rows.Next() {
-		err = rows.Scan(&obj.Id, &obj.AgentId, &obj.Name, &obj.CreatedAt)
+		err = rows.Scan(&obj.Id, &obj.AgentId, &obj.Name, &obj.Cwd, &obj.CreatedAt)
 		if err != nil {
 			return nil, err
 		}
 
-		list = append(list, &Session{Id: obj.Id, AgentId: obj.AgentId, Name: obj.Name, CreatedAt: obj.CreatedAt})
+		list = append(list, &Session{Id: obj.Id, AgentId: obj.AgentId, Name: obj.Name, Cwd: obj.Cwd, CreatedAt: obj.CreatedAt})
 	}
 
 	err = rows.Err()
@@ -166,6 +167,15 @@ func SessionUpdate(id string, session *Session) error {
 	if session.Name != "" {
 		opts = append(opts, "name = ?")
 		values = append(values, session.Name)
+	}
+
+	if session.Cwd != "" {
+		opts = append(opts, "cwd = ?")
+		values = append(values, session.Cwd)
+	}
+
+	if len(opts) == 0 {
+		return nil
 	}
 
 	values = append(values, id)

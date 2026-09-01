@@ -182,3 +182,58 @@ func ResolveAnchor(remoteAddr, clientCwd string) string {
 
 	return home
 }
+
+func allowedAnchor(remoteAddr, clientCwd string) string {
+	var home string
+
+	var err error
+
+	if clientCwd == "" {
+		return ""
+	}
+
+	if !filepath.IsAbs(clientCwd) {
+		return ""
+	}
+
+	clientCwd = filepath.Clean(clientCwd)
+
+	if IsLoopbackAddr(remoteAddr) {
+		return clientCwd
+	}
+
+	home, err = os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+
+	if !coveredBy(filepath.Clean(home), clientCwd) {
+		return ""
+	}
+
+	return clientCwd
+}
+
+func SessionAnchor(session *Session, remoteAddr, clientCwd string) string {
+	var anchor string
+
+	var err error
+
+	if session.Cwd != "" {
+		return session.Cwd
+	}
+
+	anchor = allowedAnchor(remoteAddr, clientCwd)
+	if anchor == "" {
+		return ""
+	}
+
+	err = SessionUpdate(session.Id, &Session{Cwd: anchor})
+	if err != nil {
+		util.Log.Error("session cwd pin failed", "session", session.Id, "error", err)
+	}
+
+	session.Cwd = anchor
+
+	return anchor
+}

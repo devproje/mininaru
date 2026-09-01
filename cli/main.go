@@ -26,6 +26,7 @@ var (
 	promptApiKeyRef  string
 	promptFormatRef  string
 	promptImageRef   []string
+	promptCwdRef     string
 )
 
 var root *cobra.Command = &cobra.Command{
@@ -119,6 +120,7 @@ func main() {
 	root.Flags().StringVar(&promptAgentRef, "agent", "", "agent name to open a new session with")
 	root.Flags().StringVarP(&promptFormatRef, "format", "f", client.FormatString, "output format for -p: string|json|xml")
 	root.Flags().StringArrayVar(&promptImageRef, "image", nil, "attach an image file to the -p prompt, repeatable")
+	root.PersistentFlags().StringVar(&promptCwdRef, "cwd", "", "working directory to pin the session to (default: current directory)")
 	root.PersistentFlags().StringVar(&promptUrlRef, "url", client.DefaultUrl, "websocket endpoint of the mininaru server")
 	root.PersistentFlags().StringVar(&promptApiKeyRef, "api-key", "", "api key for the mininaru server")
 	root.PersistentFlags().StringVar(&gatewayRef, "gateway", "", "named remote endpoint from 'mininaru gateway'")

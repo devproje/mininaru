@@ -22,6 +22,7 @@ func clientExecute() error {
 		Session:  promptSessionRef,
 		Agent:    promptAgentRef,
 		ApiKey:   promptApiKeyRef,
+		Cwd:      promptCwdRef,
 		Gateways: gateways,
 	})
 }

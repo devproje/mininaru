@@ -6,7 +6,6 @@ package main
 import (
 	"fmt"
 	"net/http"
-	"os"
 	"strings"
 
 	"github.com/devproje/mininaru/core"
@@ -51,7 +50,7 @@ func shortPrompt(prompt string) error {
 		defer client.Api(http.MethodDelete, base+"/sessions/"+session.Id, apiKey, nil, nil)
 	}
 
-	cwd, err = os.Getwd()
+	cwd, err = client.ResolveCwd(promptCwdRef)
 	if err != nil {
 		return err
 	}

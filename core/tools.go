@@ -16,7 +16,10 @@ import (
 func buildTools(root, sessionId string, caller *Agent, depth int, onTool func(name, status, message string), approve ApproveFunc) []modules.Tool {
 	var tools []modules.Tool
 
-	tools = append(tools, bash.Exec(root), file.Read(root), file.Write(root), file.Edit(root))
+	if root != "" {
+		tools = append(tools, bash.Exec(root), file.Read(root), file.Write(root), file.Edit(root))
+	}
+
 	tools = append(tools, browser.Tools(sessionId)...)
 	tools = append(tools, mcp.Tools()...)
 	tools = append(tools, memory.Tools(caller.Id)...)

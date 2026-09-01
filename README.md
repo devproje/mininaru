@@ -227,6 +227,17 @@ loopback.
 
 ## Tools
 
+Which tools a session gets depends on whether it has a working directory.
+A session opened from the CLI is pinned to one — the directory you started
+in, or whatever `--cwd` names — and gets everything below; that pin is
+taken from the first message and never moves, so the agent keeps resolving
+paths against the directory you opened even if you carry on from somewhere
+else. A session with no directory, which is what you get over the REST API
+unless you pass a `cwd`, runs without `bash_exec` or the file tools at all;
+the browser, memory, skill, MCP, and delegation tools still work. A remote
+client may only pin a directory under the server's home; anything else is
+refused and the session stays without one.
+
 An agent can run `bash_exec`, read/write/edit files, drive a headless
 browser (`browser_navigate`/`browser_click`/`browser_type`/`browser_read`/
 `browser_screenshot`/`browser_close`), delegate one self-contained task to
@@ -302,6 +313,7 @@ mininaru                                          # connects to ws://127.0.0.1:8
 mininaru --url ws://example.com:8223/ws --api-key '<KEY>'
 mininaru --session <id>                           # resume an existing conversation
 mininaru --agent coder                            # pick an agent by name for a new session
+mininaru --cwd ~/src/project                      # pin the session to another directory
 ```
 
 Every line you type goes straight to the agent — there's no shell mode to
@@ -350,6 +362,7 @@ mininaru -p "<prompt>"                            # one-shot, streams the transc
 mininaru -p "<prompt>" --session <id>             # run the turn on an existing session
 mininaru -p "<prompt>" --format json              # -f json | xml | string (default)
 mininaru -p "<prompt>" --image shot.png           # attach an image, repeatable
+mininaru -p "<prompt>" --cwd ~/src/project        # run the turn against another directory
 ```
 
 `-p` runs a single turn without the REPL and exits. With no `--session` the
@@ -473,7 +486,9 @@ of `{"type": "chunk"|"tool"|"approval_request"|"done"|"error", ...}` frames.
 Sending `{"type": "interrupt", "session_id": "..."}` cancels that session's
 turn mid-stream. An `approval_request` frame blocks the turn until you answer with
 `{"type": "approval", "session_id": "...", "decision": "once"|"session"|"deny"}`
-— see "Tools" above.
+— see "Tools" above. `cwd` is read from the first frame a session receives
+and pinned to it; later frames may carry it, but it is ignored. Omit it and
+the session runs without the shell and file tools.
 
 ## Development
 
