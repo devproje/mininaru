@@ -292,6 +292,32 @@ func ResolveApiKey(explicit string, endpoint string) string {
 	return strings.TrimSpace(string(fromFile))
 }
 
+func ResolveCwd(dir string) (string, error) {
+	var info os.FileInfo
+
+	var err error
+
+	if dir == "" {
+		return os.Getwd()
+	}
+
+	dir, err = filepath.Abs(dir)
+	if err != nil {
+		return "", err
+	}
+
+	info, err = os.Stat(dir)
+	if err != nil {
+		return "", err
+	}
+
+	if !info.IsDir() {
+		return "", fmt.Errorf("--cwd %s is not a directory", dir)
+	}
+
+	return dir, nil
+}
+
 func Pump(conn *websocket.Conn) <-chan Reply {
 	var out chan Reply
 

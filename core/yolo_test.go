@@ -4,6 +4,8 @@
 package core
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/devproje/mininaru/util"
@@ -149,5 +151,42 @@ func TestYoloOffLocksDownASubdirectoryOfAPersistedAncestor(t *testing.T) {
 	}
 	if YoloLookup("/home/user/other") != YoloOn {
 		t.Fatalf("unrelated sibling lost the ancestor's on mode: %q", YoloLookup("/home/user/other"))
+	}
+}
+
+func TestAllowedAnchorConfinesRemotePeersToHome(t *testing.T) {
+	var home string
+	var anchor string
+
+	var err error
+
+	home, err = os.UserHomeDir()
+	if err != nil {
+		t.Skip("no home directory")
+	}
+
+	anchor = allowedAnchor("127.0.0.1:1234", "/etc")
+	if anchor != "/etc" {
+		t.Fatalf("loopback anchor = %q, want the client cwd", anchor)
+	}
+
+	anchor = allowedAnchor("203.0.113.5:1234", "/etc")
+	if anchor != "" {
+		t.Fatalf("remote anchor = %q, want a refusal outside home", anchor)
+	}
+
+	anchor = allowedAnchor("203.0.113.5:1234", filepath.Join(home, "project"))
+	if anchor != filepath.Join(home, "project") {
+		t.Fatalf("remote anchor = %q, want a path under home", anchor)
+	}
+
+	anchor = allowedAnchor("203.0.113.5:1234", filepath.Join(home, "..", "..", "etc"))
+	if anchor != "" {
+		t.Fatalf("remote anchor = %q, want traversal out of home refused", anchor)
+	}
+
+	anchor = allowedAnchor("203.0.113.5:1234", "relative/path")
+	if anchor != "" {
+		t.Fatalf("remote anchor = %q, want a relative cwd refused", anchor)
 	}
 }

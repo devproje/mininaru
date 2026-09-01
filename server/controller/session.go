@@ -16,6 +16,7 @@ import (
 type sessionCreateRequest struct {
 	AgentId string `json:"agent_id" binding:"required"`
 	Name    string `json:"name"`
+	Cwd     string `json:"cwd"`
 }
 
 type sessionUpdateRequest struct {
@@ -35,7 +36,7 @@ func SessionCreate(ctx *gin.Context) {
 		return
 	}
 
-	session = core.Session{Id: uuid.NewString(), AgentId: req.AgentId, Name: req.Name}
+	session = core.Session{Id: uuid.NewString(), AgentId: req.AgentId, Name: req.Name, Cwd: req.Cwd}
 
 	err = core.SessionCreate(&session)
 	if err != nil {

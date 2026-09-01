@@ -23,6 +23,7 @@ type Options struct {
 	Session  string
 	Agent    string
 	ApiKey   string
+	Cwd      string
 	Gateways []Gateway
 }
 
@@ -299,7 +300,7 @@ func Run(opts Options) error {
 
 	sh = Shell{url: opts.Url, apiKey: ResolveApiKey(opts.ApiKey, opts.Url), gateways: opts.Gateways}
 
-	sh.cwd, err = os.Getwd()
+	sh.cwd, err = ResolveCwd(opts.Cwd)
 	if err != nil {
 		return err
 	}
