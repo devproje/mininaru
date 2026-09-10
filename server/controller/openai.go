@@ -108,6 +108,12 @@ func chatCompletionsStream(ctx *gin.Context, agent *core.Agent, messages []core.
 	var ok bool
 	var err error
 
+	err = core.ChatContextCheck(agent, messages)
+	if err != nil {
+		respondOpenAIError(ctx, http.StatusBadRequest, "context_length_exceeded", err.Error())
+		return
+	}
+
 	ctx.Header("Content-Type", "text/event-stream")
 	ctx.Header("Cache-Control", "no-cache")
 	ctx.Header("Connection", "keep-alive")
@@ -151,6 +157,7 @@ func ChatCompletions(ctx *gin.Context) {
 	var agent *core.Agent
 	var messages []core.ChatMessage
 	var resp *openai.ChatCompletion
+	var contextErr *core.ContextLengthError
 
 	var err error
 
@@ -180,6 +187,11 @@ func ChatCompletions(ctx *gin.Context) {
 	if !req.Stream {
 		resp, err = core.ChatCompletion(ctx.Request.Context(), agent, messages)
 		if err != nil {
+			if errors.As(err, &contextErr) {
+				respondOpenAIError(ctx, http.StatusBadRequest, "context_length_exceeded", err.Error())
+				return
+			}
+
 			respondOpenAIError(ctx, http.StatusInternalServerError, "api_error", err.Error())
 			return
 		}

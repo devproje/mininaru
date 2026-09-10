@@ -5,6 +5,7 @@ package core
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -93,6 +94,11 @@ func ChatCompletion(ctx context.Context, agent *Agent, messages []ChatMessage) (
 
 	var err error
 
+	err = ChatContextCheck(agent, messages)
+	if err != nil {
+		return nil, err
+	}
+
 	prov, err = ProviderActive()
 	if err != nil {
 		return nil, err
@@ -124,6 +130,11 @@ func ChatCompletionStream(ctx context.Context, agent *Agent, messages []ChatMess
 	var chunk openai.ChatCompletionChunk
 
 	var err error
+
+	err = ChatContextCheck(agent, messages)
+	if err != nil {
+		return err
+	}
 
 	prov, err = ProviderActive()
 	if err != nil {
@@ -215,6 +226,8 @@ func failedToolResult(result string, err error) string {
 
 func SendChatMessage(ctx context.Context, agent *Agent, session *Session, anchor string, depth int, onChunk func(openai.ChatCompletionChunk), onTool func(name, status, message string), approve ApproveFunc) error {
 	var history []*Message
+	var tail []*Message
+	var summary *Summary
 	var union []openai.ChatCompletionMessageParamUnion
 	var pending *Message
 	var tools []modules.Tool
@@ -232,6 +245,8 @@ func SendChatMessage(ctx context.Context, agent *Agent, session *Session, anchor
 	var assistant Message
 	var updateErr error
 	var contextErr error
+	var limitErr *ContextLengthError
+	var isContextLimit bool
 
 	var err error
 
@@ -240,7 +255,13 @@ func SendChatMessage(ctx context.Context, agent *Agent, session *Session, anchor
 		return err
 	}
 
-	union, pending, err = historyUnion(history)
+	summary, err = SummaryLoad(session.Id)
+	if err != nil {
+		return err
+	}
+	tail = summaryTail(history, summary)
+
+	union, pending, err = historyUnion(tail)
 	if err != nil {
 		return err
 	}
@@ -249,6 +270,9 @@ func SendChatMessage(ctx context.Context, agent *Agent, session *Session, anchor
 		return err
 	}
 
+	if summary != nil {
+		union = append([]openai.ChatCompletionMessageParamUnion{openai.SystemMessage(summary.Content)}, union...)
+	}
 	memoryIndex = memory.LoadIndex(agent.Id)
 	if memoryIndex != "" {
 		union = append([]openai.ChatCompletionMessageParamUnion{openai.SystemMessage(memoryIndex)}, union...)
@@ -267,9 +291,62 @@ func SendChatMessage(ctx context.Context, agent *Agent, session *Session, anchor
 	}
 
 	tools = buildTools(anchor, session.Id, agent, depth, onTool, approve)
+	contextErr = contextLimit(agent, union, tools)
+	if contextErr != nil {
+		isContextLimit = errors.As(contextErr, &limitErr)
+		if isContextLimit {
+			summary, contextErr = compactHistory(ctx, agent, session, prov, summary, tail, pending)
+		}
+		if contextErr != nil {
+			updateErr = MessageUpdate(pending.Id, &Message{Status: "failed", Error: contextErr.Error()})
+			if updateErr != nil {
+				return updateErr
+			}
+
+			return contextErr
+		}
+
+		tail = summaryTail(history, summary)
+		union, pending, err = historyUnion(tail)
+		if err != nil {
+			return err
+		}
+		if summary != nil {
+			union = append([]openai.ChatCompletionMessageParamUnion{openai.SystemMessage(summary.Content)}, union...)
+		}
+		if memoryIndex != "" {
+			union = append([]openai.ChatCompletionMessageParamUnion{openai.SystemMessage(memoryIndex)}, union...)
+		}
+		if skillCatalog != "" {
+			union = append([]openai.ChatCompletionMessageParamUnion{openai.SystemMessage(skillCatalog)}, union...)
+		}
+		if agent.Soul != "" {
+			union = append([]openai.ChatCompletionMessageParamUnion{openai.SystemMessage(agent.Soul)}, union...)
+		}
+
+		contextErr = contextLimit(agent, union, tools)
+		if contextErr != nil {
+			updateErr = MessageUpdate(pending.Id, &Message{Status: "failed", Error: contextErr.Error()})
+			if updateErr != nil {
+				return updateErr
+			}
+
+			return contextErr
+		}
+	}
 
 	for round = 0; round < maxToolRounds; round++ {
 		contextErr = ctx.Err()
+		if contextErr != nil {
+			updateErr = MessageUpdate(pending.Id, &Message{Status: "failed", Error: contextErr.Error()})
+			if updateErr != nil {
+				return updateErr
+			}
+
+			return contextErr
+		}
+
+		contextErr = contextLimit(agent, union, tools)
 		if contextErr != nil {
 			updateErr = MessageUpdate(pending.Id, &Message{Status: "failed", Error: contextErr.Error()})
 			if updateErr != nil {

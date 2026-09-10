@@ -174,6 +174,92 @@ func TestChatCompletionsUnknownModel(t *testing.T) {
 	}
 }
 
+func TestChatCompletionsRejectsAnOversizedRequest(t *testing.T) {
+	var router *gin.Engine
+	var w *httptest.ResponseRecorder
+	var req *http.Request
+	var body []byte
+	var resp map[string]any
+	var errObj map[string]any
+
+	var err error
+
+	setupTestDB(t)
+	router = newRouter()
+	setupTestProviderAgent(t)
+
+	err = core.AgentUpdate("a1", &core.Agent{MaxContext: 1000})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	body, err = json.Marshal(map[string]any{
+		"model":    "naru",
+		"messages": []map[string]string{{"role": "user", "content": strings.Repeat("x", 2000)}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	w = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/chat/completions", bytes.NewReader(body))
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400, body = %s", w.Code, w.Body.String())
+	}
+
+	err = json.Unmarshal(w.Body.Bytes(), &resp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	errObj = resp["error"].(map[string]any)
+	if errObj["type"] != "context_length_exceeded" {
+		t.Fatalf("error.type = %v, want context_length_exceeded", errObj["type"])
+	}
+}
+
+func TestChatCompletionsStreamRejectsAnOversizedRequest(t *testing.T) {
+	var router *gin.Engine
+	var w *httptest.ResponseRecorder
+	var req *http.Request
+	var body []byte
+	var resp map[string]any
+	var errObj map[string]any
+
+	var err error
+
+	setupTestDB(t)
+	router = newRouter()
+	setupTestProviderAgent(t)
+
+	err = core.AgentUpdate("a1", &core.Agent{MaxContext: 1000})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err = json.Marshal(map[string]any{
+		"model":    "naru",
+		"stream":   true,
+		"messages": []map[string]string{{"role": "user", "content": strings.Repeat("x", 2000)}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	w = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/chat/completions", bytes.NewReader(body))
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400, body = %s", w.Code, w.Body.String())
+	}
+
+	err = json.Unmarshal(w.Body.Bytes(), &resp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	errObj = resp["error"].(map[string]any)
+	if errObj["type"] != "context_length_exceeded" {
+		t.Fatalf("error.type = %v, want context_length_exceeded", errObj["type"])
+	}
+}
+
 func TestModelsListsAgents(t *testing.T) {
 	var router *gin.Engine
 	var agentName string
