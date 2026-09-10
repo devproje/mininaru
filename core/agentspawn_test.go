@@ -91,7 +91,7 @@ func TestAgentSpawnDelegatesAndReturnsTheAnswer(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	session = &Session{Id: "s1", AgentId: "a1"}
+	session = &Session{Id: "s1", AgentId: "a1", Cwd: t.TempDir()}
 	err = SessionCreate(session)
 	if err != nil {
 		t.Fatal(err)
@@ -102,9 +102,9 @@ func TestAgentSpawnDelegatesAndReturnsTheAnswer(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = SendChatMessage(t.Context(), caller, session, t.TempDir(), 0, func(chunk openai.ChatCompletionChunk) {},
+	err = SendChatMessage(t.Context(), caller, session, session.Cwd, 0, func(chunk openai.ChatCompletionChunk) {},
 		func(name, status, message string) { toolEvents = append(toolEvents, name+":"+status) },
-		func(ctx context.Context, name, arguments string) (string, error) { return "once", nil })
+		func(ctx context.Context, sessionId, root, name, arguments string) (string, error) { return "once", nil })
 	if err != nil {
 		t.Fatalf("SendChatMessage failed: %v", err)
 	}

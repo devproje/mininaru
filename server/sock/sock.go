@@ -38,6 +38,7 @@ type outboundFrame struct {
 	Name      string                      `json:"name,omitempty"`
 	Status    string                      `json:"status,omitempty"`
 	Arguments string                      `json:"arguments,omitempty"`
+	Cwd       string                      `json:"cwd,omitempty"`
 }
 
 type reasoningChunk struct {
@@ -111,12 +112,12 @@ func writeErrorFrame(conn *safeConn, sessionId string, message string) {
 	conn.writeFrame(outboundFrame{Type: "error", SessionId: sessionId, Message: message})
 }
 
-func approveFunc(conn *safeConn, router *approvalRouter, sessionId, anchor string) core.ApproveFunc {
-	return func(ctx context.Context, name, arguments string) (string, error) {
+func approveFunc(conn *safeConn, router *approvalRouter) core.ApproveFunc {
+	return func(ctx context.Context, sessionId, root, name, arguments string) (string, error) {
 		var mode string
 		var decision string
 
-		mode = core.YoloLookup(anchor)
+		mode = core.YoloLookup(root)
 		if mode == core.YoloOn || mode == core.YoloPersist {
 			return "once", nil
 		}
@@ -124,9 +125,9 @@ func approveFunc(conn *safeConn, router *approvalRouter, sessionId, anchor strin
 			return "once", nil
 		}
 
-		conn.writeFrame(outboundFrame{Type: "approval_request", SessionId: sessionId, Name: name, Arguments: arguments})
-
-		decision = router.wait(ctx, sessionId)
+		decision = router.wait(ctx, sessionId, func() {
+			conn.writeFrame(outboundFrame{Type: "approval_request", SessionId: sessionId, Name: name, Arguments: arguments, Cwd: root})
+		})
 		if decision == "session" {
 			setSessionApproved(sessionId)
 		}
@@ -252,7 +253,7 @@ func handleFrame(ctx context.Context, remoteAddr string, conn *safeConn, frame i
 		conn.writeFrame(outboundFrame{Type: "chunk", SessionId: session.Id, Chunk: &chunk, Reasoning: chunkReasoning(chunk)})
 	}, func(name, status, message string) {
 		conn.writeFrame(outboundFrame{Type: "tool", SessionId: session.Id, Name: name, Status: status, Message: message})
-	}, approveFunc(conn, router, session.Id, anchor))
+	}, approveFunc(conn, router))
 	if err != nil {
 		writeErrorFrame(conn, session.Id, err.Error())
 		return

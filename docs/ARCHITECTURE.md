@@ -384,12 +384,11 @@ placeholder text only, not the picture.
 which a leaf package can't import without a cycle. `core` builds it, plus
 `session_send`, `session_list`, and `agent_list`, by hand rather than
 pulling them from a `modules` subpackage. Calling it creates a real
-`Session` (named
-`"spawn: <prompt preview>"`) and a `Message` for the target agent, then
-recurses into `SendChatMessage` for that session with the same `anchor` and
-`approve` the caller has — a dangerous tool call inside the delegate prompts
-for approval exactly like one at the top level, routed through the same
-`/ws` connection since `approve` is a closure already bound to the parent
+`Session` (named `"spawn: <prompt preview>"`) with the caller's anchor stored
+as its `Cwd`, and a `Message` for the target agent, then recurses into
+`SendChatMessage` for that session. A dangerous tool call inside the delegate
+prompts over the same `/ws` connection, but approval and yolo lookup use the
+spawned session id and its inherited working directory rather than the parent
 session id. The delegate starts with no memory of the calling conversation;
 the prompt has to carry everything it needs. The tool's result is the
 delegate's last assistant message, read back with `MessageList` once
@@ -425,9 +424,10 @@ exists — **any** session, including one owned by a different agent than the
 caller. The only refusal is the caller's own session, which would deadlock
 on its own session lock (below). It reuses `agentSpawnTool`'s
 `lastAssistantMessage` helper and the same `depth < maxSpawnDepth` gate in
-`buildTools`, and — like `agent_spawn` — runs the nested `SendChatMessage`
-with the caller's own `anchor`/`approve` rather than building a second
-approval path.
+`buildTools`. The nested `SendChatMessage` uses the target session's persisted
+`Cwd`; an empty target `Cwd` therefore exposes no filesystem or Bash tools.
+Approvals still travel over the initiating caller's `/ws` connection, but
+carry the target session id and working directory.
 
 Because a cross-agent injection would otherwise look, from the receiving
 session's own history, indistinguishable from that agent's own user typing
@@ -521,7 +521,10 @@ claimed cwd can't be trusted. `core.ResolveAnchor` /
 `core.IsLoopbackAddr` (`core/yolo.go`) make that call from the raw
 `RemoteAddr` the request came in on.
 
-`core.YoloLookup(anchor)` (`core/yolo.go`) reads `directory.json` and returns
+Each dangerous tool passes its current session id and root to `approve`, so a
+nested `agent_spawn` or `session_send` round cannot inherit a caller's yolo or
+session approval merely because the caller initiated it. `core.YoloLookup`
+(`core/yolo.go`) reads `directory.json` and returns
 the most specific (deepest) `{root, mode}` entry covering `anchor` by path
 segment — not string prefix, so `/home/user/proj` doesn't match
 `/home/user/project2` — defaulting to `"off"` when nothing matches. Three
@@ -557,14 +560,17 @@ and replaced whole by `/model`/`/effort`/`/agent`), coloured by level
 ### The HIL round-trip
 
 When yolo mode says "ask," `server/sock`'s `approveFunc` closure
-(`server/sock/sock.go`) sends `{type: "approval_request", name, arguments}`
-over the same `/ws` connection and blocks on a per-session channel
+(`server/sock/sock.go`) registers a per-session response channel before it
+sends `{type: "approval_request", session_id, cwd, name, arguments}` over the
+same `/ws` connection, then blocks on that channel
 (`server/sock/session.go`'s `approvalRouter`) until the client answers
 `{type: "approval", session_id, decision: "once"|"session"|"deny"}`.
 `"session"` also flips an in-memory, session-id-keyed flag
 (`sessionAutoApprove`, a package-level `sync.Map`) so the rest of that
 session's dangerous calls skip the prompt — it's not written to
-`directory.json` and is gone on restart.
+`directory.json` and is gone on restart. The client displays the execution
+session and directory and echoes the request's session id in its response,
+which matters when a nested round belongs to a different session.
 
 `SockHandler`'s read loop can't call `handleFrame` synchronously — that
 would deadlock waiting for an approval frame it can only read from the same
@@ -631,7 +637,7 @@ are handled by `renderer.tool` — a spinner while a call is open, a settled
   — `message` echoes a `session_send` injection (`name` is the *origin*
   session id), `chunk` carries a completion delta plus a `reasoning` string,
   `tool` reports a call's `name`/`status`/`message`, `approval_request`
-  carries `name`/`arguments` and blocks the turn until an approval frame
+  carries `session_id`/`cwd`/`name`/`arguments` and blocks the turn until an approval frame
   answers it (see "Tool calling" below). Reasoning deltas are pulled out of
   the chunk's raw JSON (`chunkReasoning`), because
   `openai.ChatCompletionChunk` has no typed field for

@@ -54,7 +54,7 @@ func TestReceiveApproval(t *testing.T) {
 
 		for _, reply = range []Reply{
 			{Type: "chunk", SessionId: "s1", Reasoning: "thinking"},
-			{Type: "approval_request", SessionId: "s1", Name: "bash", Arguments: `{"cmd":"ls"}`},
+			{Type: "approval_request", SessionId: "s2", Cwd: "/tmp/target", Name: "bash", Arguments: `{"cmd":"ls"}`},
 		} {
 			err = server.WriteJSON(reply)
 			if err != nil {
@@ -105,6 +105,9 @@ func TestReceiveApproval(t *testing.T) {
 
 	if got.Type != "approval" || got.Decision != "once" {
 		t.Fatalf("want approval/once, got %q/%q", got.Type, got.Decision)
+	}
+	if got.SessionId != "s2" {
+		t.Fatalf("approval session = %q, want request session s2", got.SessionId)
 	}
 }
 

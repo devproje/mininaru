@@ -65,6 +65,54 @@ func setupTestSessionSendRoundtrip(t *testing.T) *httptest.Server {
 	return upstream
 }
 
+func setupTestSessionSendApprovalRoundtrip(t *testing.T) *httptest.Server {
+	var upstream *httptest.Server
+	var round int
+
+	var err error
+
+	t.Helper()
+
+	upstream = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var flusher http.Flusher
+
+		round++
+
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		flusher = w.(http.Flusher)
+
+		if round == 1 {
+			fmt.Fprint(w, "data: {\"id\":\"c1\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"m\",\"choices\":[{\"index\":0,"+
+				"\"delta\":{\"role\":\"assistant\",\"tool_calls\":[{\"index\":0,\"id\":\"call_1\",\"type\":\"function\","+
+				"\"function\":{\"name\":\"bash_exec\",\"arguments\":\"{\\\"command\\\":\\\"pwd\\\"}\"}}]},\"finish_reason\":null}]}\n\n")
+			fmt.Fprint(w, "data: {\"id\":\"c1\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"m\",\"choices\":[{\"index\":0,"+
+				"\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\n")
+			fmt.Fprint(w, "data: [DONE]\n\n")
+			flusher.Flush()
+
+			return
+		}
+
+		fmt.Fprint(w, "data: {\"id\":\"c2\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"m\",\"choices\":[{\"index\":0,"+
+			"\"delta\":{\"content\":\"pong\"},\"finish_reason\":null}]}\n\n")
+		fmt.Fprint(w, "data: [DONE]\n\n")
+		flusher.Flush()
+	}))
+	t.Cleanup(upstream.Close)
+
+	err = ProviderCreate(&Provider{Id: "p1", Name: "test", BaseUrl: upstream.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = ProviderActivate("p1")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return upstream
+}
+
 func TestSessionSendDeliversAndReturnsTheReply(t *testing.T) {
 	var caller *Agent
 	var session *Session
@@ -102,7 +150,7 @@ func TestSessionSendDeliversAndReturnsTheReply(t *testing.T) {
 
 	err = SendChatMessage(t.Context(), caller, session, t.TempDir(), 0, func(chunk openai.ChatCompletionChunk) {},
 		func(name, status, message string) { toolEvents = append(toolEvents, name+":"+status) },
-		func(ctx context.Context, name, arguments string) (string, error) { return "once", nil })
+		func(ctx context.Context, sessionId, root, name, arguments string) (string, error) { return "once", nil })
 	if err != nil {
 		t.Fatalf("SendChatMessage failed: %v", err)
 	}
@@ -126,6 +174,53 @@ func TestSessionSendDeliversAndReturnsTheReply(t *testing.T) {
 	}
 	if len(history) != 2 || history[0].Content != "ping" || history[1].Content != "pong" {
 		t.Fatalf("target session history = %+v", history)
+	}
+}
+
+func TestSessionSendUsesTheTargetExecutionContextForApproval(t *testing.T) {
+	var caller *Agent
+	var targetRoot string
+	var target *Session
+	var tool modules.Tool
+	var approvedSession string
+	var approvedRoot string
+	var approvedTool string
+
+	var err error
+
+	setupTestDB(t)
+	setupTestSessionSendApprovalRoundtrip(t)
+
+	caller = &Agent{Id: "a1", Name: "caller", Model: "gpt-4o-mini"}
+	err = AgentCreate(caller)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	targetRoot = t.TempDir()
+	target = &Session{Id: "s2", AgentId: caller.Id, Cwd: targetRoot}
+	err = SessionCreate(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tool = sessionSendTool(caller, "s1", 0, nil,
+		func(ctx context.Context, sessionId, root, name, arguments string) (string, error) {
+			approvedSession = sessionId
+			approvedRoot = root
+			approvedTool = name
+
+			return "deny", nil
+		})
+
+	_, err = tool.Execute(t.Context(), `{"session":"s2","content":"run pwd"}`)
+	if err != nil {
+		t.Fatalf("session_send failed: %v", err)
+	}
+
+	if approvedSession != target.Id || approvedRoot != targetRoot || approvedTool != "bash_exec" {
+		t.Fatalf("approval context = session %q root %q tool %q, want %q, %q, bash_exec",
+			approvedSession, approvedRoot, approvedTool, target.Id, targetRoot)
 	}
 }
 
@@ -172,7 +267,7 @@ func TestSessionSendDeliversAcrossAgentsWithASenderMarker(t *testing.T) {
 
 	err = SendChatMessage(t.Context(), caller, session, t.TempDir(), 0, func(chunk openai.ChatCompletionChunk) {},
 		func(name, status, message string) {},
-		func(ctx context.Context, name, arguments string) (string, error) { return "once", nil })
+		func(ctx context.Context, sessionId, root, name, arguments string) (string, error) { return "once", nil })
 	if err != nil {
 		t.Fatalf("SendChatMessage failed: %v", err)
 	}
@@ -217,7 +312,7 @@ func TestSessionSendRefusesItsOwnSession(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	tool = sessionSendTool(caller, "s1", t.TempDir(), 0, nil, nil)
+	tool = sessionSendTool(caller, "s1", 0, nil, nil)
 
 	_, err = tool.Execute(t.Context(), `{"session":"s1","content":"hi"}`)
 	if err == nil || !strings.Contains(err.Error(), "own session") {
@@ -243,7 +338,7 @@ func TestSessionSendRefusesItsOwnSessionByName(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	tool = sessionSendTool(caller, "s1", t.TempDir(), 0, nil, nil)
+	tool = sessionSendTool(caller, "s1", 0, nil, nil)
 
 	_, err = tool.Execute(t.Context(), `{"session":"quiet-otter","content":"hi"}`)
 	if err == nil || !strings.Contains(err.Error(), "own session") {
@@ -277,7 +372,7 @@ func TestSessionSendRefusesABusyTarget(t *testing.T) {
 	}
 	defer unlock()
 
-	tool = sessionSendTool(caller, "s1", t.TempDir(), 0, nil, nil)
+	tool = sessionSendTool(caller, "s1", 0, nil, nil)
 	_, err = tool.Execute(t.Context(), `{"session":"s2","content":"hi"}`)
 	if err == nil || !strings.Contains(err.Error(), "busy") {
 		t.Fatalf("error = %v, want a busy-session refusal", err)
@@ -408,7 +503,7 @@ func TestSessionSendMirrorsTheInjectedMessageBeforeTheReply(t *testing.T) {
 
 	err = SendChatMessage(t.Context(), caller, session, t.TempDir(), 0, func(chunk openai.ChatCompletionChunk) {},
 		func(name, status, message string) {},
-		func(ctx context.Context, name, arguments string) (string, error) { return "once", nil })
+		func(ctx context.Context, sessionId, root, name, arguments string) (string, error) { return "once", nil })
 	if err != nil {
 		t.Fatalf("SendChatMessage failed: %v", err)
 	}
