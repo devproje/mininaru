@@ -225,6 +225,73 @@ func TestSessionSendRefusesItsOwnSession(t *testing.T) {
 	}
 }
 
+func TestSessionSendRefusesItsOwnSessionByName(t *testing.T) {
+	var caller *Agent
+	var tool modules.Tool
+
+	var err error
+
+	setupTestDB(t)
+
+	caller = &Agent{Id: "a1", Name: "caller", Model: "gpt-4o-mini"}
+	err = AgentCreate(caller)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = SessionCreate(&Session{Id: "s1", AgentId: caller.Id, Name: "quiet-otter"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tool = sessionSendTool(caller, "s1", t.TempDir(), 0, nil, nil)
+
+	_, err = tool.Execute(t.Context(), `{"session":"quiet-otter","content":"hi"}`)
+	if err == nil || !strings.Contains(err.Error(), "own session") {
+		t.Fatalf("error = %v, want a self-target refusal", err)
+	}
+}
+
+func TestSessionSendRefusesABusyTarget(t *testing.T) {
+	var caller *Agent
+	var tool modules.Tool
+	var unlock func()
+	var history []*Message
+
+	var err error
+
+	setupTestDB(t)
+
+	caller = &Agent{Id: "a1", Name: "caller", Model: "gpt-4o-mini"}
+	err = AgentCreate(caller)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = SessionCreate(&Session{Id: "s2", AgentId: caller.Id})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	unlock, err = SessionLock(t.Context(), "s2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unlock()
+
+	tool = sessionSendTool(caller, "s1", t.TempDir(), 0, nil, nil)
+	_, err = tool.Execute(t.Context(), `{"session":"s2","content":"hi"}`)
+	if err == nil || !strings.Contains(err.Error(), "busy") {
+		t.Fatalf("error = %v, want a busy-session refusal", err)
+	}
+
+	history, err = MessageList("s2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(history) != 0 {
+		t.Fatalf("busy target history = %+v, want no injected message", history)
+	}
+}
+
 func TestResolveSessionRefFindsByIdThenByName(t *testing.T) {
 	var target *Session
 	var found *Session

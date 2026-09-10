@@ -451,8 +451,11 @@ session_list`, not a raw `sql: no rows in result set`.
 Because the target session may have a person watching it live over another
 `/ws` connection, two extra pieces exist purely to serve that case:
 
-- **`core.SessionLock(sessionId string) func()`** (`core/sessionlock.go`) —
-  a `sync.Map` of per-session `*sync.Mutex`, `Load`-or-`Store`d by id. Every
+- **`core.SessionLock(ctx, sessionId)` and `core.SessionTryLock(sessionId)`**
+  (`core/sessionlock.go`) — a `sync.Map` of per-session channel semaphores,
+  `Load`-or-`Store`d by id. Normal WebSocket turns wait with their connection
+  context, while `session_send` immediately returns a busy error when another
+  turn owns its target. Every
   place that reads a session's history, appends a new pending message, and
   runs a `SendChatMessage` round holds this lock for the duration:
   `session_send`'s `Execute`, and `server/sock/sock.go`'s `handleFrame` (the

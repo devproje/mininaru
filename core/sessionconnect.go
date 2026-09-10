@@ -81,6 +81,7 @@ func sessionSendTool(caller *Agent, callerSessionId, anchor string, depth int, o
 			var content string
 			var msg Message
 			var unlock func()
+			var locked bool
 			var childOnTool func(name, status, message string)
 			var answer string
 
@@ -108,6 +109,9 @@ func sessionSendTool(caller *Agent, callerSessionId, anchor string, depth int, o
 			if err != nil {
 				return "", err
 			}
+			if target.Id == callerSessionId {
+				return "", fmt.Errorf("session_send cannot target its own session")
+			}
 
 			targetAgent, err = AgentRead(target.AgentId)
 			if err != nil {
@@ -118,7 +122,10 @@ func sessionSendTool(caller *Agent, callerSessionId, anchor string, depth int, o
 				return "", err
 			}
 
-			unlock = SessionLock(target.Id)
+			unlock, locked = SessionTryLock(target.Id)
+			if !locked {
+				return "", fmt.Errorf("session %s is busy", target.Id)
+			}
 			defer unlock()
 
 			content = markSenderAgent(caller, target.AgentId, payload.Content)

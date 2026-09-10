@@ -212,6 +212,81 @@ func TestSockHandlerCompletesATurn(t *testing.T) {
 	}
 }
 
+func TestSockHandlerDisconnectCancelsAFrameWaitingForSessionLock(t *testing.T) {
+	var sessionId string
+	var unlock func()
+	var router *gin.Engine
+	var handlerDone chan struct{}
+	var server *httptest.Server
+	var wsURL string
+	var conn *websocket.Conn
+	var deadline time.Time
+	var registered bool
+	var msgs []*core.Message
+
+	var err error
+
+	setupTestDB(t)
+	sessionId = setupChatFixture(t)
+
+	unlock, err = core.SessionLock(t.Context(), sessionId)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unlock()
+
+	handlerDone = make(chan struct{})
+	router = gin.New()
+	router.GET("/ws", func(ctx *gin.Context) {
+		SockHandler(ctx)
+		close(handlerDone)
+	})
+	server = httptest.NewServer(router)
+	defer server.Close()
+
+	wsURL = "ws" + strings.TrimPrefix(server.URL, "http") + "/ws"
+	conn, _, err = websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = conn.WriteJSON(map[string]string{"session_id": sessionId, "content": "queued"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	deadline = time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		_, registered = liveConns.Load(sessionId)
+		if registered {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if !registered {
+		t.Fatal("frame did not reach the session lock")
+	}
+
+	err = conn.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	select {
+	case <-handlerDone:
+	case <-time.After(time.Second):
+		t.Fatal("SockHandler did not cancel a frame waiting for the session lock")
+	}
+
+	msgs, err = core.MessageList(sessionId)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(msgs) != 0 {
+		t.Fatalf("messages = %+v, want no message from the canceled frame", msgs)
+	}
+}
+
 func TestSockHandlerUnknownSessionStaysOpen(t *testing.T) {
 	var conn *websocket.Conn
 	var sessionId string
