@@ -37,6 +37,7 @@ func init() {
 	register(&command{name: "help", short: "show this list", run: cmdHelp})
 	register(&command{name: "exit", short: "leave the client", run: cmdExit})
 	register(&command{name: "clear", short: "clear the screen", run: cmdClear})
+	register(&command{name: "usage", short: "show context window usage", run: cmdUsage})
 	register(&command{name: "bash", usage: "<command...>", short: "run one shell command", run: cmdBash})
 	register(&command{name: "!bash", usage: "<command...>", short: "run one shell command, don't share it with the agent", run: cmdBashQuiet})
 	register(&command{name: "session", usage: "[id-or-name]", short: "show or switch session", run: cmdSession})
@@ -96,6 +97,26 @@ func cmdExit(sh *Shell, args string) error {
 
 func cmdClear(sh *Shell, args string) error {
 	write("\x1b[H\x1b[2J")
+
+	return nil
+}
+
+func cmdUsage(sh *Shell, args string) error {
+	var label string
+
+	var err error
+
+	if args != "" {
+		return fmt.Errorf("usage: /usage")
+	}
+
+	err = sh.refreshUsage()
+	if err != nil {
+		return err
+	}
+
+	label = contextLabel(sh.usage)
+	write("  %s%s%s\n", GRAY, label, RESET)
 
 	return nil
 }
@@ -217,8 +238,13 @@ func runBash(sh *Shell, args string, share bool) error {
 		return nil
 	}
 
-	return Api(http.MethodPost, sh.base+"/sessions/"+sh.session.Id+"/messages", sh.apiKey,
+	err = Api(http.MethodPost, sh.base+"/sessions/"+sh.session.Id+"/messages", sh.apiKey,
 		map[string]string{"role": "user", "content": bashTranscript(args, out.String(), err)}, nil)
+	if err != nil {
+		return err
+	}
+
+	return sh.refreshUsage()
 }
 
 func cmdSession(sh *Shell, args string) error {
@@ -239,7 +265,12 @@ func cmdSession(sh *Shell, args string) error {
 
 	sh.session = found
 
-	return sh.attach()
+	err = sh.attach()
+	if err != nil {
+		return err
+	}
+
+	return sh.refreshUsage()
 }
 
 func cmdAgent(sh *Shell, args string) error {
@@ -267,7 +298,12 @@ func cmdAgent(sh *Shell, args string) error {
 	sh.agent = target
 	sh.session = &created
 
-	return sh.attach()
+	err = sh.attach()
+	if err != nil {
+		return err
+	}
+
+	return sh.refreshUsage()
 }
 
 func cmdImg(sh *Shell, args string) error {

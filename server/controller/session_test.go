@@ -106,6 +106,33 @@ func TestSessionListRequiresAgentId(t *testing.T) {
 	}
 }
 
+func TestSessionUsageReportsTheContextBudget(t *testing.T) {
+	var router *gin.Engine
+	var sessionId string
+	var w *httptest.ResponseRecorder
+	var req *http.Request
+	var usage map[string]any
+
+	setupTestDB(t)
+	router = newRouter()
+	_, sessionId = createTestSession(t)
+
+	w = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/api/sessions/"+sessionId+"/usage", nil)
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+
+	json.Unmarshal(w.Body.Bytes(), &usage)
+	if usage["max_context"] != float64(24000) || usage["limit"] != float64(19200) {
+		t.Fatalf("usage = %+v, want the default context window and input limit", usage)
+	}
+	if usage["used"].(float64) == 0 {
+		t.Fatalf("usage = %+v, want system and tool input tokens", usage)
+	}
+}
+
 func TestSessionCreateRejectsUnknownAgent(t *testing.T) {
 	var router *gin.Engine
 	var w *httptest.ResponseRecorder

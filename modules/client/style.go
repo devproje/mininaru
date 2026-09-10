@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/devproje/mininaru/core"
 	"golang.org/x/term"
 )
 
@@ -200,4 +201,16 @@ func effortColor(level string) string {
 	}
 
 	return GRAY
+}
+
+func contextLabel(usage *core.ContextUsage) string {
+	var percent uint64
+
+	if usage == nil || usage.Limit == 0 {
+		return ""
+	}
+
+	percent = usage.Used * 100 / usage.Limit
+
+	return fmt.Sprintf("ctx:%d/%d (%d%%)", usage.Used, usage.Limit, percent)
 }
