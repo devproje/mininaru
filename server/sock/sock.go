@@ -202,17 +202,29 @@ func handleFrame(ctx context.Context, remoteAddr string, conn *safeConn, frame i
 		return
 	}
 
-	agent, err = core.AgentRead(session.AgentId)
+	registerLiveConn(session.Id, conn)
+	seen.Store(session.Id, struct{}{})
+
+	unlock, err = core.SessionLock(ctx, session.Id)
+	if err != nil {
+		if ctx.Err() == nil {
+			writeErrorFrame(conn, frame.SessionId, err.Error())
+		}
+		return
+	}
+	defer unlock()
+
+	session, err = core.SessionRead(frame.SessionId)
 	if err != nil {
 		writeErrorFrame(conn, frame.SessionId, err.Error())
 		return
 	}
 
-	registerLiveConn(session.Id, conn)
-	seen.Store(session.Id, struct{}{})
-
-	unlock = core.SessionLock(session.Id)
-	defer unlock()
+	agent, err = core.AgentRead(session.AgentId)
+	if err != nil {
+		writeErrorFrame(conn, frame.SessionId, err.Error())
+		return
+	}
 
 	ctx, cancel = context.WithCancel(ctx)
 	defer cancel()
