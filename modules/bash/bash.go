@@ -4,19 +4,29 @@
 package bash
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
+	"sync"
 	"time"
 
 	"github.com/devproje/mininaru/modules"
 )
 
+type boundedOutput struct {
+	buf       bytes.Buffer
+	truncated bool
+	mu        sync.Mutex
+}
+
 const defaultTimeout = 30
 const maxTimeout = 120
 const maxOutput = 65536
+
+const truncatedOutput = "\n[truncated]"
 
 const waitDelay = 2 * time.Second
 
@@ -46,6 +56,40 @@ func shell() (string, error) {
 	return "", fmt.Errorf("no usable shell found, set MININARU_SHELL to one")
 }
 
+func (output *boundedOutput) Write(data []byte) (int, error) {
+	var remaining int
+
+	output.mu.Lock()
+	defer output.mu.Unlock()
+
+	remaining = maxOutput - len(truncatedOutput) - output.buf.Len()
+	if remaining >= len(data) {
+		output.buf.Write(data)
+		return len(data), nil
+	}
+
+	if remaining > 0 {
+		output.buf.Write(data[:remaining])
+	}
+	output.truncated = true
+
+	return len(data), nil
+}
+
+func (output *boundedOutput) String() string {
+	var text string
+
+	output.mu.Lock()
+	defer output.mu.Unlock()
+
+	text = output.buf.String()
+	if output.truncated {
+		return text + truncatedOutput
+	}
+
+	return text
+}
+
 func Exec(root string) modules.Tool {
 	return modules.Tool{
 		Name:        "bash_exec",
@@ -69,7 +113,7 @@ func Exec(root string) modules.Tool {
 			var commandCtx context.Context
 			var cancel context.CancelFunc
 			var command *exec.Cmd
-			var output []byte
+			var output boundedOutput
 
 			var err error
 
@@ -98,19 +142,21 @@ func Exec(root string) modules.Tool {
 			command.WaitDelay = waitDelay
 			command.Cancel = func() error { return terminate(command) }
 			isolate(command)
+			command.Stdout = &output
+			command.Stderr = &output
 
-			output, err = command.CombinedOutput()
-			if len(output) > maxOutput {
-				output = append(output[:maxOutput], []byte("\n[truncated]")...)
-			}
+			err = command.Run()
 			if commandCtx.Err() == context.DeadlineExceeded {
-				return string(output), fmt.Errorf("command timed out after %d seconds", payload.TimeoutSeconds)
+				return output.String(), fmt.Errorf("command timed out after %d seconds", payload.TimeoutSeconds)
+			}
+			if commandCtx.Err() != nil {
+				return output.String(), commandCtx.Err()
 			}
 			if err != nil {
-				return string(output), fmt.Errorf("command failed: %w", err)
+				return output.String(), fmt.Errorf("command failed: %w", err)
 			}
 
-			return string(output), nil
+			return output.String(), nil
 		},
 	}
 }

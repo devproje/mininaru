@@ -5,6 +5,7 @@ package bash
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -46,6 +47,69 @@ func TestExecKillsBackgroundedChildOnTimeout(t *testing.T) {
 	}
 	if elapsed > 15*time.Second {
 		t.Fatalf("bash_exec took %v to return, the backgrounded child held the pipe open", elapsed)
+	}
+}
+
+func TestExecReturnsOutputFromAFailedCommand(t *testing.T) {
+	var result string
+
+	var err error
+
+	result, err = Exec(t.TempDir()).Execute(context.Background(), `{"command":"printf stdout; printf stderr >&2; exit 1"}`)
+	if err == nil || !strings.Contains(err.Error(), "command failed") {
+		t.Fatalf("error = %v, want a command failure", err)
+	}
+	if !strings.Contains(result, "stdout") || !strings.Contains(result, "stderr") {
+		t.Fatalf("result = %q, want stdout and stderr", result)
+	}
+}
+
+func TestExecLimitsOutputWhileTheCommandRuns(t *testing.T) {
+	var result string
+
+	var err error
+
+	result, err = Exec(t.TempDir()).Execute(context.Background(), `{"command":"yes x | head -c 70000"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result) > maxOutput {
+		t.Fatalf("result length = %d, want at most %d", len(result), maxOutput)
+	}
+	if !strings.HasSuffix(result, truncatedOutput) {
+		t.Fatalf("result does not end with %q", truncatedOutput)
+	}
+}
+
+func TestExecPreservesContextCancellation(t *testing.T) {
+	var ctx context.Context
+	var cancel context.CancelFunc
+	var result chan error
+	var started time.Time
+	var elapsed time.Duration
+
+	var err error
+
+	ctx, cancel = context.WithCancel(context.Background())
+	result = make(chan error, 1)
+	started = time.Now()
+	go func() {
+		var executeErr error
+
+		_, executeErr = Exec(t.TempDir()).Execute(ctx, `{"command":"sleep 60"}`)
+		result <- executeErr
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+	err = <-result
+	elapsed = time.Since(started)
+
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("error = %v, want context.Canceled", err)
+	}
+	if elapsed > 5*time.Second {
+		t.Fatalf("bash_exec took %v to return after cancellation", elapsed)
 	}
 }
 

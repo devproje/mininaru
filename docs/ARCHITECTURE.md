@@ -185,6 +185,14 @@ tool calls, executes each one via `executeTool` and loops. Turns with no
 `call_id` recorded yet or a `tool_calls` row still `pending` (a turn that was
 cut off mid-flight, e.g. by a server restart) are not replayed.
 
+Failed tools retain both their error and any returned output: the error stays
+in `tool_calls.error`, while `tool_calls.result` and the current
+`openai.ToolMessage` contain an `error:` header followed by the output. This
+lets the model diagnose a failed command in the next round and preserves the
+same details when a session is resumed. A canceled turn records the current
+tool and pending message as failed, then stops before another tool call or
+completion round can start.
+
 `buildTools(root, sessionId, caller, depth, onTool, approve)` (`core/tools.go`)
 assembles the tool list every round: `bash_exec` and the three file tools
 from `modules/bash`/`modules/file` rooted at `root`, the six
@@ -202,9 +210,16 @@ MCP tools infer it from
 `ToolAnnotations.ReadOnlyHint` unless a server or per-tool override in
 `mcp.json` says otherwise. `executeTool` only consults `Permission` and the
 caller-supplied `ApproveFunc`: a `Safe` tool always runs
-unconditionally; a `Dangerous` one calls `approve(ctx, name, arguments)` and
-runs only if the decision isn't `"deny"`. `core` itself has no opinion on
+unconditionally; a `Dangerous` one calls
+`approve(ctx, sessionId, root, name, arguments)` and runs only if the decision
+isn't `"deny"`. `core` itself has no opinion on
 *when* to ask — that policy lives one layer up, in `server/sock`.
+
+`bash_exec` drains combined stdout and stderr into one synchronized bounded
+buffer while the command runs. It captures at most 64 KiB including a
+`[truncated]` suffix, but continues consuming later output so a noisy child
+cannot grow process memory or block on a full pipe. A timeout or canceled
+context returns the captured output together with its context error.
 
 ### MCP servers — `modules/mcp`
 
