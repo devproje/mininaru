@@ -125,6 +125,8 @@ func newSession() (*session, error) {
 	return &current, nil
 }
 
+var createSession = newSession
+
 func startReaper() {
 	go func() {
 		var tick *time.Ticker
@@ -168,7 +170,7 @@ func sessionContext(sessionId string) (context.Context, error) {
 
 	current, ok = sessions[sessionId]
 	if !ok {
-		current, err = newSession()
+		current, err = createSession()
 		if err != nil {
 			return nil, err
 		}
