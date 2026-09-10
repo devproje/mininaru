@@ -114,6 +114,11 @@ func executeTool(ctx context.Context, tools []modules.Tool, sessionId, root, nam
 
 	var err error
 
+	err = ctx.Err()
+	if err != nil {
+		return "", err
+	}
+
 	tool = findTool(tools, name)
 	if tool == nil {
 		return "", fmt.Errorf("unknown tool %q", name)
@@ -124,9 +129,18 @@ func executeTool(ctx context.Context, tools []modules.Tool, sessionId, root, nam
 		if err != nil {
 			return "", err
 		}
+		err = ctx.Err()
+		if err != nil {
+			return "", err
+		}
 		if decision == "deny" {
 			return "", fmt.Errorf("user denied dangerous tool %q", name)
 		}
+	}
+
+	err = ctx.Err()
+	if err != nil {
+		return "", err
 	}
 
 	return tool.Execute(ctx, arguments)

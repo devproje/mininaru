@@ -202,6 +202,17 @@ func chatStreamRound(ctx context.Context, prov *Provider, params openai.ChatComp
 	return &accumulator, nil
 }
 
+func failedToolResult(result string, err error) string {
+	var text string
+
+	text = "error: " + err.Error()
+	if result != "" {
+		text += "\noutput:\n" + result
+	}
+
+	return text
+}
+
 func SendChatMessage(ctx context.Context, agent *Agent, session *Session, anchor string, depth int, onChunk func(openai.ChatCompletionChunk), onTool func(name, status, message string), approve ApproveFunc) error {
 	var history []*Message
 	var union []openai.ChatCompletionMessageParamUnion
@@ -220,6 +231,7 @@ func SendChatMessage(ctx context.Context, agent *Agent, session *Session, anchor
 	var skillCatalog string
 	var assistant Message
 	var updateErr error
+	var contextErr error
 
 	var err error
 
@@ -257,6 +269,16 @@ func SendChatMessage(ctx context.Context, agent *Agent, session *Session, anchor
 	tools = buildTools(anchor, session.Id, agent, depth, onTool, approve)
 
 	for round = 0; round < maxToolRounds; round++ {
+		contextErr = ctx.Err()
+		if contextErr != nil {
+			updateErr = MessageUpdate(pending.Id, &Message{Status: "failed", Error: contextErr.Error()})
+			if updateErr != nil {
+				return updateErr
+			}
+
+			return contextErr
+		}
+
 		params = chatParamsUnion(agent, union, tools)
 
 		accumulator, err = chatStreamRound(ctx, prov, params, onChunk)
@@ -284,6 +306,16 @@ func SendChatMessage(ctx context.Context, agent *Agent, session *Session, anchor
 		union = append(union, assistantToolCallMessage(message))
 
 		for _, call = range message.ToolCalls {
+			contextErr = ctx.Err()
+			if contextErr != nil {
+				updateErr = MessageUpdate(pending.Id, &Message{Status: "failed", Error: contextErr.Error()})
+				if updateErr != nil {
+					return updateErr
+				}
+
+				return contextErr
+			}
+
 			record, err = toolCallStart(pending.Id, call)
 			if err != nil {
 				return err
@@ -295,7 +327,8 @@ func SendChatMessage(ctx context.Context, agent *Agent, session *Session, anchor
 
 			result, err = executeTool(ctx, tools, session.Id, anchor, call.Function.Name, call.Function.Arguments, approve)
 			if err != nil {
-				updateErr = ToolCallUpdate(record.Id, &ToolCall{Status: "failed", Error: err.Error(), Result: "error: " + err.Error()})
+				result = failedToolResult(result, err)
+				updateErr = ToolCallUpdate(record.Id, &ToolCall{Status: "failed", Error: err.Error(), Result: result})
 				if updateErr != nil {
 					return updateErr
 				}
@@ -304,7 +337,17 @@ func SendChatMessage(ctx context.Context, agent *Agent, session *Session, anchor
 					onTool(record.Name, "failed", err.Error())
 				}
 
-				union = append(union, openai.ToolMessage("error: "+err.Error(), call.ID))
+				union = append(union, openai.ToolMessage(result, call.ID))
+
+				contextErr = ctx.Err()
+				if contextErr != nil {
+					updateErr = MessageUpdate(pending.Id, &Message{Status: "failed", Error: contextErr.Error()})
+					if updateErr != nil {
+						return updateErr
+					}
+
+					return contextErr
+				}
 				continue
 			}
 

@@ -55,10 +55,20 @@ func TestSessionContextReusesTheSameSession(t *testing.T) {
 	var first *session
 	var again *session
 	var ok bool
+	var previousCreateSession func() (*session, error)
+	var err error
 
 	t.Cleanup(func() { closeSession("test-reuse") })
+	previousCreateSession = createSession
+	createSession = func() (*session, error) {
+		return &session{ctx: context.Background(), cancel: func() {}}, nil
+	}
+	t.Cleanup(func() { createSession = previousCreateSession })
 
-	sessionContext("test-reuse")
+	_, err = sessionContext("test-reuse")
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	mu.Lock()
 	first, ok = sessions["test-reuse"]
@@ -67,7 +77,10 @@ func TestSessionContextReusesTheSameSession(t *testing.T) {
 		t.Fatal("sessionContext did not register a session")
 	}
 
-	sessionContext("test-reuse")
+	_, err = sessionContext("test-reuse")
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	mu.Lock()
 	again = sessions["test-reuse"]

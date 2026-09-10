@@ -6,6 +6,7 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -225,5 +226,182 @@ func TestSendChatMessageDeniesDangerousToolOnDeny(t *testing.T) {
 	}
 	if len(toolCalls) != 1 || toolCalls[0].Status != "failed" || !strings.Contains(toolCalls[0].Error, "denied") {
 		t.Fatalf("tool call = %+v, want a failed call with a denial error", toolCalls)
+	}
+}
+
+func TestSendChatMessagePreservesFailedToolOutput(t *testing.T) {
+	var upstream *httptest.Server
+	var agent *Agent
+	var session *Session
+	var toolCalls []*ToolCall
+	var round int
+	var messages string
+
+	var err error
+
+	setupTestDB(t)
+
+	upstream = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		var flusher http.Flusher
+
+		json.NewDecoder(r.Body).Decode(&body)
+		round++
+
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		flusher = w.(http.Flusher)
+
+		if round == 1 {
+			fmt.Fprint(w, "data: {\"id\":\"c1\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"m\",\"choices\":[{\"index\":0,"+
+				"\"delta\":{\"role\":\"assistant\",\"tool_calls\":[{\"index\":0,\"id\":\"call_1\",\"type\":\"function\","+
+				"\"function\":{\"name\":\"bash_exec\",\"arguments\":\"{\\\"command\\\":\\\"printf stdout; printf stderr >&2; exit 1\\\"}\"}}]},\"finish_reason\":null}]}\n\n")
+			fmt.Fprint(w, "data: {\"id\":\"c1\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"m\",\"choices\":[{\"index\":0,"+
+				"\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\n")
+			fmt.Fprint(w, "data: [DONE]\n\n")
+			flusher.Flush()
+
+			return
+		}
+
+		messages = fmt.Sprint(body["messages"])
+		fmt.Fprint(w, "data: {\"id\":\"c2\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"m\",\"choices\":[{\"index\":0,"+
+			"\"delta\":{\"content\":\"acknowledged failure\"},\"finish_reason\":null}]}\n\n")
+		fmt.Fprint(w, "data: [DONE]\n\n")
+		flusher.Flush()
+	}))
+	t.Cleanup(upstream.Close)
+
+	err = ProviderCreate(&Provider{Id: "p1", Name: "test", BaseUrl: upstream.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = ProviderActivate("p1")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	agent = &Agent{Id: "a1", Name: "naru", Model: "gpt-4o-mini"}
+	err = AgentCreate(agent)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	session = &Session{Id: "s1", AgentId: agent.Id}
+	err = SessionCreate(session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = MessageCreate(&Message{Id: "m1", SessionId: session.Id, Role: "user", Content: "run the command"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = SendChatMessage(t.Context(), agent, session, t.TempDir(), 0, func(openai.ChatCompletionChunk) {}, func(name, status, message string) {},
+		func(ctx context.Context, sessionId, root, name, arguments string) (string, error) { return "once", nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	toolCalls, err = ToolCallList("m1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(toolCalls) != 1 || toolCalls[0].Status != "failed" || !strings.Contains(toolCalls[0].Result, "stdout") || !strings.Contains(toolCalls[0].Result, "stderr") {
+		t.Fatalf("tool calls = %+v, want a failed call with saved output", toolCalls)
+	}
+	if !strings.Contains(messages, "stdout") || !strings.Contains(messages, "stderr") || !strings.Contains(messages, "command failed") {
+		t.Fatalf("second request messages = %q, want the failed command output", messages)
+	}
+}
+
+func TestSendChatMessageStopsAfterToolCancellation(t *testing.T) {
+	var upstream *httptest.Server
+	var ctx context.Context
+	var cancel context.CancelFunc
+	var agent *Agent
+	var session *Session
+	var toolCalls []*ToolCall
+	var messages []*Message
+	var round int
+	var approvals int
+
+	var err error
+
+	setupTestDB(t)
+
+	upstream = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var flusher http.Flusher
+
+		round++
+
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		flusher = w.(http.Flusher)
+		fmt.Fprint(w, "data: {\"id\":\"c1\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"m\",\"choices\":[{\"index\":0,"+
+			"\"delta\":{\"role\":\"assistant\",\"tool_calls\":[{\"index\":0,\"id\":\"call_1\",\"type\":\"function\","+
+			"\"function\":{\"name\":\"bash_exec\",\"arguments\":\"{\\\"command\\\":\\\"echo first\\\"}\"}},{\"index\":1,\"id\":\"call_2\",\"type\":\"function\","+
+			"\"function\":{\"name\":\"bash_exec\",\"arguments\":\"{\\\"command\\\":\\\"echo second\\\"}\"}}]},\"finish_reason\":null}]}\n\n")
+		fmt.Fprint(w, "data: {\"id\":\"c1\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"m\",\"choices\":[{\"index\":0,"+
+			"\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\n")
+		fmt.Fprint(w, "data: [DONE]\n\n")
+		flusher.Flush()
+	}))
+	t.Cleanup(upstream.Close)
+
+	err = ProviderCreate(&Provider{Id: "p1", Name: "test", BaseUrl: upstream.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = ProviderActivate("p1")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	agent = &Agent{Id: "a1", Name: "naru", Model: "gpt-4o-mini"}
+	err = AgentCreate(agent)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	session = &Session{Id: "s1", AgentId: agent.Id}
+	err = SessionCreate(session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = MessageCreate(&Message{Id: "m1", SessionId: session.Id, Role: "user", Content: "run the commands"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel = context.WithCancel(t.Context())
+	err = SendChatMessage(ctx, agent, session, t.TempDir(), 0, func(openai.ChatCompletionChunk) {}, func(name, status, message string) {},
+		func(ctx context.Context, sessionId, root, name, arguments string) (string, error) {
+			approvals++
+			cancel()
+
+			return "once", nil
+		})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("error = %v, want context.Canceled", err)
+	}
+	if approvals != 1 || round != 1 {
+		t.Fatalf("approvals = %d rounds = %d, want one approval and one provider round", approvals, round)
+	}
+
+	toolCalls, err = ToolCallList("m1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(toolCalls) != 1 || toolCalls[0].Status != "failed" || !strings.Contains(toolCalls[0].Error, "context canceled") {
+		t.Fatalf("tool calls = %+v, want one canceled failed call", toolCalls)
+	}
+
+	messages, err = MessageList(session.Id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if messages[0].Status != "failed" || !strings.Contains(messages[0].Error, "context canceled") {
+		t.Fatalf("user message = %+v, want a canceled failed message", messages[0])
 	}
 }
