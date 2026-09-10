@@ -120,8 +120,13 @@ func readKey() string {
 	return strings.ToLower(string(buf))
 }
 
-func (r *renderer) decide(name string, arguments string) string {
+func (r *renderer) decide(sessionId, cwd, name, arguments string) string {
 	write("\n%s%s%s wants to run %s\n", PURPLE, name, RESET, strings.TrimSpace(arguments))
+	write("%ssession %s", GRAY, sessionId)
+	if cwd != "" {
+		write(" in %s", cwd)
+	}
+	write("%s\n", RESET)
 	write("allow? %s[y]es / [a]ll / [N]o%s: ", GRAY, RESET)
 
 	switch r.key() {
@@ -330,8 +335,8 @@ func (r *renderer) frame(reply Reply) (bool, error) {
 
 		err = r.send(Frame{
 			Type:      "approval",
-			SessionId: r.session,
-			Decision:  r.decide(reply.Name, reply.Arguments),
+			SessionId: reply.SessionId,
+			Decision:  r.decide(reply.SessionId, reply.Cwd, reply.Name, reply.Arguments),
 		})
 		if err != nil {
 			return true, err
@@ -395,7 +400,7 @@ func (r *renderer) collect(reply Reply) (bool, error) {
 			r.tools = append(r.tools, ToolResult{Name: reply.Name, Status: reply.Status})
 		}
 	case "approval_request":
-		err = r.send(Frame{Type: "approval", SessionId: r.session, Decision: "deny"})
+		err = r.send(Frame{Type: "approval", SessionId: reply.SessionId, Decision: "deny"})
 		if err != nil {
 			return true, err
 		}

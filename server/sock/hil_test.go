@@ -112,6 +112,9 @@ func TestSockHandlerApprovesOnceThenRunsTheTool(t *testing.T) {
 	if frame.Type != "approval_request" || frame.Name != "bash_exec" {
 		t.Fatalf("frame = %+v, want an approval_request for bash_exec", frame)
 	}
+	if frame.SessionId != sessionId || frame.Cwd != anchor {
+		t.Fatalf("approval context = session %q cwd %q, want %q and %q", frame.SessionId, frame.Cwd, sessionId, anchor)
+	}
 
 	err = conn.WriteJSON(map[string]string{"type": "approval", "session_id": sessionId, "decision": "once"})
 	if err != nil {

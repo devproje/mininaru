@@ -55,7 +55,7 @@ func markSenderAgent(caller *Agent, targetAgentId, content string) string {
 	return fmt.Sprintf("[message from agent %q via session_send]\n%s", caller.Name, content)
 }
 
-func sessionSendTool(caller *Agent, callerSessionId, anchor string, depth int, onTool func(name, status, message string), approve ApproveFunc) modules.Tool {
+func sessionSendTool(caller *Agent, callerSessionId string, depth int, onTool func(name, status, message string), approve ApproveFunc) modules.Tool {
 	return modules.Tool{
 		Name: SessionSendToolName,
 		Description: "Inject a message into another already-running session, even one owned by a different " +
@@ -113,6 +113,16 @@ func sessionSendTool(caller *Agent, callerSessionId, anchor string, depth int, o
 				return "", fmt.Errorf("session_send cannot target its own session")
 			}
 
+			unlock, locked = SessionTryLock(target.Id)
+			if !locked {
+				return "", fmt.Errorf("session %s is busy", target.Id)
+			}
+			defer unlock()
+
+			target, err = SessionRead(target.Id)
+			if err != nil {
+				return "", err
+			}
 			targetAgent, err = AgentRead(target.AgentId)
 			if err != nil {
 				if errors.Is(err, sql.ErrNoRows) {
@@ -121,12 +131,6 @@ func sessionSendTool(caller *Agent, callerSessionId, anchor string, depth int, o
 
 				return "", err
 			}
-
-			unlock, locked = SessionTryLock(target.Id)
-			if !locked {
-				return "", fmt.Errorf("session %s is busy", target.Id)
-			}
-			defer unlock()
 
 			content = markSenderAgent(caller, target.AgentId, payload.Content)
 			msg = Message{Id: uuid.NewString(), SessionId: target.Id, Role: "user", Content: content}
@@ -148,7 +152,7 @@ func sessionSendTool(caller *Agent, callerSessionId, anchor string, depth int, o
 				}
 			}
 
-			err = SendChatMessage(ctx, targetAgent, target, anchor, depth+1, func(chunk openai.ChatCompletionChunk) {
+			err = SendChatMessage(ctx, targetAgent, target, target.Cwd, depth+1, func(chunk openai.ChatCompletionChunk) {
 				if mirrorChunk != nil {
 					mirrorChunk(target.Id, chunk)
 				}

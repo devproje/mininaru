@@ -107,7 +107,7 @@ func agentSpawnTool(caller *Agent, anchor string, depth int, onTool func(name, s
 				return "", fmt.Errorf("agent %s cannot spawn itself", target.Name)
 			}
 
-			session = Session{Id: uuid.NewString(), AgentId: target.Id, Name: spawnSessionName(payload.Prompt)}
+			session = Session{Id: uuid.NewString(), AgentId: target.Id, Name: spawnSessionName(payload.Prompt), Cwd: anchor}
 			err = SessionCreate(&session)
 			if err != nil {
 				return "", err

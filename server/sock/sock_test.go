@@ -32,6 +32,7 @@ type testFrame struct {
 	Name      string `json:"name,omitempty"`
 	Status    string `json:"status,omitempty"`
 	Arguments string `json:"arguments,omitempty"`
+	Cwd       string `json:"cwd,omitempty"`
 }
 
 func setupTestDB(t *testing.T) {

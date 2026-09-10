@@ -293,7 +293,7 @@ func SendChatMessage(ctx context.Context, agent *Agent, session *Session, anchor
 				onTool(record.Name, "started", "")
 			}
 
-			result, err = executeTool(ctx, tools, call.Function.Name, call.Function.Arguments, approve)
+			result, err = executeTool(ctx, tools, session.Id, anchor, call.Function.Name, call.Function.Arguments, approve)
 			if err != nil {
 				updateErr = ToolCallUpdate(record.Id, &ToolCall{Status: "failed", Error: err.Error(), Result: "error: " + err.Error()})
 				if updateErr != nil {
