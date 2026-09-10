@@ -81,9 +81,10 @@ on every start, since it holds API keys.
 SQLite (`modernc.org/sqlite`, no cgo) is opened with WAL, `foreign_keys`, and
 a five-second busy timeout (`util.databaseDSN`). Migrations are `.sql` files
 embedded into the binary (`util/migrations/*.sql`), tracked one row per
-applied version in a `migrations` table, and applied inside one transaction
-per file on every `NewDatabase` call — `0001_initial_schema.sql`,
-`0002_tool_calls.sql`, `0003_skill_uses.sql`, `0004_attachments.sql`.
+  applied version in a `migrations` table, and applied inside one transaction
+  per file on every `NewDatabase` call — `0001_initial_schema.sql`,
+  `0002_tool_calls.sql`, `0003_skill_uses.sql`, `0004_attachments.sql`,
+  `0005_session_cwd.sql`, `0006_session_summaries.sql`.
 
 ```
 providers(id, name, api_key, base_url, active)
@@ -108,7 +109,12 @@ attachments(id, session_id REFERENCES sessions ON DELETE CASCADE,
   -- uploaded chat images; the bytes live at .mininaru/attachments/<id>, only
   -- the metadata is in SQLite. message_id is NULL between upload and the turn
   -- that references it. deleting a session drops the rows but not the files
-  -- (ponytail: orphaned files, add a sweep if it matters)
+   -- (ponytail: orphaned files, add a sweep if it matters)
+session_summaries(session_id REFERENCES sessions ON DELETE CASCADE, content,
+                  through_message_id REFERENCES messages ON DELETE CASCADE,
+                  updated_at)
+  -- one rolling summary per session; raw messages remain in the database and
+  -- through_message_id marks the last message replaced in model requests
 ```
 
 Deleting an agent or a session cascades through the foreign keys; nothing in
@@ -163,6 +169,17 @@ reads each bound `attachments` row off disk and base64-inlines it as a
 passed through). `POST /api/sessions/:id/attachments` and the `/ws` frame's
 `images` array both carry attachment ids, bound to the message row by
 `core.AttachmentBindMessage`.
+
+`max_context` is an agent's input-context budget in tokens (24,000 by
+default). mininaru reserves 20% for the model's output, then estimates the
+serialized prompt conservatively before every provider round. Session-backed
+turns that exceed the remaining input budget summarize old completed turns
+into `session_summaries`, keeping the current turn and the newest completed
+turn as raw OpenAI messages. Tool calls and their results are folded together;
+the raw history is never deleted. If the current raw turn, system context, or
+tool schema still exceeds the budget, the turn fails before a provider call.
+The stateless `/api/v1/chat/completions` surface never rewrites caller-supplied
+history: it returns a `context_length_exceeded` error instead.
 
 `chatStreamRound` (the session-backed path's per-round streaming call) guards
 against a provider that stops sending data mid-stream without closing the

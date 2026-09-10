@@ -184,6 +184,12 @@ mininaru agent add naru --model gpt-4o-mini --soul 'terse and precise'
 by `add`. `provider set`/`agent set` only change the fields you pass; leave a
 flag out to keep the current value.
 
+`--max-context` is the agent's total input-context budget in tokens (default
+24,000). mininaru reserves 20% for output, summarizes older completed session
+turns when needed, and keeps the original history in its local database. The
+stateless OpenAI-compatible API does not rewrite supplied messages and returns
+`context_length_exceeded` when they exceed the configured budget.
+
 ```sh
 mininaru provider list
 mininaru provider set openai --base-url https://api.openai.com/v1
@@ -192,6 +198,7 @@ mininaru provider remove openai
 
 mininaru agent list
 mininaru agent set naru --thinking high
+mininaru agent set naru --max-context 48000
 mininaru agent remove naru
 ```
 
