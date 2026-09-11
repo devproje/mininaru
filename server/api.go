@@ -40,6 +40,7 @@ func apiRoutes(api *gin.RouterGroup) {
 	sessions.GET("", controller.SessionList)
 	sessions.GET("/:id", controller.SessionRead)
 	sessions.GET("/:id/usage", controller.SessionUsage)
+	sessions.POST("/:id/compact", controller.SessionCompact)
 	sessions.PATCH("/:id", controller.SessionUpdate)
 	sessions.DELETE("/:id", controller.SessionDelete)
 	sessions.POST("/:id/messages", controller.MessageCreate)

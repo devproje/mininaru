@@ -109,6 +109,39 @@ func SessionUsage(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, usage)
 }
 
+func SessionCompact(ctx *gin.Context) {
+	var id string
+	var session *core.Session
+	var agent *core.Agent
+	var usage *core.ContextUsage
+
+	var err error
+
+	id = ctx.Param("id")
+	session, err = core.SessionRead(id)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			ctx.JSON(http.StatusNotFound, gin.H{"error": "session not found"})
+			return
+		}
+
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	agent, err = core.AgentRead(session.AgentId)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	usage, err = core.SessionCompact(ctx, agent, session)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	ctx.JSON(http.StatusOK, usage)
+}
+
 func SessionList(ctx *gin.Context) {
 	var agentId string
 	var list []*core.Session

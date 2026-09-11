@@ -348,6 +348,7 @@ one), named at that point with a random `adjective-noun` pair
 /exit       quit
 /clear      clear the terminal screen
 /usage      refresh and show the current context input budget usage
+/compact    summarize completed conversation turns
 /bash       run one shell command; the command and its output are posted to the agent
 /!bash      same, without sharing the output with the agent
 /session    show or switch the current session

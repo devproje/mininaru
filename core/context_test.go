@@ -69,7 +69,7 @@ func TestSendChatMessageCompactsOldTurns(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = MessageCreate(&Message{Id: "m1", SessionId: session.Id, Role: "user", Content: strings.Repeat("old first ", 5000), Status: "completed"})
+	err = MessageCreate(&Message{Id: "m1", SessionId: session.Id, Role: "user", Content: strings.Repeat("old first ", 30000), Status: "completed"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +77,7 @@ func TestSendChatMessageCompactsOldTurns(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = MessageCreate(&Message{Id: "m3", SessionId: session.Id, Role: "user", Content: strings.Repeat("old second ", 5000), Status: "completed"})
+	err = MessageCreate(&Message{Id: "m3", SessionId: session.Id, Role: "user", Content: strings.Repeat("old second ", 30000), Status: "completed"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,6 +118,71 @@ func TestSendChatMessageCompactsOldTurns(t *testing.T) {
 	}
 	if summary == nil || summary.ThroughMessageId != "m4" {
 		t.Fatalf("summary = %+v, want marker m4", summary)
+	}
+}
+
+func TestSessionCompactSummarizesCompletedTurns(t *testing.T) {
+	var upstream *httptest.Server
+	var agent *Agent
+	var session *Session
+	var summary *Summary
+	var usage *ContextUsage
+	var item *Message
+
+	var err error
+
+	setupTestDB(t)
+
+	upstream = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"id":"summary","object":"chat.completion","created":1,"model":"m","choices":[{"index":0,"message":{"role":"assistant","content":"earlier work summary"},"finish_reason":"stop"}]}`)
+	}))
+	t.Cleanup(upstream.Close)
+
+	err = ProviderCreate(&Provider{Id: "p1", Name: "test", BaseUrl: upstream.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = ProviderActivate("p1")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	agent = &Agent{Id: "a1", Name: "naru", Model: "gpt-4o-mini"}
+	err = AgentCreate(agent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	session = &Session{Id: "s1", AgentId: agent.Id}
+	err = SessionCreate(session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, item = range []*Message{
+		{Id: "m1", SessionId: session.Id, Role: "user", Content: "first request", Status: "completed"},
+		{Id: "m2", SessionId: session.Id, Role: "assistant", Content: "first reply", Status: "completed"},
+		{Id: "m3", SessionId: session.Id, Role: "user", Content: "latest request", Status: "completed"},
+		{Id: "m4", SessionId: session.Id, Role: "assistant", Content: "latest reply", Status: "completed"},
+	} {
+		err = MessageCreate(item)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	usage, err = SessionCompact(t.Context(), agent, session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if usage.Used == 0 {
+		t.Fatal("usage after compact = 0")
+	}
+	summary, err = SummaryLoad(session.Id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summary == nil || summary.ThroughMessageId != "m2" || summary.Content != "earlier work summary" {
+		t.Fatalf("summary = %+v, want completed first turn summary", summary)
 	}
 }
 
@@ -209,7 +274,7 @@ func TestChatContextCheckRejectsAnOversizedRequest(t *testing.T) {
 	var limitErr *ContextLengthError
 
 	agent = Agent{MaxContext: 1000}
-	err = ChatContextCheck(&agent, []ChatMessage{{Role: "user", Content: strings.Repeat("x", 2000)}})
+	err = ChatContextCheck(&agent, []ChatMessage{{Role: "user", Content: strings.Repeat("x", 10000)}})
 	if !errors.As(err, &limitErr) {
 		t.Fatalf("error = %v, want ContextLengthError", err)
 	}

@@ -72,6 +72,7 @@ func newRouter() *gin.Engine {
 	sessions.GET("", SessionList)
 	sessions.GET("/:id", SessionRead)
 	sessions.GET("/:id/usage", SessionUsage)
+	sessions.POST("/:id/compact", SessionCompact)
 	sessions.PATCH("/:id", SessionUpdate)
 	sessions.DELETE("/:id", SessionDelete)
 	sessions.POST("/:id/messages", MessageCreate)
