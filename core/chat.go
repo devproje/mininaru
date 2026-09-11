@@ -19,13 +19,13 @@ import (
 	"github.com/openai/openai-go/shared"
 )
 
-var streamIdleTimeout = 2 * time.Minute
-
 type ChatMessage struct {
 	Role    string
 	Content string
 	Images  []string
 }
+
+var streamIdleTimeout = 2 * time.Minute
 
 func chatClient(prov *Provider) openai.Client {
 	var opts []option.RequestOption
@@ -167,12 +167,12 @@ func ChatCompletionStream(ctx context.Context, agent *Agent, messages []ChatMess
 
 func chatStreamRound(ctx context.Context, prov *Provider, params openai.ChatCompletionNewParams, onChunk func(openai.ChatCompletionChunk)) (*openai.ChatCompletionAccumulator, error) {
 	var client openai.Client
-	var stream *ssestream.Stream[openai.ChatCompletionChunk]
-	var chunk openai.ChatCompletionChunk
-	var accumulator openai.ChatCompletionAccumulator
 	var roundCtx context.Context
 	var cancel context.CancelFunc
 	var idle *time.Timer
+	var stream *ssestream.Stream[openai.ChatCompletionChunk]
+	var chunk openai.ChatCompletionChunk
+	var accumulator openai.ChatCompletionAccumulator
 
 	var err error
 
@@ -230,23 +230,23 @@ func SendChatMessage(ctx context.Context, agent *Agent, session *Session, anchor
 	var summary *Summary
 	var union []openai.ChatCompletionMessageParamUnion
 	var pending *Message
-	var tools []modules.Tool
+	var memoryIndex string
+	var skillCatalog string
 	var prov *Provider
+	var tools []modules.Tool
+	var contextErr error
+	var limitErr *ContextLengthError
+	var isContextLimit bool
+	var updateErr error
+	var round int
 	var params openai.ChatCompletionNewParams
 	var accumulator *openai.ChatCompletionAccumulator
 	var message openai.ChatCompletionMessage
-	var round int
+	var assistant Message
 	var call openai.ChatCompletionMessageToolCall
 	var record *ToolCall
 	var result string
 	var finishedMessage string
-	var memoryIndex string
-	var skillCatalog string
-	var assistant Message
-	var updateErr error
-	var contextErr error
-	var limitErr *ContextLengthError
-	var isContextLimit bool
 
 	var err error
 

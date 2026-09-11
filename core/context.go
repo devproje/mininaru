@@ -56,8 +56,8 @@ func contextTokenEstimate(agent *Agent, union []openai.ChatCompletionMessagePara
 	var buf []byte
 	var text string
 	var images int
-	var tokens uint64
 	var encoding *tiktoken.Tiktoken
+	var tokens uint64
 
 	var err error
 
@@ -114,59 +114,6 @@ func ChatContextCheck(agent *Agent, messages []ChatMessage) error {
 	return contextLimit(agent, params.Messages, nil)
 }
 
-func SessionContextUsage(agent *Agent, session *Session) (*ContextUsage, error) {
-	var history []*Message
-	var summary *Summary
-	var tail []*Message
-	var union []openai.ChatCompletionMessageParamUnion
-	var tools []modules.Tool
-	var tokens uint64
-	var usage ContextUsage
-	var memoryIndex string
-	var skillCatalog string
-
-	var err error
-
-	history, err = MessageList(session.Id)
-	if err != nil {
-		return nil, err
-	}
-	summary, err = SummaryLoad(session.Id)
-	if err != nil {
-		return nil, err
-	}
-
-	tail = summaryTail(history, summary)
-	union, _, err = historyUnion(tail)
-	if err != nil {
-		return nil, err
-	}
-	if summary != nil {
-		union = append([]openai.ChatCompletionMessageParamUnion{openai.SystemMessage(summary.Content)}, union...)
-	}
-	memoryIndex = memory.LoadIndex(agent.Id)
-	if memoryIndex != "" {
-		union = append([]openai.ChatCompletionMessageParamUnion{openai.SystemMessage(memoryIndex)}, union...)
-	}
-	skillCatalog = skill.Catalog()
-	if skillCatalog != "" {
-		union = append([]openai.ChatCompletionMessageParamUnion{openai.SystemMessage(skillCatalog)}, union...)
-	}
-	if agent.Soul != "" {
-		union = append([]openai.ChatCompletionMessageParamUnion{openai.SystemMessage(agent.Soul)}, union...)
-	}
-
-	tools = buildTools(session.Cwd, session.Id, agent, 0, nil, nil)
-	tokens, err = contextTokenEstimate(agent, union, tools)
-	if err != nil {
-		return nil, err
-	}
-
-	usage = ContextUsage{Used: tokens, Limit: contextInputLimit(agent), MaxContext: contextWindow(agent)}
-
-	return &usage, nil
-}
-
 func summaryTail(history []*Message, summary *Summary) []*Message {
 	var index int
 
@@ -183,12 +130,62 @@ func summaryTail(history []*Message, summary *Summary) []*Message {
 	return history
 }
 
+func compactPrefix(history []*Message, pending *Message) []*Message {
+	var pendingIndex int
+	var keepIndex int
+	var index int
+
+	pendingIndex = -1
+	keepIndex = -1
+	for index = range history {
+		if history[index].Id == pending.Id {
+			pendingIndex = index
+			break
+		}
+	}
+	if pendingIndex < 1 {
+		return nil
+	}
+
+	for index = pendingIndex - 1; index >= 0; index-- {
+		if history[index].Role == "user" {
+			keepIndex = index
+			break
+		}
+	}
+	if keepIndex > 0 {
+		return history[:keepIndex]
+	}
+
+	return history[:pendingIndex]
+}
+
+func summaryGroups(history []*Message) [][]*Message {
+	var item *Message
+	var current []*Message
+	var groups [][]*Message
+
+	for _, item = range history {
+		if item.Role == "user" && len(current) > 0 {
+			groups = append(groups, current)
+			current = nil
+		}
+
+		current = append(current, item)
+	}
+	if len(current) > 0 {
+		groups = append(groups, current)
+	}
+
+	return groups
+}
+
 func summaryTranscript(previous string, dropped []*Message) (string, error) {
 	var builder strings.Builder
 	var item *Message
+	var attachments []*Attachment
 	var calls []*ToolCall
 	var call *ToolCall
-	var attachments []*Attachment
 
 	var err error
 
@@ -225,59 +222,9 @@ func summaryTranscript(previous string, dropped []*Message) (string, error) {
 	return builder.String(), nil
 }
 
-func compactPrefix(history []*Message, pending *Message) []*Message {
-	var pendingIndex int
-	var keepIndex int
-	var index int
-
-	pendingIndex = -1
-	keepIndex = -1
-	for index = range history {
-		if history[index].Id == pending.Id {
-			pendingIndex = index
-			break
-		}
-	}
-	if pendingIndex < 1 {
-		return nil
-	}
-
-	for index = pendingIndex - 1; index >= 0; index-- {
-		if history[index].Role == "user" {
-			keepIndex = index
-			break
-		}
-	}
-	if keepIndex > 0 {
-		return history[:keepIndex]
-	}
-
-	return history[:pendingIndex]
-}
-
-func summaryGroups(history []*Message) [][]*Message {
-	var groups [][]*Message
-	var current []*Message
-	var item *Message
-
-	for _, item = range history {
-		if item.Role == "user" && len(current) > 0 {
-			groups = append(groups, current)
-			current = nil
-		}
-
-		current = append(current, item)
-	}
-	if len(current) > 0 {
-		groups = append(groups, current)
-	}
-
-	return groups
-}
-
 func summaryCompletion(ctx context.Context, agent *Agent, prov *Provider, transcript string) (string, error) {
-	var client openai.Client
 	var params openai.ChatCompletionNewParams
+	var client openai.Client
 	var response *openai.ChatCompletion
 	var content string
 	var runes []rune
@@ -323,11 +270,11 @@ func summaryCompletion(ctx context.Context, agent *Agent, prov *Provider, transc
 
 func compactHistory(ctx context.Context, agent *Agent, session *Session, prov *Provider, summary *Summary, history []*Message, pending *Message) (*Summary, error) {
 	var dropped []*Message
+	var groups [][]*Message
+	var group []*Message
 	var transcript string
 	var content string
 	var updated Summary
-	var groups [][]*Message
-	var group []*Message
 
 	var err error
 
@@ -364,12 +311,86 @@ func compactHistory(ctx context.Context, agent *Agent, session *Session, prov *P
 	return &updated, nil
 }
 
+func SessionContextUsage(agent *Agent, session *Session) (*ContextUsage, error) {
+	var history []*Message
+	var summary *Summary
+	var tail []*Message
+	var union []openai.ChatCompletionMessageParamUnion
+	var memoryIndex string
+	var skillCatalog string
+	var baseline []openai.ChatCompletionMessageParamUnion
+	var tools []modules.Tool
+	var tokens uint64
+	var baselineTokens uint64
+	var limit uint64
+	var usage ContextUsage
+
+	var err error
+
+	history, err = MessageList(session.Id)
+	if err != nil {
+		return nil, err
+	}
+	summary, err = SummaryLoad(session.Id)
+	if err != nil {
+		return nil, err
+	}
+
+	tail = summaryTail(history, summary)
+	union, _, err = historyUnion(tail)
+	if err != nil {
+		return nil, err
+	}
+	if summary != nil {
+		union = append([]openai.ChatCompletionMessageParamUnion{openai.SystemMessage(summary.Content)}, union...)
+	}
+	memoryIndex = memory.LoadIndex(agent.Id)
+	if memoryIndex != "" {
+		union = append([]openai.ChatCompletionMessageParamUnion{openai.SystemMessage(memoryIndex)}, union...)
+		baseline = append([]openai.ChatCompletionMessageParamUnion{openai.SystemMessage(memoryIndex)}, baseline...)
+	}
+	skillCatalog = skill.Catalog()
+	if skillCatalog != "" {
+		union = append([]openai.ChatCompletionMessageParamUnion{openai.SystemMessage(skillCatalog)}, union...)
+		baseline = append([]openai.ChatCompletionMessageParamUnion{openai.SystemMessage(skillCatalog)}, baseline...)
+	}
+	if agent.Soul != "" {
+		union = append([]openai.ChatCompletionMessageParamUnion{openai.SystemMessage(agent.Soul)}, union...)
+		baseline = append([]openai.ChatCompletionMessageParamUnion{openai.SystemMessage(agent.Soul)}, baseline...)
+	}
+
+	tools = buildTools(session.Cwd, session.Id, agent, 0, nil, nil)
+	tokens, err = contextTokenEstimate(agent, union, tools)
+	if err != nil {
+		return nil, err
+	}
+	baselineTokens, err = contextTokenEstimate(agent, baseline, tools)
+	if err != nil {
+		return nil, err
+	}
+	if tokens >= baselineTokens {
+		tokens -= baselineTokens
+	} else {
+		tokens = 0
+	}
+	limit = contextInputLimit(agent)
+	if limit >= baselineTokens {
+		limit -= baselineTokens
+	} else {
+		limit = 0
+	}
+
+	usage = ContextUsage{Used: tokens, Limit: limit, MaxContext: contextWindow(agent)}
+
+	return &usage, nil
+}
+
 func SessionCompact(ctx context.Context, agent *Agent, session *Session) (*ContextUsage, error) {
 	var history []*Message
 	var summary *Summary
 	var tail []*Message
-	var pending *Message
 	var item *Message
+	var pending *Message
 	var prov *Provider
 
 	var err error

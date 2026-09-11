@@ -362,7 +362,8 @@ one), named at that point with a random `adjective-noun` pair
 
 The first prompt line shows `ctx:used/limit (percent)` next to the Git branch.
 It is refreshed after each turn, session change, and `/usage`; `limit` is the
-input portion of `max_context` after reserving model output.
+conversation portion of `max_context` after reserving model output and fixed
+system context.
 
 Input history is a plain text file, `.mininaru/history` by default (or
 `$NARU_HISTFILE`); `$HISTSIZE`/`$HISTFILESIZE` cap what's kept in memory and

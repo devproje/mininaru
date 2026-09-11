@@ -20,10 +20,9 @@ var App *AppServer
 
 func NewAppServer(host string, port uint16, apiKey string) *AppServer {
 	var core *gin.Engine
-	var webserver http.Server
-
 	var api *gin.RouterGroup
 	var v1 *gin.RouterGroup
+	var webserver http.Server
 
 	var app AppServer
 

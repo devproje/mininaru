@@ -14,6 +14,8 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+const testAPIKey = "test-key"
+
 func setupTestDB(t *testing.T) {
 	var err error
 
@@ -35,8 +37,6 @@ func setupTestDB(t *testing.T) {
 		util.DB.Close()
 	})
 }
-
-const testAPIKey = "test-key"
 
 func TestNewAppServerWiresAPIRoutes(t *testing.T) {
 	var app *AppServer

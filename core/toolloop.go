@@ -180,10 +180,10 @@ func storedToolCallMessage(calls []*ToolCall) openai.ChatCompletionMessageParamU
 }
 
 func historyUnion(history []*Message) ([]openai.ChatCompletionMessageParamUnion, *Message, error) {
-	var union []openai.ChatCompletionMessageParamUnion
 	var item *Message
-	var pending *Message
+	var union []openai.ChatCompletionMessageParamUnion
 	var images []string
+	var pending *Message
 	var calls []*ToolCall
 	var call *ToolCall
 
