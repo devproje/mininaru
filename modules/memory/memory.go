@@ -21,15 +21,6 @@ import (
 	"github.com/devproje/mininaru/util"
 )
 
-const indexFile = "MEMORY.md"
-
-const indexMaxLines = 200
-const indexMaxBytes = 25 * 1024
-
-const indexHeader = "# Persistent memory\n\n"
-
-const frontmatterDelim = "---"
-
 type memoryMetadata struct {
 	Type string `yaml:"type"`
 }
@@ -40,6 +31,15 @@ type memoryFrontmatter struct {
 	Metadata    memoryMetadata `yaml:"metadata"`
 	Modified    string         `yaml:"modified,omitempty"`
 }
+
+const indexFile = "MEMORY.md"
+
+const indexMaxLines = 200
+const indexMaxBytes = 25 * 1024
+
+const indexHeader = "# Persistent memory\n\n"
+
+const frontmatterDelim = "---"
 
 var memoryTypes = map[string]bool{
 	"user":      true,

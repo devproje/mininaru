@@ -15,6 +15,20 @@ import (
 )
 
 const (
+	RESET string = "\x1b[0m"
+	DIM   string = "\x1b[2m"
+	BOLD  string = "\x1b[1m"
+
+	RED    string = "\x1b[38;5;203m"
+	GREEN  string = "\x1b[38;5;114m"
+	YELLOW string = "\x1b[38;5;179m"
+	BLUE   string = "\x1b[38;5;110m"
+	PURPLE string = "\x1b[38;5;141m"
+	GRAY   string = "\x1b[38;5;245m"
+	WHITE  string = "\x1b[38;5;255m"
+)
+
+const (
 	spinnerTick  time.Duration = 80 * time.Millisecond
 	barWidth     int           = 10
 	barSegment   int           = 3
@@ -108,20 +122,6 @@ func stripAnsi(text string) string {
 
 	return out
 }
-
-const (
-	RESET string = "\x1b[0m"
-	DIM   string = "\x1b[2m"
-	BOLD  string = "\x1b[1m"
-
-	RED    string = "\x1b[38;5;203m"
-	GREEN  string = "\x1b[38;5;114m"
-	YELLOW string = "\x1b[38;5;179m"
-	BLUE   string = "\x1b[38;5;110m"
-	PURPLE string = "\x1b[38;5;141m"
-	GRAY   string = "\x1b[38;5;245m"
-	WHITE  string = "\x1b[38;5;255m"
-)
 
 func write(format string, args ...any) {
 	fmt.Print(strings.ReplaceAll(fmt.Sprintf(format, args...), "\n", "\r\n"))

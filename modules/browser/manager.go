@@ -38,6 +38,7 @@ var chromeAbsolutePaths = []string{
 var mu sync.Mutex
 var sessions = make(map[string]*session)
 var reaperOnce sync.Once
+var createSession = newSession
 
 func chromePath() string {
 	var path string
@@ -124,8 +125,6 @@ func newSession() (*session, error) {
 
 	return &current, nil
 }
-
-var createSession = newSession
 
 func startReaper() {
 	go func() {

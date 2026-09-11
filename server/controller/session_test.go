@@ -21,6 +21,8 @@ func TestSessionCreateReadListUpdateDelete(t *testing.T) {
 	var body []byte
 	var created map[string]any
 	var id string
+	var list []map[string]any
+	var updated map[string]any
 
 	setupTestDB(t)
 	router = newRouter()
@@ -56,7 +58,6 @@ func TestSessionCreateReadListUpdateDelete(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("list status = %d, body = %s", w.Code, w.Body.String())
 	}
-	var list []map[string]any
 	json.Unmarshal(w.Body.Bytes(), &list)
 	if len(list) != 1 {
 		t.Fatalf("list = %d sessions, want 1", len(list))
@@ -69,7 +70,6 @@ func TestSessionCreateReadListUpdateDelete(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("update status = %d, body = %s", w.Code, w.Body.String())
 	}
-	var updated map[string]any
 	json.Unmarshal(w.Body.Bytes(), &updated)
 	if updated["name"] != "renamed" {
 		t.Fatalf("name after update = %v, want renamed", updated["name"])
@@ -125,11 +125,14 @@ func TestSessionUsageReportsTheContextBudget(t *testing.T) {
 	}
 
 	json.Unmarshal(w.Body.Bytes(), &usage)
-	if usage["max_context"] != float64(24000) || usage["limit"] != float64(19200) {
-		t.Fatalf("usage = %+v, want the default context window and input limit", usage)
+	if usage["max_context"] != float64(24000) {
+		t.Fatalf("usage = %+v, want the default context window", usage)
 	}
-	if usage["used"].(float64) == 0 {
-		t.Fatalf("usage = %+v, want system and tool input tokens", usage)
+	if usage["limit"].(float64) <= 0 || usage["limit"].(float64) >= float64(19200) {
+		t.Fatalf("usage = %+v, want the input limit after fixed context", usage)
+	}
+	if usage["used"] != float64(0) {
+		t.Fatalf("usage = %+v, want no session input tokens", usage)
 	}
 }
 

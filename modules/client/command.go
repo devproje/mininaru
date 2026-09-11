@@ -25,6 +25,10 @@ type command struct {
 	run   func(sh *Shell, args string) error
 }
 
+type crlfWriter struct {
+	out io.Writer
+}
+
 const bashShareLimit int = 8000
 
 var commands map[string]*command = map[string]*command{}
@@ -162,10 +166,6 @@ func bashTranscript(args string, out string, runErr error) string {
 	}
 
 	return fmt.Sprintf("[/bash] %s\n[exit] %s\n%s", args, status, out)
-}
-
-type crlfWriter struct {
-	out io.Writer
 }
 
 func (w crlfWriter) Write(p []byte) (int, error) {
