@@ -11,12 +11,20 @@ import (
 	"strings"
 
 	"github.com/devproje/mininaru/modules"
+	"github.com/devproje/mininaru/modules/memory"
+	"github.com/devproje/mininaru/modules/skill"
 	"github.com/openai/openai-go"
 )
 
 type ContextLengthError struct {
 	Limit  uint64
 	Tokens uint64
+}
+
+type ContextUsage struct {
+	Used       uint64 `json:"used"`
+	Limit      uint64 `json:"limit"`
+	MaxContext uint64 `json:"max_context"`
 }
 
 const contextReservePercent = 20
@@ -30,12 +38,16 @@ func (err *ContextLengthError) Error() string {
 	return fmt.Sprintf("context length exceeds the %d token input budget (estimated %d tokens)", err.Limit, err.Tokens)
 }
 
-func contextInputLimit(agent *Agent) uint64 {
+func contextWindow(agent *Agent) uint64 {
 	if agent.MaxContext == 0 {
-		return defaultMaxContext * (100 - contextReservePercent) / 100
+		return defaultMaxContext
 	}
 
-	return agent.MaxContext * (100 - contextReservePercent) / 100
+	return agent.MaxContext
+}
+
+func contextInputLimit(agent *Agent) uint64 {
+	return contextWindow(agent) * (100 - contextReservePercent) / 100
 }
 
 func contextTokenEstimate(agent *Agent, union []openai.ChatCompletionMessageParamUnion, tools []modules.Tool) (uint64, error) {
@@ -89,6 +101,59 @@ func ChatContextCheck(agent *Agent, messages []ChatMessage) error {
 	params = chatParams(agent, messages)
 
 	return contextLimit(agent, params.Messages, nil)
+}
+
+func SessionContextUsage(agent *Agent, session *Session) (*ContextUsage, error) {
+	var history []*Message
+	var summary *Summary
+	var tail []*Message
+	var union []openai.ChatCompletionMessageParamUnion
+	var tools []modules.Tool
+	var tokens uint64
+	var usage ContextUsage
+	var memoryIndex string
+	var skillCatalog string
+
+	var err error
+
+	history, err = MessageList(session.Id)
+	if err != nil {
+		return nil, err
+	}
+	summary, err = SummaryLoad(session.Id)
+	if err != nil {
+		return nil, err
+	}
+
+	tail = summaryTail(history, summary)
+	union, _, err = historyUnion(tail)
+	if err != nil {
+		return nil, err
+	}
+	if summary != nil {
+		union = append([]openai.ChatCompletionMessageParamUnion{openai.SystemMessage(summary.Content)}, union...)
+	}
+	memoryIndex = memory.LoadIndex(agent.Id)
+	if memoryIndex != "" {
+		union = append([]openai.ChatCompletionMessageParamUnion{openai.SystemMessage(memoryIndex)}, union...)
+	}
+	skillCatalog = skill.Catalog()
+	if skillCatalog != "" {
+		union = append([]openai.ChatCompletionMessageParamUnion{openai.SystemMessage(skillCatalog)}, union...)
+	}
+	if agent.Soul != "" {
+		union = append([]openai.ChatCompletionMessageParamUnion{openai.SystemMessage(agent.Soul)}, union...)
+	}
+
+	tools = buildTools(session.Cwd, session.Id, agent, 0, nil, nil)
+	tokens, err = contextTokenEstimate(agent, union, tools)
+	if err != nil {
+		return nil, err
+	}
+
+	usage = ContextUsage{Used: tokens, Limit: contextInputLimit(agent), MaxContext: contextWindow(agent)}
+
+	return &usage, nil
 }
 
 func summaryTail(history []*Message, summary *Summary) []*Message {

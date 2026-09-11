@@ -573,7 +573,7 @@ not part of a live turn. `modules/client`'s `/yolo [off|persist|on]` command
 to seed `sh.yolo`. The prompt colours the path segment by that value
 (`pathColor`, `style.go`): yellow for `persist`, red for `on`, dim for
 `off`. The prompt (`sh.prompt()`, `repl.go`) is two lines — `agent-name
-[effort] session-name git:(branch)` then `path ❯` — one string with an
+[effort] session-name git:(branch) ctx:used/limit (percent)` then `path ❯` — one string with an
 embedded `\n`; `write()` turns `\n` into `\r\n`, and `rowsFor` (`input.go`)
 splits on `\n` and sums wrapped-row counts per line so `redraw()`'s
 up-then-clear cursor math lands with a multi-row prompt. The `git:(branch)`
@@ -582,6 +582,13 @@ branch by reading `.git/HEAD` directly (following a `.git` *file*'s
 `gitdir:` pointer for worktrees/submodules) rather than running `git`, and
 reports the branch name or the first 7 hex chars of a detached `HEAD`.
 There is deliberately no dirty/staged indicator.
+
+`GET /api/sessions/:id/usage` rebuilds the session's next prompt, including
+the stored summary, memory, skills, and tool schemas, and returns its
+conservative `used` token estimate with the input `limit` and full
+`max_context`. The REPL caches this response so `sh.prompt()` never waits on
+the network. It refreshes after a completed turn, a session or agent switch,
+and `/usage`, which also prints the cached `ctx:used/limit (percent)` label.
 
 Line one carries the connected agent's `Name` and `ThinkingLevel` (from
 `sh.agent`, a `*core.Agent` fetched once via `GET /api/agents` at startup
