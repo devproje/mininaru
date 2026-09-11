@@ -195,7 +195,7 @@ func TestChatCompletionsRejectsAnOversizedRequest(t *testing.T) {
 
 	body, err = json.Marshal(map[string]any{
 		"model":    "naru",
-		"messages": []map[string]string{{"role": "user", "content": strings.Repeat("x", 2000)}},
+		"messages": []map[string]string{{"role": "user", "content": strings.Repeat("x", 10000)}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -238,7 +238,7 @@ func TestChatCompletionsStreamRejectsAnOversizedRequest(t *testing.T) {
 	body, err = json.Marshal(map[string]any{
 		"model":    "naru",
 		"stream":   true,
-		"messages": []map[string]string{{"role": "user", "content": strings.Repeat("x", 2000)}},
+		"messages": []map[string]string{{"role": "user", "content": strings.Repeat("x", 10000)}},
 	})
 	if err != nil {
 		t.Fatal(err)

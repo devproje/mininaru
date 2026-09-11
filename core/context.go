@@ -14,6 +14,7 @@ import (
 	"github.com/devproje/mininaru/modules/memory"
 	"github.com/devproje/mininaru/modules/skill"
 	"github.com/openai/openai-go"
+	"github.com/pkoukk/tiktoken-go"
 )
 
 type ContextLengthError struct {
@@ -56,6 +57,7 @@ func contextTokenEstimate(agent *Agent, union []openai.ChatCompletionMessagePara
 	var text string
 	var images int
 	var tokens uint64
+	var encoding *tiktoken.Tiktoken
 
 	var err error
 
@@ -68,7 +70,16 @@ func contextTokenEstimate(agent *Agent, union []openai.ChatCompletionMessagePara
 	text = string(buf)
 	images = len(dataImagePattern.FindAllString(text, -1))
 	text = dataImagePattern.ReplaceAllString(text, "data:image")
-	tokens = uint64(len([]rune(text))) + uint64(images*imageContextTokens)
+	encoding, err = tiktoken.EncodingForModel(agent.Model)
+	if err != nil {
+		encoding, err = tiktoken.GetEncoding(tiktoken.MODEL_O200K_BASE)
+	}
+	if err != nil {
+		tokens = uint64(len([]rune(text)))
+	} else {
+		tokens = uint64(len(encoding.EncodeOrdinary(text)))
+	}
+	tokens += uint64(images * imageContextTokens)
 
 	return tokens, nil
 }
@@ -351,4 +362,44 @@ func compactHistory(ctx context.Context, agent *Agent, session *Session, prov *P
 	}
 
 	return &updated, nil
+}
+
+func SessionCompact(ctx context.Context, agent *Agent, session *Session) (*ContextUsage, error) {
+	var history []*Message
+	var summary *Summary
+	var tail []*Message
+	var pending *Message
+	var item *Message
+	var prov *Provider
+
+	var err error
+
+	history, err = MessageList(session.Id)
+	if err != nil {
+		return nil, err
+	}
+	summary, err = SummaryLoad(session.Id)
+	if err != nil {
+		return nil, err
+	}
+	tail = summaryTail(history, summary)
+	for _, item = range tail {
+		if item.Role == "user" {
+			pending = item
+		}
+	}
+	if pending == nil || pending == tail[0] {
+		return nil, fmt.Errorf("nothing to compact")
+	}
+
+	prov, err = ProviderActive()
+	if err != nil {
+		return nil, err
+	}
+	_, err = compactHistory(ctx, agent, session, prov, summary, tail, pending)
+	if err != nil {
+		return nil, err
+	}
+
+	return SessionContextUsage(agent, session)
 }
