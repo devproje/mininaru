@@ -34,6 +34,7 @@ type Frame struct {
 	Cwd       string   `json:"cwd,omitempty"`
 	Decision  string   `json:"decision,omitempty"`
 	Images    []string `json:"images,omitempty"`
+	NoCache   bool     `json:"no_cache,omitempty"`
 }
 
 type Reply struct {

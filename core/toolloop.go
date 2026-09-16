@@ -179,6 +179,10 @@ func storedToolCallMessage(calls []*ToolCall) openai.ChatCompletionMessageParamU
 	return openai.ChatCompletionMessageParamUnion{OfAssistant: &assistant}
 }
 
+func replayToolResult(result string) string {
+	return fmt.Sprintf("[tool result omitted from history, %d bytes — re-run the tool if you need it again]", len(result))
+}
+
 func historyUnion(history []*Message) ([]openai.ChatCompletionMessageParamUnion, *Message, error) {
 	var item *Message
 	var union []openai.ChatCompletionMessageParamUnion
@@ -221,7 +225,7 @@ func historyUnion(history []*Message) ([]openai.ChatCompletionMessageParamUnion,
 
 		union = append(union, storedToolCallMessage(calls))
 		for _, call = range calls {
-			union = append(union, openai.ToolMessage(call.Result, call.CallId))
+			union = append(union, openai.ToolMessage(replayToolResult(call.Result), call.CallId))
 		}
 	}
 

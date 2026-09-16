@@ -144,7 +144,63 @@ func chatParamsUnion(agent *Agent, messages []openai.ChatCompletionMessageParamU
 		params.Tools = toolParams(tools)
 	}
 
+	params.StreamOptions.IncludeUsage = openai.Bool(true)
+
 	return params
+}
+
+type noCacheCtxKey struct{}
+
+func WithNoCache(ctx context.Context) context.Context {
+	return context.WithValue(ctx, noCacheCtxKey{}, true)
+}
+
+func noCacheFromContext(ctx context.Context) bool {
+	var noCache bool
+
+	noCache, _ = ctx.Value(noCacheCtxKey{}).(bool)
+
+	return noCache
+}
+
+func cacheBreakpointIndex(messages []openai.ChatCompletionMessageParamUnion) int {
+	var last int
+	var index int
+
+	last = -1
+	for index = range messages {
+		if messages[index].OfSystem == nil {
+			break
+		}
+
+		last = index
+	}
+
+	return last
+}
+
+func cacheRequestOptions(ctx context.Context, messages []openai.ChatCompletionMessageParamUnion) []option.RequestOption {
+	var index int
+	var text string
+
+	if noCacheFromContext(ctx) {
+		return nil
+	}
+
+	index = cacheBreakpointIndex(messages)
+	if index < 0 {
+		return nil
+	}
+
+	text = messages[index].OfSystem.Content.OfString.Value
+	if text == "" {
+		return nil
+	}
+
+	return []option.RequestOption{
+		option.WithJSONSet(fmt.Sprintf("messages.%d.content", index), []map[string]string{{"type": "text", "text": text}}),
+		option.WithJSONSet(fmt.Sprintf("messages.%d.content.0.cache_control", index), map[string]string{"type": "ephemeral"}),
+	}
 }
 
 func ChatCompletion(ctx context.Context, agent *Agent, messages []ChatMessage) (*openai.ChatCompletion, error) {
@@ -169,7 +225,7 @@ func ChatCompletion(ctx context.Context, agent *Agent, messages []ChatMessage) (
 	client = chatClient(prov)
 	params = chatParams(agent, messages, modelName)
 
-	resp, err = client.Chat.Completions.New(ctx, params)
+	resp, err = client.Chat.Completions.New(ctx, params, cacheRequestOptions(ctx, params.Messages)...)
 	if err != nil {
 		return nil, err
 	}
@@ -207,7 +263,7 @@ func ChatCompletionStream(ctx context.Context, agent *Agent, messages []ChatMess
 	client = chatClient(prov)
 	params = chatParams(agent, messages, modelName)
 
-	stream = client.Chat.Completions.NewStreaming(ctx, params)
+	stream = client.Chat.Completions.NewStreaming(ctx, params, cacheRequestOptions(ctx, params.Messages)...)
 	defer stream.Close()
 
 	for stream.Next() {
@@ -247,7 +303,7 @@ func chatStreamRound(ctx context.Context, prov *Provider, params openai.ChatComp
 	idle = time.AfterFunc(streamIdleTimeout, cancel)
 	defer idle.Stop()
 
-	stream = client.Chat.Completions.NewStreaming(roundCtx, params)
+	stream = client.Chat.Completions.NewStreaming(roundCtx, params, cacheRequestOptions(roundCtx, params.Messages)...)
 	defer stream.Close()
 
 	for stream.Next() {
@@ -359,7 +415,15 @@ func SendChatMessage(ctx context.Context, agent *Agent, session *Session, anchor
 	if contextErr != nil {
 		isContextLimit = errors.As(contextErr, &limitErr)
 		if isContextLimit {
+			if onTool != nil {
+				onTool("compact", "started", "")
+			}
+
 			summary, contextErr = compactHistory(ctx, agent, session, prov, summary, tail, pending)
+
+			if onTool != nil {
+				onTool("compact", "finished", "")
+			}
 		}
 		if contextErr != nil {
 			updateErr = MessageUpdate(pending.Id, &Message{Status: "failed", Error: contextErr.Error()})
@@ -430,6 +494,13 @@ func SendChatMessage(ctx context.Context, agent *Agent, session *Session, anchor
 			}
 
 			return err
+		}
+
+		if accumulator.Usage.PromptTokens > 0 {
+			err = SessionUsageSave(session.Id, uint64(accumulator.Usage.PromptTokens+accumulator.Usage.CompletionTokens), uint64(accumulator.Usage.PromptTokensDetails.CachedTokens))
+			if err != nil {
+				return err
+			}
 		}
 
 		message = accumulator.Choices[0].Message

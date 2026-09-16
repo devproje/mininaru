@@ -132,6 +132,7 @@ func cmdUsage(sh *Shell, args string) error {
 }
 
 func cmdCompact(sh *Shell, args string) error {
+	var stop func()
 	var usage core.ContextUsage
 	var label string
 
@@ -141,7 +142,9 @@ func cmdCompact(sh *Shell, args string) error {
 		return fmt.Errorf("usage: /compact")
 	}
 
+	stop = spinner("compacting...")
 	err = Api(http.MethodPost, sh.base+"/sessions/"+sh.session.Id+"/compact", sh.apiKey, nil, &usage)
+	stop()
 	if err != nil {
 		return err
 	}

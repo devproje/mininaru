@@ -27,6 +27,7 @@ type inboundFrame struct {
 	Cwd       string   `json:"cwd,omitempty"`
 	Decision  string   `json:"decision,omitempty"`
 	Images    []string `json:"images,omitempty"`
+	NoCache   bool     `json:"no_cache,omitempty"`
 }
 
 type outboundFrame struct {
@@ -229,6 +230,10 @@ func handleFrame(ctx context.Context, remoteAddr string, conn *safeConn, frame i
 
 	ctx, cancel = context.WithCancel(ctx)
 	defer cancel()
+
+	if frame.NoCache {
+		ctx = core.WithNoCache(ctx)
+	}
 
 	running.Store(session.Id, cancel)
 	defer running.Delete(session.Id)

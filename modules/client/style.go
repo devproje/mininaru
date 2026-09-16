@@ -24,6 +24,7 @@ const (
 	YELLOW string = "\x1b[38;5;179m"
 	BLUE   string = "\x1b[38;5;110m"
 	PURPLE string = "\x1b[38;5;141m"
+	CYAN   string = "\x1b[38;5;80m"
 	GRAY   string = "\x1b[38;5;245m"
 	WHITE  string = "\x1b[38;5;255m"
 )
@@ -205,12 +206,21 @@ func effortColor(level string) string {
 
 func contextLabel(usage *core.ContextUsage) string {
 	var percent uint64
+	var label string
+	var cachePercent uint64
 
 	if usage == nil || usage.Limit == 0 {
 		return ""
 	}
 
 	percent = usage.Used * 100 / usage.Limit
+	label = fmt.Sprintf("ctx:%d/%d (%d%%)", usage.Used, usage.Limit, percent)
 
-	return fmt.Sprintf("ctx:%d/%d (%d%%)", usage.Used, usage.Limit, percent)
+	if usage.Cached == 0 || usage.Used == 0 {
+		return label
+	}
+
+	cachePercent = usage.Cached * 100 / usage.Used
+
+	return fmt.Sprintf("%s %scache:%d%%%s", label, CYAN, cachePercent, RESET)
 }
