@@ -60,6 +60,7 @@ func TestMarshalResultJSON(t *testing.T) {
 func TestMarshalResultXML(t *testing.T) {
 	var out []byte
 	var text string
+	var want string
 
 	var err error
 
@@ -70,7 +71,7 @@ func TestMarshalResultXML(t *testing.T) {
 
 	text = string(out)
 
-	for _, want := range []string{"<result>", "<session_id>quiet-otter</session_id>", "<tool>", "<status>failed</status>", "<name>bash</name>"} {
+	for _, want = range []string{"<result>", "<session_id>quiet-otter</session_id>", "<tool>", "<status>failed</status>", "<name>bash</name>"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("xml missing %q:\n%s", want, text)
 		}

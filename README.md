@@ -188,6 +188,12 @@ mininaru agent add naru --model openai:gpt-4o-mini --soul 'terse and precise'
 `provider set`/`agent set` only change the fields you pass; leave a flag out
 to keep the current value.
 
+`--max-context` is the agent's total input-context budget in tokens (default
+24,000). mininaru reserves 20% for output, summarizes older completed session
+turns when needed, and keeps the original history in its local database. The
+stateless OpenAI-compatible API does not rewrite supplied messages and returns
+`context_length_exceeded` when they exceed the configured budget.
+
 ```sh
 mininaru provider list
 mininaru provider set openai --base-url https://api.openai.com/v1
@@ -195,6 +201,7 @@ mininaru provider remove openai
 
 mininaru agent list
 mininaru agent set naru --thinking high
+mininaru agent set naru --max-context 48000
 mininaru agent primary naru
 mininaru agent remove naru
 ```
@@ -344,6 +351,8 @@ one), named at that point with a random `adjective-noun` pair
 /help       list available commands
 /exit       quit
 /clear      clear the terminal screen
+/usage      refresh and show the current context input budget usage
+/compact    summarize completed conversation turns
 /bash       run one shell command; the command and its output are posted to the agent
 /!bash      same, without sharing the output with the agent
 /session    show or switch the current session
@@ -353,6 +362,11 @@ one), named at that point with a random `adjective-noun` pair
 /effort     change the connected agent's reasoning effort (off|low|medium|high|max)
 /yolo       set dangerous-tool trust for this directory (off|persist|on)
 ```
+
+The first prompt line shows `ctx:used/limit (percent)` next to the Git branch.
+It is refreshed after each turn, session change, and `/usage`; `limit` is the
+conversation portion of `max_context` after reserving model output and fixed
+system context.
 
 Input history is a plain text file, `.mininaru/history` by default (or
 `$NARU_HISTFILE`); `$HISTSIZE`/`$HISTFILESIZE` cap what's kept in memory and

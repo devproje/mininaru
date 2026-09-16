@@ -45,6 +45,7 @@ type Shell struct {
 	history  []string
 	gateways []Gateway
 	pending  []string
+	usage    *core.ContextUsage
 	keys     keys
 	frames   <-chan Reply
 	inbox    ambient
@@ -63,6 +64,25 @@ func (sh *Shell) patchAgent(payload map[string]string) error {
 	}
 
 	sh.agent = &updated
+
+	return nil
+}
+
+func (sh *Shell) refreshUsage() error {
+	var usage core.ContextUsage
+
+	var err error
+
+	if sh.base == "" {
+		return nil
+	}
+
+	err = Api(http.MethodGet, sh.base+"/sessions/"+sh.session.Id+"/usage", sh.apiKey, nil, &usage)
+	if err != nil {
+		return err
+	}
+
+	sh.usage = &usage
 
 	return nil
 }
@@ -141,6 +161,7 @@ func (sh *Shell) raw() error {
 func (sh *Shell) prompt() string {
 	var effort string
 	var branch string
+	var usage string
 	var left string
 
 	if sh.agent.ThinkingLevel != "" {
@@ -155,8 +176,12 @@ func (sh *Shell) prompt() string {
 	if branch != "" {
 		branch = fmt.Sprintf(" %s", branch)
 	}
+	usage = contextLabel(sh.usage)
+	if usage != "" {
+		usage = fmt.Sprintf(" %s%s%s", DIM, usage, RESET)
+	}
 
-	left = fmt.Sprintf("%s%s%s%s %s%s%s%s", PURPLE, sh.agent.Name, RESET, effort, DIM, sh.session.Name, RESET, branch)
+	left = fmt.Sprintf("%s%s%s%s %s%s%s%s%s", PURPLE, sh.agent.Name, RESET, effort, DIM, sh.session.Name, RESET, branch, usage)
 
 	return fmt.Sprintf("%s\n%s%s%s %s❯%s ",
 		left,
@@ -199,6 +224,7 @@ func (sh *Shell) send(prompt string, images []string) error {
 
 func (sh *Shell) turn(prompt string) error {
 	var err error
+	var usageErr error
 
 	err = sh.send(prompt, sh.pending)
 	if err != nil {
@@ -211,8 +237,12 @@ func (sh *Shell) turn(prompt string) error {
 	if errors.Is(err, errGone) {
 		sh.reconnect()
 	}
+	usageErr = sh.refreshUsage()
+	if err != nil {
+		return err
+	}
 
-	return err
+	return usageErr
 }
 
 func (sh *Shell) handle(line string) {
@@ -316,6 +346,10 @@ func Run(opts Options) error {
 	}
 
 	sh.agent, err = Agent(sh.base, sh.apiKey, sh.session.AgentId)
+	if err != nil {
+		return err
+	}
+	err = sh.refreshUsage()
 	if err != nil {
 		return err
 	}

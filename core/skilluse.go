@@ -61,9 +61,9 @@ func skillUseRecord(sessionId string, record *ToolCall) {
 }
 
 func SkillUseStats(sessionId string) ([]*SkillUse, error) {
+	var uses []*SkillUse
 	var query string
 	var rows *sql.Rows
-	var uses []*SkillUse
 	var use SkillUse
 
 	var err error

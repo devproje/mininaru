@@ -15,7 +15,7 @@ import (
 	"github.com/openai/openai-go/shared"
 )
 
-type ApproveFunc func(ctx context.Context, name, arguments string) (string, error)
+type ApproveFunc func(ctx context.Context, sessionId, root, name, arguments string) (string, error)
 
 const maxToolRounds = 50
 
@@ -108,11 +108,16 @@ func toolCallStart(messageId string, call openai.ChatCompletionMessageToolCall) 
 	return &record, nil
 }
 
-func executeTool(ctx context.Context, tools []modules.Tool, name, arguments string, approve ApproveFunc) (string, error) {
+func executeTool(ctx context.Context, tools []modules.Tool, sessionId, root, name, arguments string, approve ApproveFunc) (string, error) {
 	var tool *modules.Tool
 	var decision string
 
 	var err error
+
+	err = ctx.Err()
+	if err != nil {
+		return "", err
+	}
 
 	tool = findTool(tools, name)
 	if tool == nil {
@@ -120,13 +125,22 @@ func executeTool(ctx context.Context, tools []modules.Tool, name, arguments stri
 	}
 
 	if tool.Permission == modules.PermissionDangerous && approve != nil {
-		decision, err = approve(ctx, name, arguments)
+		decision, err = approve(ctx, sessionId, root, name, arguments)
+		if err != nil {
+			return "", err
+		}
+		err = ctx.Err()
 		if err != nil {
 			return "", err
 		}
 		if decision == "deny" {
 			return "", fmt.Errorf("user denied dangerous tool %q", name)
 		}
+	}
+
+	err = ctx.Err()
+	if err != nil {
+		return "", err
 	}
 
 	return tool.Execute(ctx, arguments)
@@ -166,10 +180,10 @@ func storedToolCallMessage(calls []*ToolCall) openai.ChatCompletionMessageParamU
 }
 
 func historyUnion(history []*Message) ([]openai.ChatCompletionMessageParamUnion, *Message, error) {
-	var union []openai.ChatCompletionMessageParamUnion
 	var item *Message
-	var pending *Message
+	var union []openai.ChatCompletionMessageParamUnion
 	var images []string
+	var pending *Message
 	var calls []*ToolCall
 	var call *ToolCall
 

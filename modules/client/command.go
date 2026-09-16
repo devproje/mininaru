@@ -31,6 +31,10 @@ type providerModelsEntry struct {
 	Model    string `json:"model"`
 }
 
+type crlfWriter struct {
+	out io.Writer
+}
+
 const bashShareLimit int = 8000
 
 var commands map[string]*command = map[string]*command{}
@@ -43,6 +47,8 @@ func init() {
 	register(&command{name: "help", short: "show this list", run: cmdHelp})
 	register(&command{name: "exit", short: "leave the client", run: cmdExit})
 	register(&command{name: "clear", short: "clear the screen", run: cmdClear})
+	register(&command{name: "usage", short: "show context window usage", run: cmdUsage})
+	register(&command{name: "compact", short: "summarize completed conversation turns", run: cmdCompact})
 	register(&command{name: "bash", usage: "<command...>", short: "run one shell command", run: cmdBash})
 	register(&command{name: "!bash", usage: "<command...>", short: "run one shell command, don't share it with the agent", run: cmdBashQuiet})
 	register(&command{name: "session", usage: "[id-or-name]", short: "show or switch session", run: cmdSession})
@@ -105,6 +111,48 @@ func cmdClear(sh *Shell, args string) error {
 	return nil
 }
 
+func cmdUsage(sh *Shell, args string) error {
+	var label string
+
+	var err error
+
+	if args != "" {
+		return fmt.Errorf("usage: /usage")
+	}
+
+	err = sh.refreshUsage()
+	if err != nil {
+		return err
+	}
+
+	label = contextLabel(sh.usage)
+	write("  %s%s%s\n", GRAY, label, RESET)
+
+	return nil
+}
+
+func cmdCompact(sh *Shell, args string) error {
+	var usage core.ContextUsage
+	var label string
+
+	var err error
+
+	if args != "" {
+		return fmt.Errorf("usage: /compact")
+	}
+
+	err = Api(http.MethodPost, sh.base+"/sessions/"+sh.session.Id+"/compact", sh.apiKey, nil, &usage)
+	if err != nil {
+		return err
+	}
+
+	sh.usage = &usage
+	label = contextLabel(sh.usage)
+	write("  %scompacted%s  %s%s%s\n", GRAY, RESET, GRAY, label, RESET)
+
+	return nil
+}
+
 func bashTranscript(args string, out string, runErr error) string {
 	var status string
 
@@ -123,10 +171,6 @@ func bashTranscript(args string, out string, runErr error) string {
 	}
 
 	return fmt.Sprintf("[/bash] %s\n[exit] %s\n%s", args, status, out)
-}
-
-type crlfWriter struct {
-	out io.Writer
 }
 
 func (w crlfWriter) Write(p []byte) (int, error) {
@@ -222,8 +266,13 @@ func runBash(sh *Shell, args string, share bool) error {
 		return nil
 	}
 
-	return Api(http.MethodPost, sh.base+"/sessions/"+sh.session.Id+"/messages", sh.apiKey,
+	err = Api(http.MethodPost, sh.base+"/sessions/"+sh.session.Id+"/messages", sh.apiKey,
 		map[string]string{"role": "user", "content": bashTranscript(args, out.String(), err)}, nil)
+	if err != nil {
+		return err
+	}
+
+	return sh.refreshUsage()
 }
 
 func cmdSession(sh *Shell, args string) error {
@@ -244,7 +293,12 @@ func cmdSession(sh *Shell, args string) error {
 
 	sh.session = found
 
-	return sh.attach()
+	err = sh.attach()
+	if err != nil {
+		return err
+	}
+
+	return sh.refreshUsage()
 }
 
 func cmdImg(sh *Shell, args string) error {

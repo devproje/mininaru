@@ -115,9 +115,9 @@ func coveredBy(root, target string) bool {
 
 func YoloLookup(target string) string {
 	var config *DirectoryConfig
+	var mode string
 	var entry DirectoryEntry
 	var best string
-	var mode string
 
 	var err error
 

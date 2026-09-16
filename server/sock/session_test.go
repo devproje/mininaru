@@ -4,6 +4,7 @@
 package sock
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +13,20 @@ import (
 	"github.com/devproje/mininaru/core"
 	"github.com/gorilla/websocket"
 )
+
+func TestApprovalRouterRegistersBeforeSendingTheRequest(t *testing.T) {
+	var router *approvalRouter
+	var decision string
+
+	router = newApprovalRouter()
+	decision = router.wait(context.Background(), "s1", func() {
+		router.deliver("s1", "once")
+	})
+
+	if decision != "once" {
+		t.Fatalf("decision = %q, want once", decision)
+	}
+}
 
 func setupSessionSendFixture(t *testing.T) {
 	var upstream *httptest.Server

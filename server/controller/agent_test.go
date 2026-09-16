@@ -47,6 +47,8 @@ func TestAgentReadListUpdateDelete(t *testing.T) {
 	var req *http.Request
 	var body []byte
 	var id string
+	var list []map[string]any
+	var updated map[string]any
 
 	setupTestDB(t)
 	router = newRouter()
@@ -65,7 +67,6 @@ func TestAgentReadListUpdateDelete(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("list status = %d, body = %s", w.Code, w.Body.String())
 	}
-	var list []map[string]any
 	json.Unmarshal(w.Body.Bytes(), &list)
 	if len(list) != 1 {
 		t.Fatalf("list = %d agents, want 1", len(list))
@@ -78,7 +79,6 @@ func TestAgentReadListUpdateDelete(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("update status = %d, body = %s", w.Code, w.Body.String())
 	}
-	var updated map[string]any
 	json.Unmarshal(w.Body.Bytes(), &updated)
 	if updated["soul"] != "be terse" {
 		t.Fatalf("soul after update = %v, want 'be terse'", updated["soul"])

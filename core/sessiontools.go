@@ -10,10 +10,6 @@ import (
 	"github.com/devproje/mininaru/modules"
 )
 
-const SessionListToolName = "session_list"
-
-const AgentListToolName = "agent_list"
-
 type sessionSummary struct {
 	Id        string `json:"id"`
 	Name      string `json:"name"`
@@ -27,6 +23,10 @@ type agentSummary struct {
 	Name  string `json:"name"`
 	Model string `json:"model"`
 }
+
+const SessionListToolName = "session_list"
+
+const AgentListToolName = "agent_list"
 
 func sessionListTool(caller *Agent, callerSessionId string) modules.Tool {
 	return modules.Tool{

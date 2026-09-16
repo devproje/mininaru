@@ -84,7 +84,8 @@ embedded into the binary (`util/migrations/*.sql`), tracked one row per
 applied version in a `migrations` table, and applied inside one transaction
 per file on every `NewDatabase` call — `0001_initial_schema.sql`,
 `0002_tool_calls.sql`, `0003_skill_uses.sql`, `0004_attachments.sql`,
-`0005_session_cwd.sql`, `0006_agent_selected_provider_active_removal.sql`.
+`0005_session_cwd.sql`, `0006_session_summaries.sql`,
+`0007_agent_selected_provider_active_removal.sql`.
 
 ```
 providers(id, name, api_key, base_url)
@@ -113,7 +114,12 @@ attachments(id, session_id REFERENCES sessions ON DELETE CASCADE,
   -- uploaded chat images; the bytes live at .mininaru/attachments/<id>, only
   -- the metadata is in SQLite. message_id is NULL between upload and the turn
   -- that references it. deleting a session drops the rows but not the files
-  -- (ponytail: orphaned files, add a sweep if it matters)
+   -- (ponytail: orphaned files, add a sweep if it matters)
+session_summaries(session_id REFERENCES sessions ON DELETE CASCADE, content,
+                  through_message_id REFERENCES messages ON DELETE CASCADE,
+                  updated_at)
+  -- one rolling summary per session; raw messages remain in the database and
+  -- through_message_id marks the last message replaced in model requests
 ```
 
 Deleting an agent or a session cascades through the foreign keys; nothing in
@@ -170,6 +176,17 @@ passed through). `POST /api/sessions/:id/attachments` and the `/ws` frame's
 `images` array both carry attachment ids, bound to the message row by
 `core.AttachmentBindMessage`.
 
+`max_context` is an agent's input-context budget in tokens (24,000 by
+default). mininaru reserves 20% for the model's output, then estimates the
+serialized prompt conservatively before every provider round. Session-backed
+turns that exceed the remaining input budget summarize old completed turns
+into `session_summaries`, keeping the current turn and the newest completed
+turn as raw OpenAI messages. Tool calls and their results are folded together;
+the raw history is never deleted. If the current raw turn, system context, or
+tool schema still exceeds the budget, the turn fails before a provider call.
+The stateless `/api/v1/chat/completions` surface never rewrites caller-supplied
+history: it returns a `context_length_exceeded` error instead.
+
 `chatStreamRound` (the session-backed path's per-round streaming call) guards
 against a provider that stops sending data mid-stream without closing the
 connection — a `time.AfterFunc` idle timer (`streamIdleTimeout`, 2 minutes)
@@ -191,6 +208,14 @@ tool calls, executes each one via `executeTool` and loops. Turns with no
 `call_id` recorded yet or a `tool_calls` row still `pending` (a turn that was
 cut off mid-flight, e.g. by a server restart) are not replayed.
 
+Failed tools retain both their error and any returned output: the error stays
+in `tool_calls.error`, while `tool_calls.result` and the current
+`openai.ToolMessage` contain an `error:` header followed by the output. This
+lets the model diagnose a failed command in the next round and preserves the
+same details when a session is resumed. A canceled turn records the current
+tool and pending message as failed, then stops before another tool call or
+completion round can start.
+
 `buildTools(root, sessionId, caller, depth, onTool, approve)` (`core/tools.go`)
 assembles the tool list every round: `bash_exec` and the three file tools
 from `modules/bash`/`modules/file` rooted at `root`, the six
@@ -208,9 +233,16 @@ MCP tools infer it from
 `ToolAnnotations.ReadOnlyHint` unless a server or per-tool override in
 `mcp.json` says otherwise. `executeTool` only consults `Permission` and the
 caller-supplied `ApproveFunc`: a `Safe` tool always runs
-unconditionally; a `Dangerous` one calls `approve(ctx, name, arguments)` and
-runs only if the decision isn't `"deny"`. `core` itself has no opinion on
+unconditionally; a `Dangerous` one calls
+`approve(ctx, sessionId, root, name, arguments)` and runs only if the decision
+isn't `"deny"`. `core` itself has no opinion on
 *when* to ask — that policy lives one layer up, in `server/sock`.
+
+`bash_exec` drains combined stdout and stderr into one synchronized bounded
+buffer while the command runs. It captures at most 64 KiB including a
+`[truncated]` suffix, but continues consuming later output so a noisy child
+cannot grow process memory or block on a full pipe. A timeout or canceled
+context returns the captured output together with its context error.
 
 ### MCP servers — `modules/mcp`
 
@@ -390,12 +422,11 @@ placeholder text only, not the picture.
 which a leaf package can't import without a cycle. `core` builds it, plus
 `session_send`, `session_list`, and `agent_list`, by hand rather than
 pulling them from a `modules` subpackage. Calling it creates a real
-`Session` (named
-`"spawn: <prompt preview>"`) and a `Message` for the target agent, then
-recurses into `SendChatMessage` for that session with the same `anchor` and
-`approve` the caller has — a dangerous tool call inside the delegate prompts
-for approval exactly like one at the top level, routed through the same
-`/ws` connection since `approve` is a closure already bound to the parent
+`Session` (named `"spawn: <prompt preview>"`) with the caller's anchor stored
+as its `Cwd`, and a `Message` for the target agent, then recurses into
+`SendChatMessage` for that session. A dangerous tool call inside the delegate
+prompts over the same `/ws` connection, but approval and yolo lookup use the
+spawned session id and its inherited working directory rather than the parent
 session id. The delegate starts with no memory of the calling conversation;
 the prompt has to carry everything it needs. The tool's result is the
 delegate's last assistant message, read back with `MessageList` once
@@ -431,9 +462,10 @@ exists — **any** session, including one owned by a different agent than the
 caller. The only refusal is the caller's own session, which would deadlock
 on its own session lock (below). It reuses `agentSpawnTool`'s
 `lastAssistantMessage` helper and the same `depth < maxSpawnDepth` gate in
-`buildTools`, and — like `agent_spawn` — runs the nested `SendChatMessage`
-with the caller's own `anchor`/`approve` rather than building a second
-approval path.
+`buildTools`. The nested `SendChatMessage` uses the target session's persisted
+`Cwd`; an empty target `Cwd` therefore exposes no filesystem or Bash tools.
+Approvals still travel over the initiating caller's `/ws` connection, but
+carry the target session id and working directory.
 
 Because a cross-agent injection would otherwise look, from the receiving
 session's own history, indistinguishable from that agent's own user typing
@@ -457,8 +489,11 @@ session_list`, not a raw `sql: no rows in result set`.
 Because the target session may have a person watching it live over another
 `/ws` connection, two extra pieces exist purely to serve that case:
 
-- **`core.SessionLock(sessionId string) func()`** (`core/sessionlock.go`) —
-  a `sync.Map` of per-session `*sync.Mutex`, `Load`-or-`Store`d by id. Every
+- **`core.SessionLock(ctx, sessionId)` and `core.SessionTryLock(sessionId)`**
+  (`core/sessionlock.go`) — a `sync.Map` of per-session channel semaphores,
+  `Load`-or-`Store`d by id. Normal WebSocket turns wait with their connection
+  context, while `session_send` immediately returns a busy error when another
+  turn owns its target. Every
   place that reads a session's history, appends a new pending message, and
   runs a `SendChatMessage` round holds this lock for the duration:
   `session_send`'s `Execute`, and `server/sock/sock.go`'s `handleFrame` (the
@@ -524,7 +559,10 @@ claimed cwd can't be trusted. `core.ResolveAnchor` /
 `core.IsLoopbackAddr` (`core/yolo.go`) make that call from the raw
 `RemoteAddr` the request came in on.
 
-`core.YoloLookup(anchor)` (`core/yolo.go`) reads `directory.json` and returns
+Each dangerous tool passes its current session id and root to `approve`, so a
+nested `agent_spawn` or `session_send` round cannot inherit a caller's yolo or
+session approval merely because the caller initiated it. `core.YoloLookup`
+(`core/yolo.go`) reads `directory.json` and returns
 the most specific (deepest) `{root, mode}` entry covering `anchor` by path
 segment — not string prefix, so `/home/user/proj` doesn't match
 `/home/user/project2` — defaulting to `"off"` when nothing matches. Three
@@ -541,7 +579,7 @@ not part of a live turn. `modules/client`'s `/yolo [off|persist|on]` command
 to seed `sh.yolo`. The prompt colours the path segment by that value
 (`pathColor`, `style.go`): yellow for `persist`, red for `on`, dim for
 `off`. The prompt (`sh.prompt()`, `repl.go`) is two lines — `agent-name
-[effort] session-name git:(branch)` then `path ❯` — one string with an
+[effort] session-name git:(branch) ctx:used/limit (percent)` then `path ❯` — one string with an
 embedded `\n`; `write()` turns `\n` into `\r\n`, and `rowsFor` (`input.go`)
 splits on `\n` and sums wrapped-row counts per line so `redraw()`'s
 up-then-clear cursor math lands with a multi-row prompt. The `git:(branch)`
@@ -550,6 +588,13 @@ branch by reading `.git/HEAD` directly (following a `.git` *file*'s
 `gitdir:` pointer for worktrees/submodules) rather than running `git`, and
 reports the branch name or the first 7 hex chars of a detached `HEAD`.
 There is deliberately no dirty/staged indicator.
+
+`GET /api/sessions/:id/usage` rebuilds the session's next prompt, including
+the stored summary, memory, skills, and tool schemas, and returns its
+conservative `used` token estimate with the input `limit` and full
+`max_context`. The REPL caches this response so `sh.prompt()` never waits on
+the network. It refreshes after a completed turn, a session or agent switch,
+and `/usage`, which also prints the cached `ctx:used/limit (percent)` label.
 
 Line one carries the connected agent's `Name` and `ThinkingLevel` (from
 `sh.agent`, a `*core.Agent` fetched once via `GET /api/agents` at startup
@@ -560,14 +605,17 @@ and replaced whole by `/model`/`/effort`), coloured by level
 ### The HIL round-trip
 
 When yolo mode says "ask," `server/sock`'s `approveFunc` closure
-(`server/sock/sock.go`) sends `{type: "approval_request", name, arguments}`
-over the same `/ws` connection and blocks on a per-session channel
+(`server/sock/sock.go`) registers a per-session response channel before it
+sends `{type: "approval_request", session_id, cwd, name, arguments}` over the
+same `/ws` connection, then blocks on that channel
 (`server/sock/session.go`'s `approvalRouter`) until the client answers
 `{type: "approval", session_id, decision: "once"|"session"|"deny"}`.
 `"session"` also flips an in-memory, session-id-keyed flag
 (`sessionAutoApprove`, a package-level `sync.Map`) so the rest of that
 session's dangerous calls skip the prompt — it's not written to
-`directory.json` and is gone on restart.
+`directory.json` and is gone on restart. The client displays the execution
+session and directory and echoes the request's session id in its response,
+which matters when a nested round belongs to a different session.
 
 `SockHandler`'s read loop can't call `handleFrame` synchronously — that
 would deadlock waiting for an approval frame it can only read from the same
@@ -634,7 +682,7 @@ are handled by `renderer.tool` — a spinner while a call is open, a settled
   — `message` echoes a `session_send` injection (`name` is the *origin*
   session id), `chunk` carries a completion delta plus a `reasoning` string,
   `tool` reports a call's `name`/`status`/`message`, `approval_request`
-  carries `name`/`arguments` and blocks the turn until an approval frame
+  carries `session_id`/`cwd`/`name`/`arguments` and blocks the turn until an approval frame
   answers it (see "Tool calling" below). Reasoning deltas are pulled out of
   the chunk's raw JSON (`chunkReasoning`), because
   `openai.ChatCompletionChunk` has no typed field for

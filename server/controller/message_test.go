@@ -21,6 +21,8 @@ func TestMessageCreateListReadUpdateDelete(t *testing.T) {
 	var body []byte
 	var created map[string]any
 	var id string
+	var list []map[string]any
+	var updated map[string]any
 
 	setupTestDB(t)
 	router = newRouter()
@@ -46,7 +48,6 @@ func TestMessageCreateListReadUpdateDelete(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("list status = %d, body = %s", w.Code, w.Body.String())
 	}
-	var list []map[string]any
 	json.Unmarshal(w.Body.Bytes(), &list)
 	if len(list) != 1 {
 		t.Fatalf("list = %d messages, want 1", len(list))
@@ -66,7 +67,6 @@ func TestMessageCreateListReadUpdateDelete(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("update status = %d, body = %s", w.Code, w.Body.String())
 	}
-	var updated map[string]any
 	json.Unmarshal(w.Body.Bytes(), &updated)
 	if updated["status"] != "completed" || updated["content"] != "hi there" {
 		t.Fatalf("after update = %+v", updated)

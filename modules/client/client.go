@@ -45,6 +45,7 @@ type Reply struct {
 	Name      string                      `json:"name,omitempty"`
 	Status    string                      `json:"status,omitempty"`
 	Arguments string                      `json:"arguments,omitempty"`
+	Cwd       string                      `json:"cwd,omitempty"`
 }
 
 func ApiBase(endpoint string) (string, error) {

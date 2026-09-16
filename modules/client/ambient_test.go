@@ -12,6 +12,7 @@ func TestAmbientBuildsBlockOnce(t *testing.T) {
 	var box ambient
 	var block string
 	var again string
+	var want string
 
 	box.feed(Reply{Type: "message", Name: "coder", Message: "build status?"})
 	box.feed(Reply{Type: "chunk", Chunk: chunkContent("green ")})
@@ -20,7 +21,7 @@ func TestAmbientBuildsBlockOnce(t *testing.T) {
 
 	block = box.flush()
 
-	for _, want := range []string{"coder", "build status?", "green across the board", "bash", "┆"} {
+	for _, want = range []string{"coder", "build status?", "green across the board", "bash", "┆"} {
 		if !strings.Contains(block, want) {
 			t.Fatalf("block missing %q:\n%s", want, block)
 		}

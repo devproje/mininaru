@@ -14,14 +14,6 @@ import (
 
 type ThinkingLevel string
 
-const (
-	Off    ThinkingLevel = "off"
-	Low    ThinkingLevel = "low"
-	Medium ThinkingLevel = "medium"
-	High   ThinkingLevel = "high"
-	Max    ThinkingLevel = "max"
-)
-
 type Agent struct {
 	Id            string `json:"id"`
 	Name          string `json:"name"`
@@ -31,6 +23,14 @@ type Agent struct {
 	MaxContext    uint64 `json:"max_context"`
 	Selected      bool   `json:"selected"`
 }
+
+const (
+	Off    ThinkingLevel = "off"
+	Low    ThinkingLevel = "low"
+	Medium ThinkingLevel = "medium"
+	High   ThinkingLevel = "high"
+	Max    ThinkingLevel = "max"
+)
 
 func AgentCreate(agent *Agent) error {
 	var opts []string

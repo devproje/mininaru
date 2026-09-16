@@ -10,14 +10,14 @@ import (
 	"time"
 )
 
-const updateCacheFile = "update.json"
-
-const UpdateCacheTTL = 24 * time.Hour
-
 type UpdateCache struct {
 	Tag       string `json:"tag"`
 	CheckedAt int64  `json:"checked_at"`
 }
+
+const updateCacheFile = "update.json"
+
+const UpdateCacheTTL = 24 * time.Hour
 
 func updateCachePath() string {
 	return Path(updateCacheFile)

@@ -57,6 +57,7 @@ func TestProviderListMasksApiKey(t *testing.T) {
 	var router *gin.Engine
 	var w *httptest.ResponseRecorder
 	var req *http.Request
+	var list []map[string]any
 
 	var err error
 
@@ -75,7 +76,6 @@ func TestProviderListMasksApiKey(t *testing.T) {
 		t.Fatalf("list status = %d, body = %s", w.Code, w.Body.String())
 	}
 
-	var list []map[string]any
 	json.Unmarshal(w.Body.Bytes(), &list)
 	if len(list) != 1 {
 		t.Fatalf("list = %d providers, want 1", len(list))

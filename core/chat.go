@@ -5,6 +5,7 @@ package core
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -20,13 +21,13 @@ import (
 	"github.com/openai/openai-go/shared"
 )
 
-var streamIdleTimeout = 2 * time.Minute
-
 type ChatMessage struct {
 	Role    string
 	Content string
 	Images  []string
 }
+
+var streamIdleTimeout = 2 * time.Minute
 
 func chatClient(prov *Provider) openai.Client {
 	var opts []option.RequestOption
@@ -67,6 +68,18 @@ func ProviderModelNames(ctx context.Context, prov *Provider) ([]string, error) {
 	}
 
 	return names, nil
+}
+
+func modelNamePart(agentModel string) string {
+	var modelName string
+	var ok bool
+
+	_, modelName, ok = strings.Cut(agentModel, ":")
+	if !ok {
+		return agentModel
+	}
+
+	return modelName
 }
 
 func resolveProviderModel(agentModel string) (*Provider, string, error) {
@@ -148,6 +161,11 @@ func ChatCompletion(ctx context.Context, agent *Agent, messages []ChatMessage) (
 		return nil, err
 	}
 
+	err = ChatContextCheck(agent, messages)
+	if err != nil {
+		return nil, err
+	}
+
 	client = chatClient(prov)
 	params = chatParams(agent, messages, modelName)
 
@@ -181,6 +199,11 @@ func ChatCompletionStream(ctx context.Context, agent *Agent, messages []ChatMess
 		return err
 	}
 
+	err = ChatContextCheck(agent, messages)
+	if err != nil {
+		return err
+	}
+
 	client = chatClient(prov)
 	params = chatParams(agent, messages, modelName)
 
@@ -207,12 +230,12 @@ func ChatCompletionStream(ctx context.Context, agent *Agent, messages []ChatMess
 
 func chatStreamRound(ctx context.Context, prov *Provider, params openai.ChatCompletionNewParams, onChunk func(openai.ChatCompletionChunk)) (*openai.ChatCompletionAccumulator, error) {
 	var client openai.Client
-	var stream *ssestream.Stream[openai.ChatCompletionChunk]
-	var chunk openai.ChatCompletionChunk
-	var accumulator openai.ChatCompletionAccumulator
 	var roundCtx context.Context
 	var cancel context.CancelFunc
 	var idle *time.Timer
+	var stream *ssestream.Stream[openai.ChatCompletionChunk]
+	var chunk openai.ChatCompletionChunk
+	var accumulator openai.ChatCompletionAccumulator
 
 	var err error
 
@@ -253,25 +276,41 @@ func chatStreamRound(ctx context.Context, prov *Provider, params openai.ChatComp
 	return &accumulator, nil
 }
 
+func failedToolResult(result string, err error) string {
+	var text string
+
+	text = "error: " + err.Error()
+	if result != "" {
+		text += "\noutput:\n" + result
+	}
+
+	return text
+}
+
 func SendChatMessage(ctx context.Context, agent *Agent, session *Session, anchor string, depth int, onChunk func(openai.ChatCompletionChunk), onTool func(name, status, message string), approve ApproveFunc) error {
 	var history []*Message
+	var tail []*Message
+	var summary *Summary
 	var union []openai.ChatCompletionMessageParamUnion
 	var pending *Message
-	var tools []modules.Tool
+	var memoryIndex string
+	var skillCatalog string
 	var prov *Provider
 	var modelName string
+	var tools []modules.Tool
+	var contextErr error
+	var limitErr *ContextLengthError
+	var isContextLimit bool
+	var updateErr error
+	var round int
 	var params openai.ChatCompletionNewParams
 	var accumulator *openai.ChatCompletionAccumulator
 	var message openai.ChatCompletionMessage
-	var round int
+	var assistant Message
 	var call openai.ChatCompletionMessageToolCall
 	var record *ToolCall
 	var result string
 	var finishedMessage string
-	var memoryIndex string
-	var skillCatalog string
-	var assistant Message
-	var updateErr error
 
 	var err error
 
@@ -280,7 +319,13 @@ func SendChatMessage(ctx context.Context, agent *Agent, session *Session, anchor
 		return err
 	}
 
-	union, pending, err = historyUnion(history)
+	summary, err = SummaryLoad(session.Id)
+	if err != nil {
+		return err
+	}
+	tail = summaryTail(history, summary)
+
+	union, pending, err = historyUnion(tail)
 	if err != nil {
 		return err
 	}
@@ -289,6 +334,9 @@ func SendChatMessage(ctx context.Context, agent *Agent, session *Session, anchor
 		return err
 	}
 
+	if summary != nil {
+		union = append([]openai.ChatCompletionMessageParamUnion{openai.SystemMessage(summary.Content)}, union...)
+	}
 	memoryIndex = memory.LoadIndex(agent.Id)
 	if memoryIndex != "" {
 		union = append([]openai.ChatCompletionMessageParamUnion{openai.SystemMessage(memoryIndex)}, union...)
@@ -307,8 +355,71 @@ func SendChatMessage(ctx context.Context, agent *Agent, session *Session, anchor
 	}
 
 	tools = buildTools(anchor, session.Id, agent, depth, onTool, approve)
+	contextErr = contextLimit(agent, union, tools)
+	if contextErr != nil {
+		isContextLimit = errors.As(contextErr, &limitErr)
+		if isContextLimit {
+			summary, contextErr = compactHistory(ctx, agent, session, prov, summary, tail, pending)
+		}
+		if contextErr != nil {
+			updateErr = MessageUpdate(pending.Id, &Message{Status: "failed", Error: contextErr.Error()})
+			if updateErr != nil {
+				return updateErr
+			}
+
+			return contextErr
+		}
+
+		tail = summaryTail(history, summary)
+		union, pending, err = historyUnion(tail)
+		if err != nil {
+			return err
+		}
+		if summary != nil {
+			union = append([]openai.ChatCompletionMessageParamUnion{openai.SystemMessage(summary.Content)}, union...)
+		}
+		if memoryIndex != "" {
+			union = append([]openai.ChatCompletionMessageParamUnion{openai.SystemMessage(memoryIndex)}, union...)
+		}
+		if skillCatalog != "" {
+			union = append([]openai.ChatCompletionMessageParamUnion{openai.SystemMessage(skillCatalog)}, union...)
+		}
+		if agent.Soul != "" {
+			union = append([]openai.ChatCompletionMessageParamUnion{openai.SystemMessage(agent.Soul)}, union...)
+		}
+
+		contextErr = contextLimit(agent, union, tools)
+		if contextErr != nil {
+			updateErr = MessageUpdate(pending.Id, &Message{Status: "failed", Error: contextErr.Error()})
+			if updateErr != nil {
+				return updateErr
+			}
+
+			return contextErr
+		}
+	}
 
 	for round = 0; round < maxToolRounds; round++ {
+		contextErr = ctx.Err()
+		if contextErr != nil {
+			updateErr = MessageUpdate(pending.Id, &Message{Status: "failed", Error: contextErr.Error()})
+			if updateErr != nil {
+				return updateErr
+			}
+
+			return contextErr
+		}
+
+		contextErr = contextLimit(agent, union, tools)
+		if contextErr != nil {
+			updateErr = MessageUpdate(pending.Id, &Message{Status: "failed", Error: contextErr.Error()})
+			if updateErr != nil {
+				return updateErr
+			}
+
+			return contextErr
+		}
+
 		params = chatParamsUnion(agent, union, tools, modelName)
 
 		accumulator, err = chatStreamRound(ctx, prov, params, onChunk)
@@ -336,6 +447,16 @@ func SendChatMessage(ctx context.Context, agent *Agent, session *Session, anchor
 		union = append(union, assistantToolCallMessage(message))
 
 		for _, call = range message.ToolCalls {
+			contextErr = ctx.Err()
+			if contextErr != nil {
+				updateErr = MessageUpdate(pending.Id, &Message{Status: "failed", Error: contextErr.Error()})
+				if updateErr != nil {
+					return updateErr
+				}
+
+				return contextErr
+			}
+
 			record, err = toolCallStart(pending.Id, call)
 			if err != nil {
 				return err
@@ -345,9 +466,10 @@ func SendChatMessage(ctx context.Context, agent *Agent, session *Session, anchor
 				onTool(record.Name, "started", "")
 			}
 
-			result, err = executeTool(ctx, tools, call.Function.Name, call.Function.Arguments, approve)
+			result, err = executeTool(ctx, tools, session.Id, anchor, call.Function.Name, call.Function.Arguments, approve)
 			if err != nil {
-				updateErr = ToolCallUpdate(record.Id, &ToolCall{Status: "failed", Error: err.Error(), Result: "error: " + err.Error()})
+				result = failedToolResult(result, err)
+				updateErr = ToolCallUpdate(record.Id, &ToolCall{Status: "failed", Error: err.Error(), Result: result})
 				if updateErr != nil {
 					return updateErr
 				}
@@ -356,7 +478,17 @@ func SendChatMessage(ctx context.Context, agent *Agent, session *Session, anchor
 					onTool(record.Name, "failed", err.Error())
 				}
 
-				union = append(union, openai.ToolMessage("error: "+err.Error(), call.ID))
+				union = append(union, openai.ToolMessage(result, call.ID))
+
+				contextErr = ctx.Err()
+				if contextErr != nil {
+					updateErr = MessageUpdate(pending.Id, &Message{Status: "failed", Error: contextErr.Error()})
+					if updateErr != nil {
+						return updateErr
+					}
+
+					return contextErr
+				}
 				continue
 			}
 

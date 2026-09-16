@@ -13,6 +13,17 @@ import (
 	"unicode/utf8"
 )
 
+type keys chan byte
+
+type editor struct {
+	keys    keys
+	frames  <-chan Reply
+	onFrame func(Reply) string
+	history []string
+	kill    []rune
+	prompt  string
+}
+
 const (
 	ctrlArrowParams string = "1;5"
 	homeKeyParams   string = "1"
@@ -25,8 +36,6 @@ const (
 var errInterrupted error = errors.New("interrupted")
 
 var errGone error = errors.New("connection lost")
-
-type keys chan byte
 
 func newKeys() keys {
 	var stream keys
@@ -70,15 +79,6 @@ func (k keys) next() (byte, error) {
 	}
 
 	return b, nil
-}
-
-type editor struct {
-	keys    keys
-	frames  <-chan Reply
-	onFrame func(Reply) string
-	history []string
-	kill    []rune
-	prompt  string
 }
 
 func (k keys) escape() (string, byte) {
