@@ -72,3 +72,75 @@ func TestAgentCRUD(t *testing.T) {
 		t.Fatal("expected an error reading a deleted agent")
 	}
 }
+
+func TestAgentCreateAutoSelectsFirst(t *testing.T) {
+	var got *Agent
+
+	var err error
+
+	setupTestDB(t)
+
+	err = AgentCreate(&Agent{Id: "a1", Name: "naru", Model: "test:gpt-4o-mini"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got, err = AgentRead("a1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Selected {
+		t.Fatal("the first agent created should be auto-selected")
+	}
+
+	err = AgentCreate(&Agent{Id: "a2", Name: "second", Model: "test:gpt-4o-mini"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got, err = AgentRead("a2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Selected {
+		t.Fatal("a second agent should not be auto-selected")
+	}
+}
+
+func TestAgentSelect(t *testing.T) {
+	var selected *Agent
+
+	var err error
+
+	setupTestDB(t)
+
+	err = AgentCreate(&Agent{Id: "a1", Name: "one", Model: "test:gpt-4o-mini"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = AgentCreate(&Agent{Id: "a2", Name: "two", Model: "test:gpt-4o-mini"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	selected, err = AgentSelected()
+	if err != nil {
+		t.Fatalf("selected read failed: %v", err)
+	}
+	if selected.Id != "a1" {
+		t.Fatalf("selected = %q, want a1", selected.Id)
+	}
+
+	err = AgentSelect("a2")
+	if err != nil {
+		t.Fatalf("select a2 failed: %v", err)
+	}
+
+	selected, err = AgentSelected()
+	if err != nil {
+		t.Fatalf("selected read after switch failed: %v", err)
+	}
+	if selected.Id != "a2" {
+		t.Fatalf("selected = %q, want a2", selected.Id)
+	}
+}

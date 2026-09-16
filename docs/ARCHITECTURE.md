@@ -62,7 +62,7 @@ subcommands (`provider`, `agent`, `session`) default to the opposite:
 `core/*` directly against the `NARU_PATH` database. Passing `--gateway <name>`
 (a saved endpoint from `cli/gateway.go`, `.mininaru/gateways.json`) or a bare
 `--url`/`--api-key` flips the read paths (`list`, `show`) and the
-`session remove` / `provider remove` / `provider activate` paths to the
+`session remove` / `provider remove` / `agent primary` paths to the
 remote's `/api` instead, via `cli/remote.go`'s helpers over `client.Api`.
 `add` and `set` are always local. MCP is also reachable over `/api/mcp`
 (`server/controller/mcp.go`) — the same config CRUD the `mcp` CLI does, each
@@ -83,14 +83,19 @@ a five-second busy timeout (`util.databaseDSN`). Migrations are `.sql` files
 embedded into the binary (`util/migrations/*.sql`), tracked one row per
 applied version in a `migrations` table, and applied inside one transaction
 per file on every `NewDatabase` call — `0001_initial_schema.sql`,
-`0002_tool_calls.sql`, `0003_skill_uses.sql`, `0004_attachments.sql`.
+`0002_tool_calls.sql`, `0003_skill_uses.sql`, `0004_attachments.sql`,
+`0005_session_cwd.sql`, `0006_agent_selected_provider_active_removal.sql`.
 
 ```
-providers(id, name, api_key, base_url, active)
-  -- a partial unique index on (active) WHERE active = 1 is what makes
-  -- ProviderActivate's "deactivate all, activate one" transaction safe
-agents(id, name, model, soul, thinking_level, max_context)
+providers(id, name, api_key, base_url)
+  -- every registered provider is always usable; there is no "active" one
+agents(id, name, model, soul, thinking_level, max_context, selected)
   -- thinking_level is CHECKed against off/low/medium/high/max
+  -- model is "<provider-name>:<model>"; a partial unique index on
+  -- (selected) WHERE selected = 1 is what makes AgentSelect's
+  -- "deselect all, select one" transaction safe. exactly one agent is
+  -- selected once at least one agent exists (the first ever created
+  -- auto-selects)
 sessions(id, agent_id REFERENCES agents ON DELETE CASCADE, name, created_at)
 messages(id, session_id REFERENCES sessions ON DELETE CASCADE, role, content,
          status, error, created_at)
@@ -127,10 +132,10 @@ cascades, so a JSON file is simpler than a table.
 SQL with `fmt.Sprintf`, appending an `opts`/`values` pair per non-empty field
 so an `Update` call only touches the columns the caller actually set — a
 zero-value field on the struct passed to `AgentUpdate`/`ProviderUpdate`/etc.
-means "leave this column alone," not "clear it." `ProviderActivate` is the
-one write that needs a transaction: it deactivates every provider and
-activates the requested one in the same `tx`, which is what the schema's
-partial unique index is there to enforce.
+means "leave this column alone," not "clear it." `AgentSelect` is the
+one write that needs a transaction: it deselects every agent and selects
+the requested one in the same `tx`, which is what the schema's partial
+unique index is there to enforce.
 
 `SessionList(agentId)` requires an agent id — that is what the HTTP API's
 `GET /api/sessions?agent_id=` needs, since the query param is mandatory
@@ -140,10 +145,11 @@ for it.
 
 ## `core/chat.go` — completion, streaming only for `/api/v1`
 
-`chatClient` builds a fresh `openai.Client` from `ProviderActive()` on every
-call rather than caching one on the agent, so changing which provider is
-active takes effect on the very next message. `chatParams`/`chatParamsUnion`
-map an agent's stored `ThinkingLevel` to the SDK's `ReasoningEffort`
+`chatClient` builds a fresh `openai.Client` from the provider `resolveProviderModel`
+looks up on every call rather than caching one on the agent, so editing an
+agent's `model` (`<provider>:<model>`) takes effect on the very next message.
+`chatParams`/`chatParamsUnion` map an agent's stored `ThinkingLevel` to the
+SDK's `ReasoningEffort`
 (`low`/`medium` map directly, `high` and `max` both become `high`, and `off`
 — or anything unrecognized — sets nothing, which is the SDK's own default).
 `ChatCompletion`/`ChatCompletionStream` (the stateless functions the
@@ -547,7 +553,7 @@ There is deliberately no dirty/staged indicator.
 
 Line one carries the connected agent's `Name` and `ThinkingLevel` (from
 `sh.agent`, a `*core.Agent` fetched once via `GET /api/agents` at startup
-and replaced whole by `/model`/`/effort`/`/agent`), coloured by level
+and replaced whole by `/model`/`/effort`), coloured by level
 (`effortColor`, `style.go`: dim `off`, blue `low`, gray `medium`, yellow
 `high`, red `max`).
 
@@ -655,7 +661,7 @@ error means an ordinary failure like "session not found" prints one clean
 `Error: …` line, not a Go stack trace.
 
 `provider` and `agent` (`cli/provider.go`, `cli/agent.go`) each have
-`add`/`list`/`show`/`set`/`remove`, plus `provider activate`. `session`
+`add`/`list`/`show`/`set`/`remove`, plus `agent primary`. `session`
 (`cli/session.go`) is read/cleanup only — `list`, `show <id>`, `remove
 <id>`. Every subcommand that takes a positional id resolves it through a
 small `resolveX(idOrName)` helper that tries reading by id first and falls
@@ -906,15 +912,17 @@ splits `/<name> <args>` and runs the handler, which takes `*Shell` directly.
 `/help`, `/clear`, `/exit` (sets `sh.quit`), `/bash`, `/!bash` (above),
 `/session [id-or-name]` (show, or switch — `findSession` tries
 `GET /api/sessions/:ref` then a name match against the agent's sessions, then
-re-`attach`es), `/agent <id-or-name>` (resolve via `GET /api/agents`,
-`POST /api/sessions` for a fresh session on that agent, re-`attach`),
-`/model <model>` and `/effort <off|low|medium|high|max>` (PATCH
-`/api/agents/:id` via `sh.patchAgent`, which replaces `sh.agent` whole with
-the response — against `AgentUpdate`'s "only touch non-empty fields"
-semantics, so `{"model": …}` leaves the rest alone), and
-`/yolo [off|persist|on]` (see "Yolo mode" above). There is no `/reset`
-(`/agent <same>` or a fresh launch covers it) and no persisted client
-preferences file.
+re-`attach`es), `/model [provider:model]` (no args: `GET /api/providers/models`
+live-fetches every provider's own `/v1/models` catalog server-side and
+`readNumber` — a plain numbered-list, digit-entry picker in `selector.go`,
+distinct from `selectFrom`'s arrow-key menu — lets the user pick one by
+number; an explicit `provider:model` arg sets it directly) and `/effort
+<off|low|medium|high|max>` (PATCH `/api/agents/:id` via `sh.patchAgent`,
+which replaces `sh.agent` whole with the response — against `AgentUpdate`'s
+"only touch non-empty fields" semantics, so `{"model": …}` leaves the rest
+alone), and `/yolo [off|persist|on]` (see "Yolo mode" above). There is no
+`/agent` (agent switching now happens with `mininaru agent primary`, outside
+the REPL) and no `/reset` or persisted client preferences file.
 
 ## Development
 

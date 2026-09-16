@@ -34,10 +34,6 @@ func setupTestStalledUpstream(t *testing.T) *httptest.Server {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = ProviderActivate("p1")
-	if err != nil {
-		t.Fatal(err)
-	}
 
 	return upstream
 }
@@ -58,7 +54,7 @@ func TestSendChatMessageFailsOnAStalledStreamInsteadOfHangingForever(t *testing.
 	streamIdleTimeout = 200 * time.Millisecond
 	t.Cleanup(func() { streamIdleTimeout = previousIdleTimeout })
 
-	agent = &Agent{Id: "a1", Name: "naru", Model: "gpt-4o-mini"}
+	agent = &Agent{Id: "a1", Name: "naru", Model: "test:gpt-4o-mini"}
 	err = AgentCreate(agent)
 	if err != nil {
 		t.Fatal(err)

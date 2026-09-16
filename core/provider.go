@@ -5,7 +5,6 @@ package core
 
 import (
 	"database/sql"
-	"errors"
 	"fmt"
 	"strings"
 
@@ -17,7 +16,6 @@ type Provider struct {
 	Name    string `json:"name"`
 	ApiKey  string `json:"api_key"`
 	BaseUrl string `json:"base_url"`
-	Active  bool   `json:"active"`
 }
 
 func ProviderCreate(prov *Provider) error {
@@ -76,7 +74,7 @@ func ProviderRead(id string) (*Provider, error) {
 
 	var err error
 
-	stmt, err = util.DB.Prepare("SELECT id, name, api_key, base_url, active FROM providers WHERE id = ?;")
+	stmt, err = util.DB.Prepare("SELECT id, name, api_key, base_url FROM providers WHERE id = ?;")
 	if err != nil {
 		return nil, err
 	}
@@ -88,7 +86,27 @@ func ProviderRead(id string) (*Provider, error) {
 		return nil, err
 	}
 
-	err = row.Scan(&obj.Id, &obj.Name, &obj.ApiKey, &obj.BaseUrl, &obj.Active)
+	err = row.Scan(&obj.Id, &obj.Name, &obj.ApiKey, &obj.BaseUrl)
+	if err != nil {
+		return nil, err
+	}
+
+	return &obj, nil
+}
+
+func ProviderByName(name string) (*Provider, error) {
+	var row *sql.Row
+	var obj Provider
+
+	var err error
+
+	row = util.DB.QueryRow("SELECT id, name, api_key, base_url FROM providers WHERE name = ?;", name)
+	err = row.Err()
+	if err != nil {
+		return nil, err
+	}
+
+	err = row.Scan(&obj.Id, &obj.Name, &obj.ApiKey, &obj.BaseUrl)
 	if err != nil {
 		return nil, err
 	}
@@ -103,14 +121,14 @@ func ProviderList() ([]*Provider, error) {
 
 	var err error
 
-	rows, err = util.DB.Query("SELECT id, name, api_key, base_url, active FROM providers ORDER BY name ASC;")
+	rows, err = util.DB.Query("SELECT id, name, api_key, base_url FROM providers ORDER BY name ASC;")
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
 	for rows.Next() {
-		err = rows.Scan(&obj.Id, &obj.Name, &obj.ApiKey, &obj.BaseUrl, &obj.Active)
+		err = rows.Scan(&obj.Id, &obj.Name, &obj.ApiKey, &obj.BaseUrl)
 		if err != nil {
 			return nil, err
 		}
@@ -120,7 +138,6 @@ func ProviderList() ([]*Provider, error) {
 			Name:    obj.Name,
 			ApiKey:  obj.ApiKey,
 			BaseUrl: obj.BaseUrl,
-			Active:  obj.Active,
 		})
 	}
 
@@ -130,30 +147,6 @@ func ProviderList() ([]*Provider, error) {
 	}
 
 	return list, nil
-}
-
-func ProviderActive() (*Provider, error) {
-	var row *sql.Row
-	var obj Provider
-
-	var err error
-
-	row = util.DB.QueryRow("SELECT id, name, api_key, base_url, active FROM providers WHERE active = 1;")
-	err = row.Err()
-	if err != nil {
-		return nil, err
-	}
-
-	err = row.Scan(&obj.Id, &obj.Name, &obj.ApiKey, &obj.BaseUrl, &obj.Active)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, fmt.Errorf("no active provider — activate one with `naru provider activate <id-or-name>`")
-		}
-
-		return nil, err
-	}
-
-	return &obj, nil
 }
 
 func ProviderUpdate(id string, prov *Provider) error {
@@ -212,38 +205,4 @@ func ProviderDelete(id string) error {
 	}
 
 	return nil
-}
-
-func ProviderActivate(id string) error {
-	var tx *sql.Tx
-	var rollbackErr error
-
-	var err error
-
-	tx, err = util.DB.Begin()
-	if err != nil {
-		return err
-	}
-
-	_, err = tx.Exec("UPDATE providers SET active = 0 WHERE active = 1;")
-	if err != nil {
-		rollbackErr = tx.Rollback()
-		if rollbackErr != nil {
-			return rollbackErr
-		}
-
-		return err
-	}
-
-	_, err = tx.Exec("UPDATE providers SET active = 1 WHERE id = ?;", id)
-	if err != nil {
-		rollbackErr = tx.Rollback()
-		if rollbackErr != nil {
-			return rollbackErr
-		}
-
-		return err
-	}
-
-	return tx.Commit()
 }

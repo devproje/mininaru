@@ -57,10 +57,6 @@ func setupTestSessionSendRoundtrip(t *testing.T) *httptest.Server {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = ProviderActivate("p1")
-	if err != nil {
-		t.Fatal(err)
-	}
 
 	return upstream
 }
@@ -77,7 +73,7 @@ func TestSessionSendDeliversAndReturnsTheReply(t *testing.T) {
 	setupTestDB(t)
 	setupTestSessionSendRoundtrip(t)
 
-	caller = &Agent{Id: "a1", Name: "caller", Model: "gpt-4o-mini"}
+	caller = &Agent{Id: "a1", Name: "caller", Model: "test:gpt-4o-mini"}
 	err = AgentCreate(caller)
 	if err != nil {
 		t.Fatal(err)
@@ -141,13 +137,13 @@ func TestSessionSendDeliversAcrossAgentsWithASenderMarker(t *testing.T) {
 	setupTestDB(t)
 	setupTestSessionSendRoundtrip(t)
 
-	caller = &Agent{Id: "a1", Name: "caller", Model: "gpt-4o-mini"}
+	caller = &Agent{Id: "a1", Name: "caller", Model: "test:gpt-4o-mini"}
 	err = AgentCreate(caller)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	other = &Agent{Id: "a2", Name: "other", Model: "gpt-4o-mini"}
+	other = &Agent{Id: "a2", Name: "other", Model: "test:gpt-4o-mini"}
 	err = AgentCreate(other)
 	if err != nil {
 		t.Fatal(err)
@@ -211,7 +207,7 @@ func TestSessionSendRefusesItsOwnSession(t *testing.T) {
 
 	setupTestDB(t)
 
-	caller = &Agent{Id: "a1", Name: "caller", Model: "gpt-4o-mini"}
+	caller = &Agent{Id: "a1", Name: "caller", Model: "test:gpt-4o-mini"}
 	err = AgentCreate(caller)
 	if err != nil {
 		t.Fatal(err)
@@ -233,7 +229,7 @@ func TestResolveSessionRefFindsByIdThenByName(t *testing.T) {
 
 	setupTestDB(t)
 
-	err = AgentCreate(&Agent{Id: "a1", Name: "caller", Model: "gpt-4o-mini"})
+	err = AgentCreate(&Agent{Id: "a1", Name: "caller", Model: "test:gpt-4o-mini"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -268,7 +264,7 @@ func TestBuildToolsHidesSessionSendBeyondMaxDepth(t *testing.T) {
 
 	setupTestDB(t)
 
-	caller = &Agent{Id: "a1", Name: "caller", Model: "gpt-4o-mini"}
+	caller = &Agent{Id: "a1", Name: "caller", Model: "test:gpt-4o-mini"}
 
 	tools = buildTools(t.TempDir(), "s1", caller, 0, nil, nil)
 	for _, tool = range tools {
@@ -316,7 +312,7 @@ func TestSessionSendMirrorsTheInjectedMessageBeforeTheReply(t *testing.T) {
 		SetSessionRouter(nil, nil, nil, nil)
 	})
 
-	caller = &Agent{Id: "a1", Name: "caller", Model: "gpt-4o-mini"}
+	caller = &Agent{Id: "a1", Name: "caller", Model: "test:gpt-4o-mini"}
 	err = AgentCreate(caller)
 	if err != nil {
 		t.Fatal(err)

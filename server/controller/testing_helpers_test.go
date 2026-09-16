@@ -54,6 +54,7 @@ func newRouter() *gin.Engine {
 	agents.GET("/:id", AgentRead)
 	agents.PATCH("/:id", AgentUpdate)
 	agents.DELETE("/:id", AgentDelete)
+	agents.POST("/:id/primary", AgentSelect)
 	agents.GET("/:id/memory", MemoryList)
 	agents.GET("/:id/memory/:file", MemoryRead)
 	agents.PUT("/:id/memory/:file", MemoryWrite)
@@ -62,10 +63,10 @@ func newRouter() *gin.Engine {
 	providers = api.Group("/providers")
 	providers.POST("", ProviderCreate)
 	providers.GET("", ProviderList)
+	providers.GET("/models", ProviderModels)
 	providers.GET("/:id", ProviderRead)
 	providers.PATCH("/:id", ProviderUpdate)
 	providers.DELETE("/:id", ProviderDelete)
-	providers.POST("/:id/activate", ProviderActivate)
 
 	sessions = api.Group("/sessions")
 	sessions.POST("", SessionCreate)
@@ -112,7 +113,7 @@ func createTestAgent(t *testing.T) string {
 
 	t.Helper()
 
-	err = core.AgentCreate(&core.Agent{Id: "a1", Name: "naru", Model: "gpt-4o-mini"})
+	err = core.AgentCreate(&core.Agent{Id: "a1", Name: "naru", Model: "test:gpt-4o-mini"})
 	if err != nil {
 		t.Fatal(err)
 	}

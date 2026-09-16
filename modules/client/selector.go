@@ -5,6 +5,7 @@ package client
 
 import (
 	"fmt"
+	"strconv"
 )
 
 const menuRows int = 10
@@ -117,5 +118,53 @@ func selectFrom(title string, items []string, stream keys) (int, error) {
 		}
 
 		drawMenu(title, items, cursor, true)
+	}
+}
+
+func readNumber(items []string, stream keys) (int, error) {
+	var i int
+	var b byte
+	var digits string
+	var pick int
+
+	var err error
+
+	if len(items) == 0 {
+		return -1, fmt.Errorf("nothing to choose from")
+	}
+
+	write("\n")
+	for i = range items {
+		write("  %s%d)%s %s\n", DIM, i+1, RESET, items[i])
+	}
+	write("%s> %s", PURPLE, RESET)
+
+	for {
+		b, err = stream.next()
+		if err != nil {
+			return -1, err
+		}
+
+		switch {
+		case b == 0x03:
+			return -1, errInterrupted
+		case b == '\r' || b == '\n':
+			pick, err = strconv.Atoi(digits)
+			if err != nil || pick < 1 || pick > len(items) {
+				return -1, fmt.Errorf("invalid choice %q", digits)
+			}
+
+			write("\n")
+
+			return pick - 1, nil
+		case b == 0x7f:
+			if len(digits) > 0 {
+				digits = digits[:len(digits)-1]
+				write("\b \b")
+			}
+		case b >= '0' && b <= '9':
+			digits += string(b)
+			write("%c", b)
+		}
 	}
 }

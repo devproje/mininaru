@@ -6,6 +6,7 @@ package core
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/devproje/mininaru/modules"
@@ -14,6 +15,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/openai/openai-go"
 	"github.com/openai/openai-go/option"
+	"github.com/openai/openai-go/packages/pagination"
 	"github.com/openai/openai-go/packages/ssestream"
 	"github.com/openai/openai-go/shared"
 )
@@ -40,7 +42,54 @@ func chatClient(prov *Provider) openai.Client {
 	return openai.NewClient(opts...)
 }
 
-func chatParams(agent *Agent, messages []ChatMessage) openai.ChatCompletionNewParams {
+func ProviderModelNames(ctx context.Context, prov *Provider) ([]string, error) {
+	var client openai.Client
+	var reqCtx context.Context
+	var cancel context.CancelFunc
+	var page *pagination.Page[openai.Model]
+	var m openai.Model
+	var names []string
+
+	var err error
+
+	client = chatClient(prov)
+
+	reqCtx, cancel = context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	page, err = client.Models.List(reqCtx)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, m = range page.Data {
+		names = append(names, m.ID)
+	}
+
+	return names, nil
+}
+
+func resolveProviderModel(agentModel string) (*Provider, string, error) {
+	var provName, modelName string
+	var ok bool
+	var prov *Provider
+
+	var err error
+
+	provName, modelName, ok = strings.Cut(agentModel, ":")
+	if !ok {
+		return nil, "", fmt.Errorf("agent model %q is not in \"provider:model\" form", agentModel)
+	}
+
+	prov, err = ProviderByName(provName)
+	if err != nil {
+		return nil, "", err
+	}
+
+	return prov, modelName, nil
+}
+
+func chatParams(agent *Agent, messages []ChatMessage, modelName string) openai.ChatCompletionNewParams {
 	var union []openai.ChatCompletionMessageParamUnion
 	var msg ChatMessage
 
@@ -60,13 +109,13 @@ func chatParams(agent *Agent, messages []ChatMessage) openai.ChatCompletionNewPa
 		}
 	}
 
-	return chatParamsUnion(agent, union, nil)
+	return chatParamsUnion(agent, union, nil, modelName)
 }
 
-func chatParamsUnion(agent *Agent, messages []openai.ChatCompletionMessageParamUnion, tools []modules.Tool) openai.ChatCompletionNewParams {
+func chatParamsUnion(agent *Agent, messages []openai.ChatCompletionMessageParamUnion, tools []modules.Tool, modelName string) openai.ChatCompletionNewParams {
 	var params openai.ChatCompletionNewParams
 
-	params.Model = agent.Model
+	params.Model = modelName
 	params.Messages = messages
 
 	switch ThinkingLevel(agent.ThinkingLevel) {
@@ -87,19 +136,20 @@ func chatParamsUnion(agent *Agent, messages []openai.ChatCompletionMessageParamU
 
 func ChatCompletion(ctx context.Context, agent *Agent, messages []ChatMessage) (*openai.ChatCompletion, error) {
 	var prov *Provider
+	var modelName string
 	var client openai.Client
 	var params openai.ChatCompletionNewParams
 	var resp *openai.ChatCompletion
 
 	var err error
 
-	prov, err = ProviderActive()
+	prov, modelName, err = resolveProviderModel(agent.Model)
 	if err != nil {
 		return nil, err
 	}
 
 	client = chatClient(prov)
-	params = chatParams(agent, messages)
+	params = chatParams(agent, messages, modelName)
 
 	resp, err = client.Chat.Completions.New(ctx, params)
 	if err != nil {
@@ -118,6 +168,7 @@ func ChatCompletion(ctx context.Context, agent *Agent, messages []ChatMessage) (
 
 func ChatCompletionStream(ctx context.Context, agent *Agent, messages []ChatMessage, onChunk func(openai.ChatCompletionChunk) error) error {
 	var prov *Provider
+	var modelName string
 	var client openai.Client
 	var params openai.ChatCompletionNewParams
 	var stream *ssestream.Stream[openai.ChatCompletionChunk]
@@ -125,13 +176,13 @@ func ChatCompletionStream(ctx context.Context, agent *Agent, messages []ChatMess
 
 	var err error
 
-	prov, err = ProviderActive()
+	prov, modelName, err = resolveProviderModel(agent.Model)
 	if err != nil {
 		return err
 	}
 
 	client = chatClient(prov)
-	params = chatParams(agent, messages)
+	params = chatParams(agent, messages, modelName)
 
 	stream = client.Chat.Completions.NewStreaming(ctx, params)
 	defer stream.Close()
@@ -208,6 +259,7 @@ func SendChatMessage(ctx context.Context, agent *Agent, session *Session, anchor
 	var pending *Message
 	var tools []modules.Tool
 	var prov *Provider
+	var modelName string
 	var params openai.ChatCompletionNewParams
 	var accumulator *openai.ChatCompletionAccumulator
 	var message openai.ChatCompletionMessage
@@ -249,7 +301,7 @@ func SendChatMessage(ctx context.Context, agent *Agent, session *Session, anchor
 		union = append([]openai.ChatCompletionMessageParamUnion{openai.SystemMessage(agent.Soul)}, union...)
 	}
 
-	prov, err = ProviderActive()
+	prov, modelName, err = resolveProviderModel(agent.Model)
 	if err != nil {
 		return err
 	}
@@ -257,7 +309,7 @@ func SendChatMessage(ctx context.Context, agent *Agent, session *Session, anchor
 	tools = buildTools(anchor, session.Id, agent, depth, onTool, approve)
 
 	for round = 0; round < maxToolRounds; round++ {
-		params = chatParamsUnion(agent, union, tools)
+		params = chatParamsUnion(agent, union, tools, modelName)
 
 		accumulator, err = chatStreamRound(ctx, prov, params, onChunk)
 		if err != nil {

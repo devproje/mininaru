@@ -18,7 +18,11 @@ type providerResponse struct {
 	Name    string `json:"name"`
 	ApiKey  string `json:"api_key"`
 	BaseUrl string `json:"base_url"`
-	Active  bool   `json:"active"`
+}
+
+type providerModelsEntry struct {
+	Provider string `json:"provider"`
+	Model    string `json:"model"`
 }
 
 type providerCreateRequest struct {
@@ -51,7 +55,6 @@ func toProviderResponse(prov *core.Provider) providerResponse {
 		Name:    prov.Name,
 		ApiKey:  maskSecret(prov.ApiKey),
 		BaseUrl: prov.BaseUrl,
-		Active:  prov.Active,
 	}
 }
 
@@ -178,30 +181,31 @@ func ProviderDelete(ctx *gin.Context) {
 	ctx.Status(http.StatusNoContent)
 }
 
-func ProviderActivate(ctx *gin.Context) {
-	var id string
+func ProviderModels(ctx *gin.Context) {
+	var list []*core.Provider
 	var prov *core.Provider
+	var names []string
+	var name string
+	var out []providerModelsEntry
 
 	var err error
 
-	id = ctx.Param("id")
-
-	err = core.ProviderActivate(id)
+	list, err = core.ProviderList()
 	if err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	prov, err = core.ProviderRead(id)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			ctx.JSON(http.StatusNotFound, gin.H{"error": "provider not found"})
-			return
+	for _, prov = range list {
+		names, err = core.ProviderModelNames(ctx.Request.Context(), prov)
+		if err != nil {
+			continue
 		}
 
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
+		for _, name = range names {
+			out = append(out, providerModelsEntry{Provider: prov.Name, Model: name})
+		}
 	}
 
-	ctx.JSON(http.StatusOK, toProviderResponse(prov))
+	ctx.JSON(http.StatusOK, out)
 }

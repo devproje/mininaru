@@ -5,6 +5,7 @@ package client
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -25,6 +26,11 @@ type command struct {
 	run   func(sh *Shell, args string) error
 }
 
+type providerModelsEntry struct {
+	Provider string `json:"provider"`
+	Model    string `json:"model"`
+}
+
 const bashShareLimit int = 8000
 
 var commands map[string]*command = map[string]*command{}
@@ -42,8 +48,7 @@ func init() {
 	register(&command{name: "session", usage: "[id-or-name]", short: "show or switch session", run: cmdSession})
 	register(&command{name: "gateway", short: "pick a remote endpoint and session, then reconnect", run: cmdGateway})
 	register(&command{name: "img", usage: "<path>", short: "attach an image to your next message", run: cmdImg})
-	register(&command{name: "agent", usage: "<id-or-name>", short: "switch agent on a new session", run: cmdAgent})
-	register(&command{name: "model", usage: "<model>", short: "change the agent model", run: cmdModel})
+	register(&command{name: "model", usage: "[provider:model]", short: "show available models or set the agent's model", run: cmdModel})
 	register(&command{name: "effort", usage: "off|low|medium|high|max", short: "change the thinking level", run: cmdEffort})
 	register(&command{name: "yolo", usage: "[off|persist|on]", short: "show or set approval mode for this directory", run: cmdYolo})
 }
@@ -242,34 +247,6 @@ func cmdSession(sh *Shell, args string) error {
 	return sh.attach()
 }
 
-func cmdAgent(sh *Shell, args string) error {
-	var target *core.Agent
-	var created core.Session
-
-	var err error
-
-	if args == "" {
-		write("  %sagent%s %s\n", GRAY, RESET, sh.agent.Name)
-
-		return nil
-	}
-
-	target, err = Agent(sh.base, sh.apiKey, args)
-	if err != nil {
-		return err
-	}
-
-	err = Api(http.MethodPost, sh.base+"/sessions", sh.apiKey, map[string]string{"agent_id": target.Id}, &created)
-	if err != nil {
-		return err
-	}
-
-	sh.agent = target
-	sh.session = &created
-
-	return sh.attach()
-}
-
 func cmdImg(sh *Shell, args string) error {
 	var path string
 	var id string
@@ -294,13 +271,45 @@ func cmdImg(sh *Shell, args string) error {
 }
 
 func cmdModel(sh *Shell, args string) error {
-	if args == "" {
-		write("  %smodel%s %s\n", GRAY, RESET, sh.agent.Model)
+	var entries []providerModelsEntry
+	var e providerModelsEntry
+	var labels []string
+	var pick int
 
-		return nil
+	var err error
+
+	if args != "" {
+		if !strings.Contains(args, ":") {
+			return fmt.Errorf("usage: /model <provider>:<model> (or /model with no args to pick one)")
+		}
+
+		return sh.patchAgent(map[string]string{"model": args})
 	}
 
-	return sh.patchAgent(map[string]string{"model": args})
+	write("  %smodel%s %s\n", GRAY, RESET, sh.agent.Model)
+
+	err = Api(http.MethodGet, sh.base+"/providers/models", sh.apiKey, nil, &entries)
+	if err != nil {
+		return err
+	}
+
+	if len(entries) == 0 {
+		return fmt.Errorf("no models available from any provider")
+	}
+
+	for _, e = range entries {
+		labels = append(labels, fmt.Sprintf("%s:%s", e.Provider, e.Model))
+	}
+
+	pick, err = readNumber(labels, sh.keys)
+	if errors.Is(err, errInterrupted) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+
+	return sh.patchAgent(map[string]string{"model": labels[pick]})
 }
 
 func cmdEffort(sh *Shell, args string) error {

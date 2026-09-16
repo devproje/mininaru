@@ -85,55 +85,32 @@ func TestProviderListMasksApiKey(t *testing.T) {
 	}
 }
 
-func TestProviderActivateSwitchesActiveProvider(t *testing.T) {
+func TestProviderModelsSkipsUnreachableProviders(t *testing.T) {
 	var router *gin.Engine
 	var w *httptest.ResponseRecorder
 	var req *http.Request
+	var out []map[string]any
 
 	var err error
 
 	setupTestDB(t)
 	router = newRouter()
 
-	err = core.ProviderCreate(&core.Provider{Id: "p1", Name: "one"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	err = core.ProviderCreate(&core.Provider{Id: "p2", Name: "two"})
+	err = core.ProviderCreate(&core.Provider{Id: "p1", Name: "unreachable", BaseUrl: "http://127.0.0.1:1"})
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	w = httptest.NewRecorder()
-	req = httptest.NewRequest(http.MethodPost, "/api/providers/p1/activate", nil)
+	req = httptest.NewRequest(http.MethodGet, "/api/providers/models", nil)
 	router.ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
-		t.Fatalf("activate p1 status = %d, body = %s", w.Code, w.Body.String())
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
 	}
 
-	w = httptest.NewRecorder()
-	req = httptest.NewRequest(http.MethodPost, "/api/providers/p2/activate", nil)
-	router.ServeHTTP(w, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("activate p2 status = %d, body = %s", w.Code, w.Body.String())
-	}
-
-	var p1, p2 *core.Provider
-
-	p1, err = core.ProviderRead("p1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	p2, err = core.ProviderRead("p2")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if p1.Active {
-		t.Fatal("p1 should no longer be active after p2 was activated")
-	}
-	if !p2.Active {
-		t.Fatal("p2 should be active")
+	json.Unmarshal(w.Body.Bytes(), &out)
+	if len(out) != 0 {
+		t.Fatalf("models = %+v, want an empty list when every provider is unreachable", out)
 	}
 }
 

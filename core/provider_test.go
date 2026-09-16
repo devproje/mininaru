@@ -42,9 +42,6 @@ func TestProviderCRUD(t *testing.T) {
 	if got.Name != "one" || got.ApiKey != "key1" || got.BaseUrl != "https://one.example" {
 		t.Fatalf("read = %+v, unexpected values", got)
 	}
-	if got.Active {
-		t.Fatal("a newly created provider should not be active")
-	}
 
 	err = ProviderUpdate("p1", &Provider{Name: "renamed"})
 	if err != nil {
@@ -70,45 +67,23 @@ func TestProviderCRUD(t *testing.T) {
 	}
 }
 
-func TestProviderActivateSwitchesActiveProvider(t *testing.T) {
-	var active *Provider
+func TestProviderByName(t *testing.T) {
+	var got *Provider
 
 	var err error
 
 	setupTestDB(t)
 
-	err = ProviderCreate(&Provider{Id: "p1", Name: "one"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	err = ProviderCreate(&Provider{Id: "p2", Name: "two"})
+	err = ProviderCreate(&Provider{Id: "p1", Name: "one", ApiKey: "key1", BaseUrl: "https://one.example"})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	err = ProviderActivate("p1")
+	got, err = ProviderByName("one")
 	if err != nil {
-		t.Fatalf("activate p1 failed: %v", err)
+		t.Fatalf("ProviderByName failed: %v", err)
 	}
-
-	active, err = ProviderActive()
-	if err != nil {
-		t.Fatalf("active read failed: %v", err)
-	}
-	if active.Id != "p1" {
-		t.Fatalf("active = %q, want p1", active.Id)
-	}
-
-	err = ProviderActivate("p2")
-	if err != nil {
-		t.Fatalf("activate p2 failed: %v", err)
-	}
-
-	active, err = ProviderActive()
-	if err != nil {
-		t.Fatalf("active read after switch failed: %v", err)
-	}
-	if active.Id != "p2" {
-		t.Fatalf("active = %q, want p2", active.Id)
+	if got.Id != "p1" {
+		t.Fatalf("id = %q, want p1", got.Id)
 	}
 }

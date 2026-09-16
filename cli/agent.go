@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"net/http"
 
 	"github.com/devproje/mininaru/core"
 	"github.com/google/uuid"
@@ -57,6 +58,14 @@ var agentRemoveCmd *cobra.Command = &cobra.Command{
 	RunE: agentRemoveExecute,
 }
 
+var agentPrimaryCmd *cobra.Command = &cobra.Command{
+	Use:   "primary <id-or-name>",
+	Short: "make an agent the selected one",
+
+	Args: cobra.ExactArgs(1),
+	RunE: agentPrimaryExecute,
+}
+
 var (
 	agentAddModelRef      string
 	agentAddSoulRef       string
@@ -83,7 +92,7 @@ func init() {
 	agentSetCmd.Flags().StringVar(&agentSetThinkingRef, "thinking", "", "new reasoning effort: off, low, medium, high, max")
 	agentSetCmd.Flags().Uint64Var(&agentSetMaxContextRef, "max-context", 0, "new context window budget in tokens")
 
-	agentCmd.AddCommand(agentAddCmd, agentListCmd, agentShowCmd, agentSetCmd, agentRemoveCmd)
+	agentCmd.AddCommand(agentAddCmd, agentListCmd, agentShowCmd, agentSetCmd, agentRemoveCmd, agentPrimaryCmd)
 }
 
 func resolveAgent(idOrName string) (*core.Agent, error) {
@@ -113,7 +122,14 @@ func resolveAgent(idOrName string) (*core.Agent, error) {
 }
 
 func printAgent(agent *core.Agent) {
-	fmt.Printf("%s  %s\n", agent.Id, agent.Name)
+	var selected string
+
+	selected = ""
+	if agent.Selected {
+		selected = "  (selected)"
+	}
+
+	fmt.Printf("%s  %s%s\n", agent.Id, agent.Name, selected)
 	fmt.Printf("  model         %s\n", agent.Model)
 	fmt.Printf("  thinking      %s\n", agent.ThinkingLevel)
 	fmt.Printf("  max_context   %d\n", agent.MaxContext)
@@ -255,6 +271,44 @@ func agentRemoveExecute(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Printf("agent %s removed\n", agent.Id)
+
+	return nil
+}
+
+func agentPrimaryExecute(cmd *cobra.Command, args []string) error {
+	var id string
+	var remote bool
+	var agent *core.Agent
+
+	var err error
+
+	id, remote, err = remoteResolveId(cmd, "/agents", args[0])
+	if err != nil {
+		return err
+	}
+
+	if remote {
+		_, err = remoteDo(cmd, http.MethodPost, "/agents/"+id+"/primary")
+		if err != nil {
+			return err
+		}
+
+		fmt.Printf("agent %s is now primary\n", id)
+
+		return nil
+	}
+
+	agent, err = resolveAgent(args[0])
+	if err != nil {
+		return err
+	}
+
+	err = core.AgentSelect(agent.Id)
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("agent %s is now primary\n", agent.Id)
 
 	return nil
 }
