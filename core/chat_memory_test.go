@@ -49,10 +49,6 @@ func setupTestMemoryChat(t *testing.T) *string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = ProviderActivate("p1")
-	if err != nil {
-		t.Fatal(err)
-	}
 
 	return &captured
 }
@@ -67,7 +63,7 @@ func TestSendChatMessageIncludesSavedMemoryForItsAgent(t *testing.T) {
 	setupTestDB(t)
 	captured = setupTestMemoryChat(t)
 
-	agent = &Agent{Id: "a1", Name: "naru", Model: "gpt-4o-mini"}
+	agent = &Agent{Id: "a1", Name: "naru", Model: "test:gpt-4o-mini"}
 	err = AgentCreate(agent)
 	if err != nil {
 		t.Fatal(err)
@@ -112,13 +108,13 @@ func TestSendChatMessageDoesNotLeakMemoryAcrossAgents(t *testing.T) {
 	setupTestDB(t)
 	captured = setupTestMemoryChat(t)
 
-	agentA = &Agent{Id: "a1", Name: "naru-a", Model: "gpt-4o-mini"}
+	agentA = &Agent{Id: "a1", Name: "naru-a", Model: "test:gpt-4o-mini"}
 	err = AgentCreate(agentA)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	agentB = &Agent{Id: "a2", Name: "naru-b", Model: "gpt-4o-mini"}
+	agentB = &Agent{Id: "a2", Name: "naru-b", Model: "test:gpt-4o-mini"}
 	err = AgentCreate(agentB)
 	if err != nil {
 		t.Fatal(err)

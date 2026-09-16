@@ -53,12 +53,8 @@ func TestSendChatMessageCompactsOldTurns(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = ProviderActivate("p1")
-	if err != nil {
-		t.Fatal(err)
-	}
 
-	agent = &Agent{Id: "a1", Name: "naru", Model: "gpt-4o-mini", MaxContext: 100000}
+	agent = &Agent{Id: "a1", Name: "naru", Model: "test:gpt-4o-mini", MaxContext: 100000}
 	err = AgentCreate(agent)
 	if err != nil {
 		t.Fatal(err)
@@ -143,12 +139,8 @@ func TestSessionCompactSummarizesCompletedTurns(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = ProviderActivate("p1")
-	if err != nil {
-		t.Fatal(err)
-	}
 
-	agent = &Agent{Id: "a1", Name: "naru", Model: "gpt-4o-mini"}
+	agent = &Agent{Id: "a1", Name: "naru", Model: "test:gpt-4o-mini"}
 	err = AgentCreate(agent)
 	if err != nil {
 		t.Fatal(err)
@@ -195,7 +187,7 @@ func TestSummaryDeletesWithSession(t *testing.T) {
 
 	setupTestDB(t)
 
-	agent = &Agent{Id: "a1", Name: "naru", Model: "gpt-4o-mini"}
+	agent = &Agent{Id: "a1", Name: "naru", Model: "test:gpt-4o-mini"}
 	err = AgentCreate(agent)
 	if err != nil {
 		t.Fatal(err)
@@ -236,7 +228,7 @@ func TestSummaryTranscriptIncludesToolCalls(t *testing.T) {
 
 	setupTestDB(t)
 
-	agent = &Agent{Id: "a1", Name: "naru", Model: "gpt-4o-mini"}
+	agent = &Agent{Id: "a1", Name: "naru", Model: "test:gpt-4o-mini"}
 	err = AgentCreate(agent)
 	if err != nil {
 		t.Fatal(err)

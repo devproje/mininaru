@@ -66,10 +66,6 @@ func setupTestScreenshotRoundtrip(t *testing.T, anchor string, secondBody *strin
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = ProviderActivate("p1")
-	if err != nil {
-		t.Fatal(err)
-	}
 
 	return upstream
 }
@@ -87,7 +83,7 @@ func TestSendChatMessageScreenshotBecomesSyntheticImageMessage(t *testing.T) {
 	anchor = t.TempDir()
 	setupTestScreenshotRoundtrip(t, anchor, &secondBody)
 
-	agent = &Agent{Id: "a1", Name: "naru", Model: "gpt-4o-mini"}
+	agent = &Agent{Id: "a1", Name: "naru", Model: "test:gpt-4o-mini"}
 	err = AgentCreate(agent)
 	if err != nil {
 		t.Fatal(err)

@@ -5,6 +5,7 @@ package core
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -20,6 +21,7 @@ type Agent struct {
 	Soul          string `json:"soul"`
 	ThinkingLevel string `json:"thinking_level"`
 	MaxContext    uint64 `json:"max_context"`
+	Selected      bool   `json:"selected"`
 }
 
 const (
@@ -33,6 +35,7 @@ const (
 func AgentCreate(agent *Agent) error {
 	var opts []string
 	var values []any
+	var count int
 	var i int
 	var wild []string
 
@@ -48,6 +51,16 @@ func AgentCreate(agent *Agent) error {
 
 	opts = []string{"id", "name", "model"}
 	values = []any{agent.Id, agent.Name, agent.Model}
+
+	err = util.DB.QueryRow("SELECT COUNT(*) FROM agents;").Scan(&count)
+	if err != nil {
+		return err
+	}
+
+	if count == 0 {
+		opts = append(opts, "selected")
+		values = append(values, true)
+	}
 
 	if agent.Soul != "" {
 		opts = append(opts, "soul")
@@ -90,7 +103,7 @@ func AgentRead(id string) (*Agent, error) {
 
 	var err error
 
-	stmt, err = util.DB.Prepare("SELECT id, name, model, soul, thinking_level, max_context FROM agents WHERE id = ?;")
+	stmt, err = util.DB.Prepare("SELECT id, name, model, soul, thinking_level, max_context, selected FROM agents WHERE id = ?;")
 	if err != nil {
 		return nil, err
 	}
@@ -102,7 +115,7 @@ func AgentRead(id string) (*Agent, error) {
 		return nil, err
 	}
 
-	err = row.Scan(&obj.Id, &obj.Name, &obj.Model, &obj.Soul, &obj.ThinkingLevel, &obj.MaxContext)
+	err = row.Scan(&obj.Id, &obj.Name, &obj.Model, &obj.Soul, &obj.ThinkingLevel, &obj.MaxContext, &obj.Selected)
 	if err != nil {
 		return nil, err
 	}
@@ -117,7 +130,7 @@ func AgentByName(name string) (*Agent, error) {
 
 	var err error
 
-	stmt, err = util.DB.Prepare("SELECT id, name, model, soul, thinking_level, max_context FROM agents WHERE name = ?;")
+	stmt, err = util.DB.Prepare("SELECT id, name, model, soul, thinking_level, max_context, selected FROM agents WHERE name = ?;")
 	if err != nil {
 		return nil, err
 	}
@@ -129,7 +142,7 @@ func AgentByName(name string) (*Agent, error) {
 		return nil, err
 	}
 
-	err = row.Scan(&obj.Id, &obj.Name, &obj.Model, &obj.Soul, &obj.ThinkingLevel, &obj.MaxContext)
+	err = row.Scan(&obj.Id, &obj.Name, &obj.Model, &obj.Soul, &obj.ThinkingLevel, &obj.MaxContext, &obj.Selected)
 	if err != nil {
 		return nil, err
 	}
@@ -144,14 +157,14 @@ func AgentList() ([]*Agent, error) {
 
 	var err error
 
-	rows, err = util.DB.Query("SELECT id, name, model, soul, thinking_level, max_context FROM agents ORDER BY name ASC;")
+	rows, err = util.DB.Query("SELECT id, name, model, soul, thinking_level, max_context, selected FROM agents ORDER BY name ASC;")
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
 	for rows.Next() {
-		err = rows.Scan(&obj.Id, &obj.Name, &obj.Model, &obj.Soul, &obj.ThinkingLevel, &obj.MaxContext)
+		err = rows.Scan(&obj.Id, &obj.Name, &obj.Model, &obj.Soul, &obj.ThinkingLevel, &obj.MaxContext, &obj.Selected)
 		if err != nil {
 			return nil, err
 		}
@@ -163,6 +176,7 @@ func AgentList() ([]*Agent, error) {
 			Soul:          obj.Soul,
 			ThinkingLevel: obj.ThinkingLevel,
 			MaxContext:    obj.MaxContext,
+			Selected:      obj.Selected,
 		})
 	}
 
@@ -240,4 +254,62 @@ func AgentDelete(id string) error {
 	}
 
 	return nil
+}
+
+func AgentSelect(id string) error {
+	var tx *sql.Tx
+	var rollbackErr error
+
+	var err error
+
+	tx, err = util.DB.Begin()
+	if err != nil {
+		return err
+	}
+
+	_, err = tx.Exec("UPDATE agents SET selected = 0 WHERE selected = 1;")
+	if err != nil {
+		rollbackErr = tx.Rollback()
+		if rollbackErr != nil {
+			return rollbackErr
+		}
+
+		return err
+	}
+
+	_, err = tx.Exec("UPDATE agents SET selected = 1 WHERE id = ?;", id)
+	if err != nil {
+		rollbackErr = tx.Rollback()
+		if rollbackErr != nil {
+			return rollbackErr
+		}
+
+		return err
+	}
+
+	return tx.Commit()
+}
+
+func AgentSelected() (*Agent, error) {
+	var row *sql.Row
+	var obj Agent
+
+	var err error
+
+	row = util.DB.QueryRow("SELECT id, name, model, soul, thinking_level, max_context, selected FROM agents WHERE selected = 1;")
+	err = row.Err()
+	if err != nil {
+		return nil, err
+	}
+
+	err = row.Scan(&obj.Id, &obj.Name, &obj.Model, &obj.Soul, &obj.ThinkingLevel, &obj.MaxContext, &obj.Selected)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("no agent is selected — select one with `mininaru agent primary <id-or-name>`")
+		}
+
+		return nil, err
+	}
+
+	return &obj, nil
 }

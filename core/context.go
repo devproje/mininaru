@@ -52,6 +52,7 @@ func contextInputLimit(agent *Agent) uint64 {
 }
 
 func contextTokenEstimate(agent *Agent, union []openai.ChatCompletionMessageParamUnion, tools []modules.Tool) (uint64, error) {
+	var modelName string
 	var params openai.ChatCompletionNewParams
 	var buf []byte
 	var text string
@@ -61,7 +62,8 @@ func contextTokenEstimate(agent *Agent, union []openai.ChatCompletionMessagePara
 
 	var err error
 
-	params = chatParamsUnion(agent, union, tools)
+	modelName = modelNamePart(agent.Model)
+	params = chatParamsUnion(agent, union, tools, modelName)
 	buf, err = json.Marshal(params)
 	if err != nil {
 		return 0, err
@@ -70,7 +72,7 @@ func contextTokenEstimate(agent *Agent, union []openai.ChatCompletionMessagePara
 	text = string(buf)
 	images = len(dataImagePattern.FindAllString(text, -1))
 	text = dataImagePattern.ReplaceAllString(text, "data:image")
-	encoding, err = tiktoken.EncodingForModel(agent.Model)
+	encoding, err = tiktoken.EncodingForModel(modelName)
 	if err != nil {
 		encoding, err = tiktoken.GetEncoding(tiktoken.MODEL_O200K_BASE)
 	}
@@ -107,9 +109,11 @@ func contextLimit(agent *Agent, union []openai.ChatCompletionMessageParamUnion, 
 }
 
 func ChatContextCheck(agent *Agent, messages []ChatMessage) error {
+	var modelName string
 	var params openai.ChatCompletionNewParams
 
-	params = chatParams(agent, messages)
+	modelName = modelNamePart(agent.Model)
+	params = chatParams(agent, messages, modelName)
 
 	return contextLimit(agent, params.Messages, nil)
 }
@@ -223,6 +227,7 @@ func summaryTranscript(previous string, dropped []*Message) (string, error) {
 }
 
 func summaryCompletion(ctx context.Context, agent *Agent, prov *Provider, transcript string) (string, error) {
+	var modelName string
 	var params openai.ChatCompletionNewParams
 	var client openai.Client
 	var response *openai.ChatCompletion
@@ -232,7 +237,8 @@ func summaryCompletion(ctx context.Context, agent *Agent, prov *Provider, transc
 
 	var err error
 
-	params.Model = agent.Model
+	modelName = modelNamePart(agent.Model)
+	params.Model = modelName
 	params.Messages = []openai.ChatCompletionMessageParamUnion{openai.UserMessage(transcript)}
 	err = contextLimit(agent, params.Messages, nil)
 	if err != nil {
@@ -413,7 +419,7 @@ func SessionCompact(ctx context.Context, agent *Agent, session *Session) (*Conte
 		return nil, fmt.Errorf("nothing to compact")
 	}
 
-	prov, err = ProviderActive()
+	prov, _, err = resolveProviderModel(agent.Model)
 	if err != nil {
 		return nil, err
 	}

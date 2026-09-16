@@ -84,25 +84,25 @@ func TestMigrationsIdempotentOnReopen(t *testing.T) {
 	}
 }
 
-func TestProvidersActiveUniqueIndex(t *testing.T) {
+func TestAgentsSelectedUniqueIndex(t *testing.T) {
 	var db *sql.DB
 
 	var err error
 
-	db, err = NewDatabase(filepath.Join(t.TempDir(), "providers.db"))
+	db, err = NewDatabase(filepath.Join(t.TempDir(), "agents_selected.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
 
-	_, err = db.Exec("INSERT INTO providers (id, name, active) VALUES ('p1', 'one', 1);")
+	_, err = db.Exec("INSERT INTO agents (id, name, model, selected) VALUES ('a1', 'one', 'test:gpt-4o-mini', 1);")
 	if err != nil {
-		t.Fatalf("first active provider insert failed: %v", err)
+		t.Fatalf("first selected agent insert failed: %v", err)
 	}
 
-	_, err = db.Exec("INSERT INTO providers (id, name, active) VALUES ('p2', 'two', 1);")
+	_, err = db.Exec("INSERT INTO agents (id, name, model, selected) VALUES ('a2', 'two', 'test:gpt-4o-mini', 1);")
 	if err == nil {
-		t.Fatal("expected a unique index violation for two active providers")
+		t.Fatal("expected a unique index violation for two selected agents")
 	}
 }
 

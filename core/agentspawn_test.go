@@ -57,10 +57,6 @@ func setupTestSpawnRoundtrip(t *testing.T) *httptest.Server {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = ProviderActivate("p1")
-	if err != nil {
-		t.Fatal(err)
-	}
 
 	return upstream
 }
@@ -79,13 +75,13 @@ func TestAgentSpawnDelegatesAndReturnsTheAnswer(t *testing.T) {
 	setupTestDB(t)
 	setupTestSpawnRoundtrip(t)
 
-	caller = &Agent{Id: "a1", Name: "caller", Model: "gpt-4o-mini"}
+	caller = &Agent{Id: "a1", Name: "caller", Model: "test:gpt-4o-mini"}
 	err = AgentCreate(caller)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	worker = &Agent{Id: "a2", Name: "worker", Model: "gpt-4o-mini"}
+	worker = &Agent{Id: "a2", Name: "worker", Model: "test:gpt-4o-mini"}
 	err = AgentCreate(worker)
 	if err != nil {
 		t.Fatal(err)
@@ -151,7 +147,7 @@ func TestAgentSpawnRefusesSelfDelegation(t *testing.T) {
 
 	setupTestDB(t)
 
-	caller = &Agent{Id: "a1", Name: "caller", Model: "gpt-4o-mini"}
+	caller = &Agent{Id: "a1", Name: "caller", Model: "test:gpt-4o-mini"}
 	err = AgentCreate(caller)
 	if err != nil {
 		t.Fatal(err)
@@ -173,7 +169,7 @@ func TestBuildToolsHidesAgentSpawnBeyondMaxDepth(t *testing.T) {
 
 	setupTestDB(t)
 
-	caller = &Agent{Id: "a1", Name: "caller", Model: "gpt-4o-mini"}
+	caller = &Agent{Id: "a1", Name: "caller", Model: "test:gpt-4o-mini"}
 
 	tools = buildTools(t.TempDir(), "s1", caller, 0, nil, nil)
 	for _, tool = range tools {

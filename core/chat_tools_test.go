@@ -66,10 +66,6 @@ func setupTestToolRoundtrip(t *testing.T) *httptest.Server {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = ProviderActivate("p1")
-	if err != nil {
-		t.Fatal(err)
-	}
 
 	return upstream
 }
@@ -85,7 +81,7 @@ func TestSendChatMessageToolRoundtrip(t *testing.T) {
 	setupTestDB(t)
 	setupTestToolRoundtrip(t)
 
-	agent = &Agent{Id: "a1", Name: "naru", Model: "gpt-4o-mini"}
+	agent = &Agent{Id: "a1", Name: "naru", Model: "test:gpt-4o-mini"}
 	err = AgentCreate(agent)
 	if err != nil {
 		t.Fatal(err)
@@ -171,10 +167,6 @@ func setupTestDenyRoundtrip(t *testing.T) *httptest.Server {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = ProviderActivate("p1")
-	if err != nil {
-		t.Fatal(err)
-	}
 
 	return upstream
 }
@@ -190,7 +182,7 @@ func TestSendChatMessageDeniesDangerousToolOnDeny(t *testing.T) {
 	setupTestDB(t)
 	setupTestDenyRoundtrip(t)
 
-	agent = &Agent{Id: "a1", Name: "naru", Model: "gpt-4o-mini"}
+	agent = &Agent{Id: "a1", Name: "naru", Model: "test:gpt-4o-mini"}
 	err = AgentCreate(agent)
 	if err != nil {
 		t.Fatal(err)
@@ -276,12 +268,8 @@ func TestSendChatMessagePreservesFailedToolOutput(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = ProviderActivate("p1")
-	if err != nil {
-		t.Fatal(err)
-	}
 
-	agent = &Agent{Id: "a1", Name: "naru", Model: "gpt-4o-mini"}
+	agent = &Agent{Id: "a1", Name: "naru", Model: "test:gpt-4o-mini"}
 	err = AgentCreate(agent)
 	if err != nil {
 		t.Fatal(err)
@@ -353,12 +341,8 @@ func TestSendChatMessageStopsAfterToolCancellation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = ProviderActivate("p1")
-	if err != nil {
-		t.Fatal(err)
-	}
 
-	agent = &Agent{Id: "a1", Name: "naru", Model: "gpt-4o-mini"}
+	agent = &Agent{Id: "a1", Name: "naru", Model: "test:gpt-4o-mini"}
 	err = AgentCreate(agent)
 	if err != nil {
 		t.Fatal(err)

@@ -143,6 +143,34 @@ func AgentUpdate(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, agent)
 }
 
+func AgentSelect(ctx *gin.Context) {
+	var id string
+	var agent *core.Agent
+
+	var err error
+
+	id = ctx.Param("id")
+
+	err = core.AgentSelect(id)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	agent, err = core.AgentRead(id)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			ctx.JSON(http.StatusNotFound, gin.H{"error": "agent not found"})
+			return
+		}
+
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	ctx.JSON(http.StatusOK, agent)
+}
+
 func AgentDelete(ctx *gin.Context) {
 	var id string
 

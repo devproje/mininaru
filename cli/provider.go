@@ -58,18 +58,9 @@ var providerRemoveCmd *cobra.Command = &cobra.Command{
 	RunE: providerRemoveExecute,
 }
 
-var providerActivateCmd *cobra.Command = &cobra.Command{
-	Use:   "activate <id-or-name>",
-	Short: "make a provider the active one",
-
-	Args: cobra.ExactArgs(1),
-	RunE: providerActivateExecute,
-}
-
 var (
-	providerAddApiKeyRef   string
-	providerAddBaseUrlRef  string
-	providerAddActivateRef bool
+	providerAddApiKeyRef  string
+	providerAddBaseUrlRef string
 
 	providerSetNameRef    string
 	providerSetApiKeyRef  string
@@ -79,13 +70,12 @@ var (
 func init() {
 	providerAddCmd.Flags().StringVar(&providerAddApiKeyRef, "api-key", "", "API key for the provider")
 	providerAddCmd.Flags().StringVar(&providerAddBaseUrlRef, "base-url", "", "base URL of the provider's OpenAI-compatible endpoint")
-	providerAddCmd.Flags().BoolVar(&providerAddActivateRef, "activate", false, "activate the provider immediately")
 
 	providerSetCmd.Flags().StringVar(&providerSetNameRef, "name", "", "new name for the provider")
 	providerSetCmd.Flags().StringVar(&providerSetApiKeyRef, "api-key", "", "new API key for the provider")
 	providerSetCmd.Flags().StringVar(&providerSetBaseUrlRef, "base-url", "", "new base URL for the provider")
 
-	providerCmd.AddCommand(providerAddCmd, providerListCmd, providerShowCmd, providerSetCmd, providerRemoveCmd, providerActivateCmd)
+	providerCmd.AddCommand(providerAddCmd, providerListCmd, providerShowCmd, providerSetCmd, providerRemoveCmd)
 }
 
 func maskSecret(secret string) string {
@@ -131,14 +121,7 @@ func resolveProvider(idOrName string) (*core.Provider, error) {
 }
 
 func printProvider(prov *core.Provider) {
-	var active string
-
-	active = ""
-	if prov.Active {
-		active = "  (active)"
-	}
-
-	fmt.Printf("%s  %s%s\n", prov.Id, prov.Name, active)
+	fmt.Printf("%s  %s\n", prov.Id, prov.Name)
 	fmt.Printf("  base_url  %s\n", prov.BaseUrl)
 	fmt.Printf("  api_key   %s\n", maskSecret(prov.ApiKey))
 }
@@ -153,13 +136,6 @@ func providerAddExecute(cmd *cobra.Command, args []string) error {
 	err = core.ProviderCreate(&prov)
 	if err != nil {
 		return err
-	}
-
-	if providerAddActivateRef {
-		err = core.ProviderActivate(prov.Id)
-		if err != nil {
-			return err
-		}
 	}
 
 	fmt.Printf("provider %s created (%s)\n", prov.Name, prov.Id)
@@ -287,44 +263,6 @@ func providerRemoveExecute(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Printf("provider %s removed\n", prov.Id)
-
-	return nil
-}
-
-func providerActivateExecute(cmd *cobra.Command, args []string) error {
-	var id string
-	var remote bool
-	var prov *core.Provider
-
-	var err error
-
-	id, remote, err = remoteResolveId(cmd, "/providers", args[0])
-	if err != nil {
-		return err
-	}
-
-	if remote {
-		_, err = remoteDo(cmd, http.MethodPost, "/providers/"+id+"/activate")
-		if err != nil {
-			return err
-		}
-
-		fmt.Printf("provider %s is now active\n", id)
-
-		return nil
-	}
-
-	prov, err = resolveProvider(args[0])
-	if err != nil {
-		return err
-	}
-
-	err = core.ProviderActivate(prov.Id)
-	if err != nil {
-		return err
-	}
-
-	fmt.Printf("provider %s is now active\n", prov.Id)
 
 	return nil
 }

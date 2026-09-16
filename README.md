@@ -171,18 +171,22 @@ latest known release tag in `.mininaru/update.json`.
 
 ## Set up a provider and an agent
 
-A `provider` is a base URL and API key for an OpenAI-compatible endpoint. An
-`agent` names a model against a provider, plus an optional system prompt
-(`--soul`), reasoning effort, and context budget.
+A `provider` is a base URL and API key for an OpenAI-compatible endpoint —
+every registered provider is usable at once, there's no "active" one to
+switch. An `agent` names its model as `<provider>:<model>` (e.g.
+`openai:gpt-4o-mini`), plus an optional system prompt (`--soul`), reasoning
+effort, and context budget. Exactly one agent is the "primary" one at a time,
+managed with `mininaru agent primary`; the first agent you create becomes
+primary automatically.
 
 ```sh
-mininaru provider add openai --base-url https://api.openai.com/v1 --api-key '<KEY>' --activate
-mininaru agent add naru --model gpt-4o-mini --soul 'terse and precise'
+mininaru provider add openai --base-url https://api.openai.com/v1 --api-key '<KEY>'
+mininaru agent add naru --model openai:gpt-4o-mini --soul 'terse and precise'
 ```
 
-`show`/`set`/`remove`/`activate` all take either the id or the name printed
-by `add`. `provider set`/`agent set` only change the fields you pass; leave a
-flag out to keep the current value.
+`show`/`set`/`remove` all take either the id or the name printed by `add`.
+`provider set`/`agent set` only change the fields you pass; leave a flag out
+to keep the current value.
 
 `--max-context` is the agent's total input-context budget in tokens (default
 24,000). mininaru reserves 20% for output, summarizes older completed session
@@ -193,12 +197,12 @@ stateless OpenAI-compatible API does not rewrite supplied messages and returns
 ```sh
 mininaru provider list
 mininaru provider set openai --base-url https://api.openai.com/v1
-mininaru provider activate openai
 mininaru provider remove openai
 
 mininaru agent list
 mininaru agent set naru --thinking high
 mininaru agent set naru --max-context 48000
+mininaru agent primary naru
 mininaru agent remove naru
 ```
 
@@ -354,8 +358,7 @@ one), named at that point with a random `adjective-noun` pair
 /session    show or switch the current session
 /gateway    pick a saved gateway and a session on it, then reconnect
 /img        attach an image file to your next message
-/agent      switch agent on a new session
-/model      change the connected agent's model
+/model      pick a provider:model from a live-fetched numbered list, or set one directly
 /effort     change the connected agent's reasoning effort (off|low|medium|high|max)
 /yolo       set dangerous-tool trust for this directory (off|persist|on)
 ```
@@ -424,11 +427,11 @@ mininaru agent list --gateway prod      # inspect the remote's agents
 mininaru provider list --gateway prod
 mininaru session list --gateway prod
 mininaru session remove <id> --gateway prod
-mininaru provider activate <name> --gateway prod
+mininaru agent primary <name> --gateway prod
 ```
 
 Management commands hit the remote's `/api` for reads (`list`, `show`) and for
-`session remove` / `provider remove` / `provider activate`. `add` and `set` stay
+`session remove` / `provider remove` / `agent primary`. `add` and `set` stay
 local — configure a remote box on that box. `mcp` and `skill` have no remote API
 and are always local.
 

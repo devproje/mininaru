@@ -74,12 +74,8 @@ func setupSessionSendFixture(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = core.ProviderActivate("p1")
-	if err != nil {
-		t.Fatal(err)
-	}
 
-	err = core.AgentCreate(&core.Agent{Id: "a1", Name: "naru", Model: "gpt-4o-mini"})
+	err = core.AgentCreate(&core.Agent{Id: "a1", Name: "naru", Model: "test:gpt-4o-mini"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,12 +133,8 @@ func setupAttachFixture(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = core.ProviderActivate("p1")
-	if err != nil {
-		t.Fatal(err)
-	}
 
-	err = core.AgentCreate(&core.Agent{Id: "a1", Name: "naru", Model: "gpt-4o-mini"})
+	err = core.AgentCreate(&core.Agent{Id: "a1", Name: "naru", Model: "test:gpt-4o-mini"})
 	if err != nil {
 		t.Fatal(err)
 	}
