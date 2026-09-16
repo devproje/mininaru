@@ -131,7 +131,7 @@ func cmdGateway(sh *Shell, args string) error {
 	}
 
 	if pick == 0 {
-		err = Api(http.MethodPost, base+"/sessions", target.ApiKey, map[string]string{"agent_id": agents[0].Id}, &created)
+		err = Api(http.MethodPost, base+"/sessions", target.ApiKey, map[string]string{"agent_id": selectedAgent(agents).Id}, &created)
 		if err != nil {
 			return err
 		}

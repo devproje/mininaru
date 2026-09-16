@@ -177,11 +177,21 @@ switch. An `agent` names its model as `<provider>:<model>` (e.g.
 `openai:gpt-4o-mini`), plus an optional system prompt (`--soul`), reasoning
 effort, and context budget. Exactly one agent is the "primary" one at a time,
 managed with `mininaru agent primary`; the first agent you create becomes
-primary automatically.
+primary automatically, and it's the agent the REPL, `-p`, and a gateway's
+"+ new session" connect to when none is named explicitly.
 
 ```sh
 mininaru provider add openai --base-url https://api.openai.com/v1 --api-key '<KEY>'
 mininaru agent add naru --model openai:gpt-4o-mini --soul 'terse and precise'
+```
+
+`--model` also accepts `--pick-model` instead of a value — it lists every
+configured provider's models (queried live from each provider's own
+`/v1/models`) and lets you choose one by number:
+
+```sh
+mininaru agent add naru --pick-model --soul 'terse and precise'
+mininaru agent set naru --pick-model
 ```
 
 `show`/`set`/`remove` all take either the id or the name printed by `add`.
