@@ -193,6 +193,18 @@ func Upload(base string, apiKey string, sessionId string, path string) (string, 
 	return parsed.Id, nil
 }
 
+func selectedAgent(list []*core.Agent) *core.Agent {
+	var item *core.Agent
+
+	for _, item = range list {
+		if item.Selected {
+			return item
+		}
+	}
+
+	return list[0]
+}
+
 func Agent(base string, apiKey string, name string) (*core.Agent, error) {
 	var list []*core.Agent
 	var item *core.Agent
@@ -209,7 +221,7 @@ func Agent(base string, apiKey string, name string) (*core.Agent, error) {
 	}
 
 	if name == "" {
-		return list[0], nil
+		return selectedAgent(list), nil
 	}
 
 	for _, item = range list {

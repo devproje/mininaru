@@ -4,10 +4,15 @@
 package main
 
 import (
+	"bufio"
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
+	"strconv"
+	"strings"
 
 	"github.com/devproje/mininaru/core"
 	"github.com/google/uuid"
@@ -68,26 +73,29 @@ var agentPrimaryCmd *cobra.Command = &cobra.Command{
 
 var (
 	agentAddModelRef      string
+	agentAddPickModelRef  bool
 	agentAddSoulRef       string
 	agentAddThinkingRef   string
 	agentAddMaxContextRef uint64
 
 	agentSetNameRef       string
 	agentSetModelRef      string
+	agentSetPickModelRef  bool
 	agentSetSoulRef       string
 	agentSetThinkingRef   string
 	agentSetMaxContextRef uint64
 )
 
 func init() {
-	agentAddCmd.Flags().StringVar(&agentAddModelRef, "model", "", "model identifier the agent talks to (required)")
+	agentAddCmd.Flags().StringVar(&agentAddModelRef, "model", "", "model identifier the agent talks to (required unless --pick-model is used)")
+	agentAddCmd.Flags().BoolVar(&agentAddPickModelRef, "pick-model", false, "choose the model from a numbered list instead of --model")
 	agentAddCmd.Flags().StringVar(&agentAddSoulRef, "soul", "", "system prompt / persona for the agent")
 	agentAddCmd.Flags().StringVar(&agentAddThinkingRef, "thinking", "", "reasoning effort: off, low, medium, high, max")
 	agentAddCmd.Flags().Uint64Var(&agentAddMaxContextRef, "max-context", 0, "context window budget in tokens")
-	agentAddCmd.MarkFlagRequired("model")
 
 	agentSetCmd.Flags().StringVar(&agentSetNameRef, "name", "", "new name for the agent")
 	agentSetCmd.Flags().StringVar(&agentSetModelRef, "model", "", "new model identifier")
+	agentSetCmd.Flags().BoolVar(&agentSetPickModelRef, "pick-model", false, "choose the new model from a numbered list instead of --model")
 	agentSetCmd.Flags().StringVar(&agentSetSoulRef, "soul", "", "new system prompt / persona")
 	agentSetCmd.Flags().StringVar(&agentSetThinkingRef, "thinking", "", "new reasoning effort: off, low, medium, high, max")
 	agentSetCmd.Flags().Uint64Var(&agentSetMaxContextRef, "max-context", 0, "new context window budget in tokens")
@@ -139,10 +147,71 @@ func printAgent(agent *core.Agent) {
 	}
 }
 
+func pickModel() (string, error) {
+	var list []*core.Provider
+	var prov *core.Provider
+	var names []string
+	var name string
+	var labels []string
+	var i int
+	var scanner *bufio.Scanner
+	var line string
+	var pick int
+
+	var err error
+
+	list, err = core.ProviderList()
+	if err != nil {
+		return "", err
+	}
+
+	for _, prov = range list {
+		names, err = core.ProviderModelNames(context.Background(), prov)
+		if err != nil {
+			continue
+		}
+
+		for _, name = range names {
+			labels = append(labels, fmt.Sprintf("%s:%s", prov.Name, name))
+		}
+	}
+
+	if len(labels) == 0 {
+		return "", fmt.Errorf("no models available from any provider")
+	}
+
+	for i = range labels {
+		fmt.Printf("  %d) %s\n", i+1, labels[i])
+	}
+	fmt.Print("> ")
+
+	scanner = bufio.NewScanner(os.Stdin)
+	if !scanner.Scan() {
+		return "", fmt.Errorf("no input")
+	}
+	line = strings.TrimSpace(scanner.Text())
+
+	pick, err = strconv.Atoi(line)
+	if err != nil || pick < 1 || pick > len(labels) {
+		return "", fmt.Errorf("invalid choice %q", line)
+	}
+
+	return labels[pick-1], nil
+}
+
 func agentAddExecute(cmd *cobra.Command, args []string) error {
 	var agent core.Agent
 
 	var err error
+
+	if agentAddPickModelRef {
+		agentAddModelRef, err = pickModel()
+		if err != nil {
+			return err
+		}
+	} else if agentAddModelRef == "" {
+		return fmt.Errorf("--model is required (or pass --pick-model to choose from a list)")
+	}
 
 	agent = core.Agent{
 		Id:            uuid.NewString(),
@@ -237,6 +306,13 @@ func agentSetExecute(cmd *cobra.Command, args []string) error {
 	agent, err = resolveAgent(args[0])
 	if err != nil {
 		return err
+	}
+
+	if agentSetPickModelRef {
+		agentSetModelRef, err = pickModel()
+		if err != nil {
+			return err
+		}
 	}
 
 	err = core.AgentUpdate(agent.Id, &core.Agent{
