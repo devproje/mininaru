@@ -85,7 +85,9 @@ applied version in a `migrations` table, and applied inside one transaction
 per file on every `NewDatabase` call — `0001_initial_schema.sql`,
 `0002_tool_calls.sql`, `0003_skill_uses.sql`, `0004_attachments.sql`,
 `0005_session_cwd.sql`, `0006_session_summaries.sql`,
-`0007_agent_selected_provider_active_removal.sql`.
+`0007_agent_selected_provider_active_removal.sql`,
+`0008_session_last_prompt_tokens.sql`,
+`0009_session_last_cached_tokens.sql`.
 
 ```
 providers(id, name, api_key, base_url)
@@ -97,7 +99,11 @@ agents(id, name, model, soul, thinking_level, max_context, selected)
   -- "deselect all, select one" transaction safe. exactly one agent is
   -- selected once at least one agent exists (the first ever created
   -- auto-selects)
-sessions(id, agent_id REFERENCES agents ON DELETE CASCADE, name, created_at)
+sessions(id, agent_id REFERENCES agents ON DELETE CASCADE, name, created_at,
+         cwd, last_prompt_tokens, last_cached_tokens)
+  -- last_prompt_tokens/last_cached_tokens cache the provider's own usage
+  -- figures from the session's last completed round for the /usage
+  -- endpoint; both reset to 0 on compact
 messages(id, session_id REFERENCES sessions ON DELETE CASCADE, role, content,
          status, error, created_at)
   -- status is CHECKed against pending/completed/failed/cancelled
@@ -178,12 +184,16 @@ passed through). `POST /api/sessions/:id/attachments` and the `/ws` frame's
 
 `max_context` is an agent's input-context budget in tokens (24,000 by
 default). mininaru reserves 20% for the model's output, then estimates the
-serialized prompt conservatively before every provider round. Session-backed
-turns that exceed the remaining input budget summarize old completed turns
-into `session_summaries`, keeping the current turn and the newest completed
-turn as raw OpenAI messages. Tool calls and their results are folded together;
-the raw history is never deleted. If the current raw turn, system context, or
-tool schema still exceeds the budget, the turn fails before a provider call.
+serialized prompt conservatively before every provider round — this
+pre-flight tiktoken estimate (`contextTokenEstimate`, `core/context.go`) is
+separate from the `used` figure `GET /api/sessions/:id/usage` reports (see
+below), which is the provider's own real usage once a round has completed.
+Session-backed turns that exceed the remaining input budget summarize old
+completed turns into `session_summaries`, keeping the current turn and the
+newest completed turn as raw OpenAI messages. Tool calls and their results
+are folded together; the raw history is never deleted. If the current raw
+turn, system context, or tool schema still exceeds the budget, the turn
+fails before a provider call.
 The stateless `/api/v1/chat/completions` surface never rewrites caller-supplied
 history: it returns a `context_length_exceeded` error instead.
 
@@ -196,17 +206,38 @@ into a bounded failure. It only trips on true silence: an actively streaming
 response (even one made of nothing but reasoning filler, or a long tool
 turn) keeps resetting the timer and is never cut off.
 
+Every request also carries `stream_options.include_usage` so the provider
+returns real `usage` figures (see the usage endpoint below), and, unless
+disabled, an Anthropic-style `cache_control` breakpoint (`cacheRequestOptions`,
+`core/chat.go`) on the last message of the conversation's fixed leading
+system-message run (summary, then memory, skills, soul — whichever comes
+last) so a provider that supports prompt caching can reuse that unchanging
+prefix across rounds and turns. Both are injected via
+`option.WithJSONSet` since the OpenAI Go SDK's typed params have no field
+for either. `--no-cache` (root CLI flag) stores nothing — it puts a marker on
+the request's `context.Context` (`core.WithNoCache`) that `server/sock`
+sets from the `Frame`/`inboundFrame`'s `no_cache` bit for that one turn.
+
 ## Tool calling — session-backed only
 
 `SendChatMessage` (`core/chat.go`, `core/toolloop.go`), the entry point the
 `/ws` handler calls, is a round loop (`maxToolRounds = 50`): it rebuilds the
 session's message history via `historyUnion` — replaying each earlier turn's
-recorded `tool_calls` back as an assistant tool-call message plus the
-matching `openai.ToolMessage` results, so a resumed session doesn't have to
-re-run anything — streams a completion, and if the model's response carries
-tool calls, executes each one via `executeTool` and loops. Turns with no
+recorded `tool_calls` back as an assistant tool-call message plus a matching
+`openai.ToolMessage` per call — so a resumed session doesn't have to re-run
+anything — streams a completion, and if the model's response carries tool
+calls, executes each one via `executeTool` and loops. Turns with no
 `call_id` recorded yet or a `tool_calls` row still `pending` (a turn that was
 cut off mid-flight, e.g. by a server restart) are not replayed.
+
+Only the *current*, in-flight turn's tool results are replayed verbatim.
+Every earlier turn's `tool_calls.result` is replaced with a short
+`replayToolResult` placeholder (`[tool result omitted from history, N
+bytes — re-run the tool if you need it again]`) instead of the original
+text — a bash or file-read result can be tens of thousands of bytes, and
+replaying it in full on every subsequent round was the main way a
+tool-heavy session burned through its context budget. The model can always
+re-run the tool if it needs the content again.
 
 Failed tools retain both their error and any returned output: the error stays
 in `tool_calls.error`, while `tool_calls.result` and the current
@@ -589,12 +620,21 @@ branch by reading `.git/HEAD` directly (following a `.git` *file*'s
 reports the branch name or the first 7 hex chars of a detached `HEAD`.
 There is deliberately no dirty/staged indicator.
 
-`GET /api/sessions/:id/usage` rebuilds the session's next prompt, including
-the stored summary, memory, skills, and tool schemas, and returns its
-conservative `used` token estimate with the input `limit` and full
-`max_context`. The REPL caches this response so `sh.prompt()` never waits on
-the network. It refreshes after a completed turn, a session or agent switch,
-and `/usage`, which also prints the cached `ctx:used/limit (percent)` label.
+`GET /api/sessions/:id/usage` (`SessionContextUsage`, `core/context.go`)
+returns `session.last_prompt_tokens` (a session column set from the
+provider's own `usage.prompt_tokens + usage.completion_tokens` after each
+completed round, alongside `last_cached_tokens` from
+`usage.prompt_tokens_details.cached_tokens` when the provider reports it) as
+`used`, plus `limit` (80% of `max_context`) and `max_context` itself. Before
+a session has any completed round, it falls back to rebuilding the session's
+next prompt — stored summary, memory, skills, tool schemas — and returning a
+conservative tiktoken estimate instead. `/compact` (`SessionCompact`) resets
+both stored counters to 0 so the display falls back to the estimate until
+the next real round lands. The REPL caches this response so `sh.prompt()`
+never waits on the network. It refreshes after a completed turn, a session
+or agent switch, and `/usage`, which also prints the cached
+`ctx:used/limit (percent)` label (plus a `cache:percent` segment when
+`cached` is nonzero).
 
 Line one carries the connected agent's `Name` and `ThinkingLevel` (from
 `sh.agent`, a `*core.Agent` fetched once via `GET /api/agents` at startup

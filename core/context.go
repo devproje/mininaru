@@ -319,6 +319,7 @@ func compactHistory(ctx context.Context, agent *Agent, session *Session, prov *P
 }
 
 func SessionContextUsage(agent *Agent, session *Session) (*ContextUsage, error) {
+	var usage ContextUsage
 	var history []*Message
 	var summary *Summary
 	var tail []*Message
@@ -327,7 +328,6 @@ func SessionContextUsage(agent *Agent, session *Session) (*ContextUsage, error) 
 	var skillCatalog string
 	var tools []modules.Tool
 	var tokens uint64
-	var usage ContextUsage
 
 	var err error
 

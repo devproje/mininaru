@@ -206,8 +206,8 @@ func effortColor(level string) string {
 
 func contextLabel(usage *core.ContextUsage) string {
 	var percent uint64
-	var cachePercent uint64
 	var label string
+	var cachePercent uint64
 
 	if usage == nil || usage.Limit == 0 {
 		return ""

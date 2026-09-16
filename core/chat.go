@@ -164,8 +164,8 @@ func noCacheFromContext(ctx context.Context) bool {
 }
 
 func cacheBreakpointIndex(messages []openai.ChatCompletionMessageParamUnion) int {
-	var index int
 	var last int
+	var index int
 
 	last = -1
 	for index = range messages {

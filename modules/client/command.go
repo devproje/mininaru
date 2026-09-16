@@ -132,9 +132,9 @@ func cmdUsage(sh *Shell, args string) error {
 }
 
 func cmdCompact(sh *Shell, args string) error {
+	var stop func()
 	var usage core.ContextUsage
 	var label string
-	var stop func()
 
 	var err error
 

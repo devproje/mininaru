@@ -374,9 +374,12 @@ one), named at that point with a random `adjective-noun` pair
 ```
 
 The first prompt line shows `ctx:used/limit (percent)` next to the Git branch.
-It is refreshed after each turn, session change, and `/usage`; `limit` is the
-conversation portion of `max_context` after reserving model output and fixed
-system context.
+It is refreshed after each turn, session change, and `/usage`; `limit` is
+80% of `max_context` (mininaru reserves the rest for output). Before a
+session's first completed round, `used` is a local estimate; after that it's
+the provider's own reported `prompt_tokens + completion_tokens` for the last
+round. A cyan `cache:percent` segment is appended when the provider reports
+cached prompt tokens.
 
 Input history is a plain text file, `.mininaru/history` by default (or
 `$NARU_HISTFILE`); `$HISTSIZE`/`$HISTFILESIZE` cap what's kept in memory and
@@ -410,6 +413,12 @@ object when the turn ends:
 In `json`/`xml` mode there is no prompt to approve tool calls, so any
 approval request is auto-denied; a failed turn still prints the object (with an
 `error` field) and exits non-zero.
+
+`--no-cache` (root flag, works for both the REPL and `-p`) disables provider
+prompt caching for that one run only — nothing is written back to the agent
+or session. By default mininaru marks the conversation's fixed system prefix
+with an Anthropic-style `cache_control` breakpoint so providers that support
+prompt caching (e.g. Claude behind a compatible gateway) can reuse it.
 
 ## Gateways
 
