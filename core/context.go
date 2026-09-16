@@ -26,6 +26,7 @@ type ContextUsage struct {
 	Used       uint64 `json:"used"`
 	Limit      uint64 `json:"limit"`
 	MaxContext uint64 `json:"max_context"`
+	Cached     uint64 `json:"cached"`
 }
 
 const contextReservePercent = 20
@@ -324,14 +325,16 @@ func SessionContextUsage(agent *Agent, session *Session) (*ContextUsage, error) 
 	var union []openai.ChatCompletionMessageParamUnion
 	var memoryIndex string
 	var skillCatalog string
-	var baseline []openai.ChatCompletionMessageParamUnion
 	var tools []modules.Tool
 	var tokens uint64
-	var baselineTokens uint64
-	var limit uint64
 	var usage ContextUsage
 
 	var err error
+
+	if session.LastPromptTokens > 0 {
+		usage = ContextUsage{Used: session.LastPromptTokens, Limit: contextInputLimit(agent), MaxContext: contextWindow(agent), Cached: session.LastCachedTokens}
+		return &usage, nil
+	}
 
 	history, err = MessageList(session.Id)
 	if err != nil {
@@ -353,16 +356,13 @@ func SessionContextUsage(agent *Agent, session *Session) (*ContextUsage, error) 
 	memoryIndex = memory.LoadIndex(agent.Id)
 	if memoryIndex != "" {
 		union = append([]openai.ChatCompletionMessageParamUnion{openai.SystemMessage(memoryIndex)}, union...)
-		baseline = append([]openai.ChatCompletionMessageParamUnion{openai.SystemMessage(memoryIndex)}, baseline...)
 	}
 	skillCatalog = skill.Catalog()
 	if skillCatalog != "" {
 		union = append([]openai.ChatCompletionMessageParamUnion{openai.SystemMessage(skillCatalog)}, union...)
-		baseline = append([]openai.ChatCompletionMessageParamUnion{openai.SystemMessage(skillCatalog)}, baseline...)
 	}
 	if agent.Soul != "" {
 		union = append([]openai.ChatCompletionMessageParamUnion{openai.SystemMessage(agent.Soul)}, union...)
-		baseline = append([]openai.ChatCompletionMessageParamUnion{openai.SystemMessage(agent.Soul)}, baseline...)
 	}
 
 	tools = buildTools(session.Cwd, session.Id, agent, 0, nil, nil)
@@ -370,23 +370,8 @@ func SessionContextUsage(agent *Agent, session *Session) (*ContextUsage, error) 
 	if err != nil {
 		return nil, err
 	}
-	baselineTokens, err = contextTokenEstimate(agent, baseline, tools)
-	if err != nil {
-		return nil, err
-	}
-	if tokens >= baselineTokens {
-		tokens -= baselineTokens
-	} else {
-		tokens = 0
-	}
-	limit = contextInputLimit(agent)
-	if limit >= baselineTokens {
-		limit -= baselineTokens
-	} else {
-		limit = 0
-	}
 
-	usage = ContextUsage{Used: tokens, Limit: limit, MaxContext: contextWindow(agent)}
+	usage = ContextUsage{Used: tokens, Limit: contextInputLimit(agent), MaxContext: contextWindow(agent)}
 
 	return &usage, nil
 }
@@ -427,6 +412,13 @@ func SessionCompact(ctx context.Context, agent *Agent, session *Session) (*Conte
 	if err != nil {
 		return nil, err
 	}
+
+	err = SessionUsageSave(session.Id, 0, 0)
+	if err != nil {
+		return nil, err
+	}
+	session.LastPromptTokens = 0
+	session.LastCachedTokens = 0
 
 	return SessionContextUsage(agent, session)
 }

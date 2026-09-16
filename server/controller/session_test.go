@@ -128,11 +128,11 @@ func TestSessionUsageReportsTheContextBudget(t *testing.T) {
 	if usage["max_context"] != float64(24000) {
 		t.Fatalf("usage = %+v, want the default context window", usage)
 	}
-	if usage["limit"].(float64) <= 0 || usage["limit"].(float64) >= float64(19200) {
-		t.Fatalf("usage = %+v, want the input limit after fixed context", usage)
+	if usage["limit"] != float64(19200) {
+		t.Fatalf("usage = %+v, want the raw 80%% input limit", usage)
 	}
-	if usage["used"] != float64(0) {
-		t.Fatalf("usage = %+v, want no session input tokens", usage)
+	if usage["used"].(float64) <= 0 || usage["used"].(float64) >= usage["limit"].(float64) {
+		t.Fatalf("usage = %+v, want the fixed system overhead counted as used tokens", usage)
 	}
 }
 

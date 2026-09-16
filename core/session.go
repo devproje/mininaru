@@ -12,11 +12,13 @@ import (
 )
 
 type Session struct {
-	Id        string `json:"id"`
-	AgentId   string `json:"agent_id"`
-	Name      string `json:"name"`
-	Cwd       string `json:"cwd"`
-	CreatedAt string `json:"created_at"`
+	Id               string `json:"id"`
+	AgentId          string `json:"agent_id"`
+	Name             string `json:"name"`
+	Cwd              string `json:"cwd"`
+	LastPromptTokens uint64 `json:"last_prompt_tokens"`
+	LastCachedTokens uint64 `json:"last_cached_tokens"`
+	CreatedAt        string `json:"created_at"`
 }
 
 func SessionCreate(session *Session) error {
@@ -69,7 +71,7 @@ func SessionRead(id string) (*Session, error) {
 
 	var err error
 
-	stmt, err = util.DB.Prepare("SELECT id, agent_id, name, cwd, created_at FROM sessions WHERE id = ?;")
+	stmt, err = util.DB.Prepare("SELECT id, agent_id, name, cwd, last_prompt_tokens, last_cached_tokens, created_at FROM sessions WHERE id = ?;")
 	if err != nil {
 		return nil, err
 	}
@@ -81,7 +83,7 @@ func SessionRead(id string) (*Session, error) {
 		return nil, err
 	}
 
-	err = row.Scan(&obj.Id, &obj.AgentId, &obj.Name, &obj.Cwd, &obj.CreatedAt)
+	err = row.Scan(&obj.Id, &obj.AgentId, &obj.Name, &obj.Cwd, &obj.LastPromptTokens, &obj.LastCachedTokens, &obj.CreatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -97,7 +99,7 @@ func SessionList(agentId string) ([]*Session, error) {
 
 	var err error
 
-	stmt, err = util.DB.Prepare("SELECT id, agent_id, name, cwd, created_at FROM sessions WHERE agent_id = ? ORDER BY created_at DESC;")
+	stmt, err = util.DB.Prepare("SELECT id, agent_id, name, cwd, last_prompt_tokens, last_cached_tokens, created_at FROM sessions WHERE agent_id = ? ORDER BY created_at DESC;")
 	if err != nil {
 		return nil, err
 	}
@@ -110,12 +112,12 @@ func SessionList(agentId string) ([]*Session, error) {
 	defer rows.Close()
 
 	for rows.Next() {
-		err = rows.Scan(&obj.Id, &obj.AgentId, &obj.Name, &obj.Cwd, &obj.CreatedAt)
+		err = rows.Scan(&obj.Id, &obj.AgentId, &obj.Name, &obj.Cwd, &obj.LastPromptTokens, &obj.LastCachedTokens, &obj.CreatedAt)
 		if err != nil {
 			return nil, err
 		}
 
-		list = append(list, &Session{Id: obj.Id, AgentId: obj.AgentId, Name: obj.Name, Cwd: obj.Cwd, CreatedAt: obj.CreatedAt})
+		list = append(list, &Session{Id: obj.Id, AgentId: obj.AgentId, Name: obj.Name, Cwd: obj.Cwd, LastPromptTokens: obj.LastPromptTokens, LastCachedTokens: obj.LastCachedTokens, CreatedAt: obj.CreatedAt})
 	}
 
 	err = rows.Err()
@@ -133,19 +135,19 @@ func SessionListAll() ([]*Session, error) {
 
 	var err error
 
-	rows, err = util.DB.Query("SELECT id, agent_id, name, cwd, created_at FROM sessions ORDER BY created_at DESC;")
+	rows, err = util.DB.Query("SELECT id, agent_id, name, cwd, last_prompt_tokens, last_cached_tokens, created_at FROM sessions ORDER BY created_at DESC;")
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
 	for rows.Next() {
-		err = rows.Scan(&obj.Id, &obj.AgentId, &obj.Name, &obj.Cwd, &obj.CreatedAt)
+		err = rows.Scan(&obj.Id, &obj.AgentId, &obj.Name, &obj.Cwd, &obj.LastPromptTokens, &obj.LastCachedTokens, &obj.CreatedAt)
 		if err != nil {
 			return nil, err
 		}
 
-		list = append(list, &Session{Id: obj.Id, AgentId: obj.AgentId, Name: obj.Name, Cwd: obj.Cwd, CreatedAt: obj.CreatedAt})
+		list = append(list, &Session{Id: obj.Id, AgentId: obj.AgentId, Name: obj.Name, Cwd: obj.Cwd, LastPromptTokens: obj.LastPromptTokens, LastCachedTokens: obj.LastCachedTokens, CreatedAt: obj.CreatedAt})
 	}
 
 	err = rows.Err()
@@ -188,6 +190,24 @@ func SessionUpdate(id string, session *Session) error {
 	defer stmt.Close()
 
 	_, err = stmt.Exec(values...)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func SessionUsageSave(id string, promptTokens uint64, cachedTokens uint64) error {
+	var stmt *sql.Stmt
+	var err error
+
+	stmt, err = util.DB.Prepare("UPDATE sessions SET last_prompt_tokens = ?, last_cached_tokens = ? WHERE id = ?;")
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	_, err = stmt.Exec(promptTokens, cachedTokens, id)
 	if err != nil {
 		return err
 	}

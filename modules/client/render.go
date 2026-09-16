@@ -228,6 +228,12 @@ func (r *renderer) text(next string, text string) {
 func (r *renderer) tool(name string, status string, message string) {
 	r.endLine()
 
+	if status == "started" && name == "compact" {
+		r.setStop(spinner("compacting..."))
+
+		return
+	}
+
 	if status == "started" {
 		r.setStop(spinner(fmt.Sprintf("%s %s", name, status)))
 

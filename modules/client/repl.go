@@ -24,6 +24,7 @@ type Options struct {
 	Agent    string
 	ApiKey   string
 	Cwd      string
+	NoCache  bool
 	Gateways []Gateway
 }
 
@@ -38,6 +39,7 @@ type Shell struct {
 	base     string
 	apiKey   string
 	cwd      string
+	noCache  bool
 	yolo     string
 	conn     *websocket.Conn
 	agent    *core.Agent
@@ -209,7 +211,7 @@ func (sh *Shell) banner() {
 func (sh *Shell) send(prompt string, images []string) error {
 	var err error
 
-	err = sh.conn.WriteJSON(Frame{SessionId: sh.session.Id, Content: prompt, Cwd: sh.cwd, Images: images})
+	err = sh.conn.WriteJSON(Frame{SessionId: sh.session.Id, Content: prompt, Cwd: sh.cwd, Images: images, NoCache: sh.noCache})
 	if err == nil {
 		return nil
 	}
@@ -219,7 +221,7 @@ func (sh *Shell) send(prompt string, images []string) error {
 		return err
 	}
 
-	return sh.conn.WriteJSON(Frame{SessionId: sh.session.Id, Content: prompt, Cwd: sh.cwd, Images: images})
+	return sh.conn.WriteJSON(Frame{SessionId: sh.session.Id, Content: prompt, Cwd: sh.cwd, Images: images, NoCache: sh.noCache})
 }
 
 func (sh *Shell) turn(prompt string) error {
@@ -328,7 +330,7 @@ func Run(opts Options) error {
 		return fmt.Errorf("stdin is not a terminal — use -p for a one-shot prompt")
 	}
 
-	sh = Shell{url: opts.Url, apiKey: ResolveApiKey(opts.ApiKey, opts.Url), gateways: opts.Gateways}
+	sh = Shell{url: opts.Url, apiKey: ResolveApiKey(opts.ApiKey, opts.Url), gateways: opts.Gateways, noCache: opts.NoCache}
 
 	sh.cwd, err = ResolveCwd(opts.Cwd)
 	if err != nil {

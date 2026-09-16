@@ -23,6 +23,7 @@ func clientExecute() error {
 		Agent:    promptAgentRef,
 		ApiKey:   promptApiKeyRef,
 		Cwd:      promptCwdRef,
+		NoCache:  promptNoCacheRef,
 		Gateways: gateways,
 	})
 }

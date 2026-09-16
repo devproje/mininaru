@@ -75,7 +75,7 @@ func shortPrompt(prompt string) error {
 		return err
 	}
 
-	err = conn.WriteJSON(client.Frame{SessionId: session.Id, Content: prompt, Cwd: cwd, Images: images})
+	err = conn.WriteJSON(client.Frame{SessionId: session.Id, Content: prompt, Cwd: cwd, Images: images, NoCache: promptNoCacheRef})
 	if err != nil {
 		return err
 	}
