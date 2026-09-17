@@ -27,16 +27,14 @@ These are bugs. Report them.
 - Reaching any `/api/v1` endpoint without a valid bearer token, or learning
   whether a guessed key was close.
 - Escaping the working directory from `file_read`, `file_write`, or
-  `bash_exec` — anything that makes the root in `modules/file.go` not hold.
-- Reaching a private, link-local, loopback, or cloud-metadata address through
-  `web_fetch`, past the guard in `modules/webguard.go`.
-- Running a `dangerous` or `privileged` tool without the approval gate, when
-  `--allow-dangerous-tools` was not passed. This includes prompt injection that
+  `bash_exec` — anything that makes the root in `modules/file/file.go` not hold.
+- Running a `dangerous` tool without the approval gate outside an explicitly
+  trusted directory — a `/yolo` mode of `off` (the default) or `persist`
+  outside its anchor still auto-running a call, or a `-p` run executing a
+  dangerous tool instead of denying it. This includes prompt injection that
   defeats the gate, as opposed to injection that merely asks for a tool.
-- Discord: answering someone who is not paired, acting as another user, or
-  climbing from the user role to admin without a pairing code.
-- A provider API key, bot token, or `MININARU_API_KEY` appearing in logs,
-  terminal output, an API response, or an error message.
+- A provider API key or `MININARU_API_KEY` appearing in logs, terminal
+  output, an API response, or an error message.
 - Any data from one API request surfacing in another. `serve` is stateless and
   keeps no conversation between requests, so leakage across them is a bug.
 
@@ -47,12 +45,11 @@ with a pointer here.
 
 - **`bash_exec` runs shell commands and `file_write` writes files.** That is
   what the tools are. In the chat client each dangerous call is gated by an
-  approval prompt; `--allow-dangerous-tools` removes that gate on purpose, and
-  `-p` denies them outright because nobody is there to approve.
-- **Provider keys and bot tokens are stored unencrypted** in `provider.json`
-  and `bot.json`, written at mode `0600` inside a `0700` data directory. They
-  are masked in list output, not protected at rest. Anyone who can read your
-  home directory can read them.
+  approval prompt unless the directory is trusted via `/yolo persist`/`on`,
+  and `-p` denies them outright because nobody is there to approve.
+- **Provider keys are stored unencrypted** in `provider.json`, written at mode
+  `0600` inside a `0700` data directory. They are masked in list output, not
+  protected at rest. Anyone who can read your home directory can read them.
 - **Configuring an MCP server runs a program.** `mcp add --stdio <command>`
   means that command is launched on the next run. Adding one is equivalent to
   running it yourself.
