@@ -53,7 +53,8 @@ form directly: `content` as `[{"type":"text","text":"…"},{"type":"image_url","
 The client does the upload for you: `mininaru -p "…" --image a.png --image b.png`,
 or `/img <path>` in the REPL (queued and sent with your next message).
 
-`/ws` is what the REPL uses for chat: send
+`/ws` is what the REPL uses for chat (a browser authenticates it with the
+`bearer.<key>` subprotocol, see [Serving](USAGE.md#serving)): send
 `{"session_id": "...", "content": "...", "cwd": "..."}` and receive a stream
 of `{"type": "chunk"|"tool"|"approval_request"|"done"|"error", ...}` frames.
 Sending `{"type": "interrupt", "session_id": "..."}` cancels that session's

@@ -86,6 +86,8 @@ and agent administration always operates on the local `NARU_PATH` database;
 mininaru serve                              # 0.0.0.0:8223
 mininaru serve --host 127.0.0.1 --port 8080
 mininaru serve --debug                      # verbose gin request logging
+mininaru serve --cors-origin tauri://localhost --cors-origin http://localhost:1420
+mininaru serve --web-dir ./dist             # also serve a built web client at /
 ```
 
 This starts the HTTP API and the `/ws` websocket on the same listener. Every
@@ -102,6 +104,16 @@ address (the default). Talking to a server on another host needs the key
 passed explicitly — `mininaru --url ws://host:8223/ws --api-key '<KEY>'` or
 `MININARU_API_KEY` — since the local key file is never sent anywhere but
 loopback.
+
+A browser can't set `Authorization` on a websocket, so `/ws` also accepts the key
+as a subprotocol: `new WebSocket(url, ["bearer.<KEY>"])`. The server echoes it back
+and the key never appears in a URL. REST requests ignore this header.
+
+`--cors-origin` (repeatable) lets a web page or the desktop client on another
+origin call the API; preflight requests are answered before the key check, and
+an origin that isn't listed gets no CORS headers. Nothing is allowed by default.
+`--web-dir` serves a built client from a directory at `/`, falling back to its
+`index.html` for unknown paths; `/api` and `/ws` are never shadowed.
 
 ## Tools
 

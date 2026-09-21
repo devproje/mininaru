@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: 2026 Wonhyeok Kim (Project_IO)
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: GPL-3.0-only
 
 package sock
 
@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -55,6 +56,8 @@ type safeConn struct {
 	conn *websocket.Conn
 	mu   sync.Mutex
 }
+
+const SubprotocolPrefix string = "bearer."
 
 const (
 	pongWait   = 30 * time.Minute
@@ -267,6 +270,23 @@ func handleFrame(ctx context.Context, remoteAddr string, conn *safeConn, frame i
 	conn.writeFrame(outboundFrame{Type: "done", SessionId: session.Id})
 }
 
+func handshakeHeader(req *http.Request) http.Header {
+	var header http.Header
+	var protocol string
+
+	header = http.Header{}
+
+	for _, protocol = range strings.Split(req.Header.Get("Sec-WebSocket-Protocol"), ",") {
+		protocol = strings.TrimSpace(protocol)
+		if strings.HasPrefix(protocol, SubprotocolPrefix) {
+			header.Set("Sec-WebSocket-Protocol", protocol)
+			break
+		}
+	}
+
+	return header
+}
+
 func SockHandler(ctx *gin.Context) {
 	var wsConn *websocket.Conn
 	var conn *safeConn
@@ -282,7 +302,7 @@ func SockHandler(ctx *gin.Context) {
 
 	var err error
 
-	wsConn, err = upgrader.Upgrade(ctx.Writer, ctx.Request, nil)
+	wsConn, err = upgrader.Upgrade(ctx.Writer, ctx.Request, handshakeHeader(ctx.Request))
 	if err != nil {
 		util.Log.Error("sock upgrade error", "error", err)
 		return

@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: 2026 Wonhyeok Kim (Project_IO)
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: GPL-3.0-only
 
 package main
 
@@ -31,13 +31,18 @@ var serve *cobra.Command = &cobra.Command{
 }
 
 var (
-	serverHostRef string
-	serverPortRef uint16
+	serverHostRef  string
+	serverPortRef  uint16
+	corsOriginsRef []string
+	webDirRef      string
 )
 
 func init() {
 	serve.Flags().StringVar(&serverHostRef, "host", SERVER_DEFAULT_HOST, "address to bind the server")
 	serve.Flags().Uint16Var(&serverPortRef, "port", SERVER_DEFAULT_PORT, "port to bind the server")
+
+	serve.Flags().StringSliceVar(&corsOriginsRef, "cors-origin", nil, "allow cross-origin requests from this origin (repeatable)")
+	serve.Flags().StringVar(&webDirRef, "web-dir", "", "serve a built web client from this directory at /")
 
 	serve.Flags().BoolVar(&util.AppDebug, "debug", false, "running mininaru debug mode")
 }
@@ -85,7 +90,13 @@ func serveExecute(cmd *cobra.Command, args []string) error {
 
 	go watchReload(cmd.Context())
 
-	server.App = server.NewAppServer(serverHostRef, serverPortRef, key)
+	server.App = server.NewAppServer(server.Options{
+		Host:        serverHostRef,
+		Port:        serverPortRef,
+		ApiKey:      key,
+		CorsOrigins: corsOriginsRef,
+		WebDir:      webDirRef,
+	})
 
 	fmt.Printf("webserver bind at http://%s:%d\n", serverHostRef, serverPortRef)
 	err = server.App.WebServer.ListenAndServe()

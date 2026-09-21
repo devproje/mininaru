@@ -1,3 +1,5 @@
+-include config.mk
+
 VERSION  := $(shell git describe --tags --abbrev=0 2>/dev/null || echo "dev")
 BRANCH   := $(shell git symbolic-ref --short -q HEAD 2>/dev/null || echo "detached")
 GIT_HASH := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")

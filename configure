@@ -1,0 +1,43 @@
+#!/bin/sh
+set -eu
+
+prefix="$HOME/.local"
+bindir=""
+
+usage() {
+    cat <<EOF
+Usage: ./configure [options]
+
+  --prefix=DIR       install prefix (default: \$HOME/.local)
+  --bindir=DIR       binary directory (default: PREFIX/bin)
+EOF
+}
+
+need() {
+    if ! command -v "$1" > /dev/null 2>&1
+    then
+        echo "configure: $1 is not installed on your system" >&2
+        exit 1
+    fi
+}
+
+for arg in "$@"
+do
+    case "$arg" in
+        --prefix=*)       prefix=${arg#*=} ;;
+        --bindir=*)       bindir=${arg#*=} ;;
+        -h|--help)        usage; exit 0 ;;
+        *)                echo "configure: unknown option: $arg" >&2; usage >&2; exit 1 ;;
+    esac
+done
+
+need go
+
+: "${bindir:=$prefix/bin}"
+
+cat > config.mk <<EOF
+PREFIX      := $prefix
+BINDIR      := $bindir
+EOF
+
+echo "wrote config.mk (prefix=$prefix, bindir=$bindir)"

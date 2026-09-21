@@ -173,7 +173,7 @@ touches this repository.
 ## License
 
 mininaru is free software under the **GNU General Public License, version 3
-or later** (`GPL-3.0-or-later`). See [LICENSE](LICENSE) for the full text.
+only** (`GPL-3.0-only`). See [LICENSE](LICENSE) for the full text.
 
 **The artwork is not covered by the GPL.** `assets/logo.png` and the naru
 character are all rights reserved; see [COPYRIGHT.md](COPYRIGHT.md) for what
