@@ -1,6 +1,23 @@
+# outputs
 out/
 dist/
 
+# build caches
+*.mk
+config.mk
+
+# local data dir
 .mininaru/
 
+# temporary directory
 .bak/
+
+# IDE caches
+.idea/
+.vscode/
+
+# agents
+.claude/
+CLAUDE.md
+AGENTS.md
+!docs/AGENTS.md

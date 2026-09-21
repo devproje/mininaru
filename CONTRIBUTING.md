@@ -5,7 +5,7 @@ path to a merged change is a small one that follows the house style.
 
 ## Licensing of contributions
 
-mininaru is `GPL-3.0-or-later`. By opening a pull request you agree that your
+mininaru is `GPL-3.0-only`. By opening a pull request you agree that your
 contribution is licensed under the same terms — inbound matches outbound. There
 is no CLA to sign.
 
