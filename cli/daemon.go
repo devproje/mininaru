@@ -4,18 +4,28 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
 
 	"github.com/devproje/mininaru/util"
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 )
+
+type daemonPreset struct {
+	Host        string
+	Port        uint16
+	CorsOrigins []string
+	WebDir      string
+}
 
 const (
 	daemonUnitName    = "mininaru.service"
@@ -27,8 +37,10 @@ const (
 )
 
 var (
-	daemonHostRef string
-	daemonPortRef uint16
+	daemonHostRef        string
+	daemonPortRef        uint16
+	daemonCorsOriginsRef []string
+	daemonWebDirRef      string
 )
 
 var daemonCmd *cobra.Command = &cobra.Command{
@@ -70,6 +82,8 @@ var daemonUninstallCmd *cobra.Command = &cobra.Command{
 func init() {
 	daemonInstallCmd.Flags().StringVar(&daemonHostRef, "host", SERVER_DEFAULT_HOST, "address to bind the server")
 	daemonInstallCmd.Flags().Uint16Var(&daemonPortRef, "port", SERVER_DEFAULT_PORT, "port to bind the server")
+	daemonInstallCmd.Flags().StringSliceVar(&daemonCorsOriginsRef, "cors-origin", nil, "allow cross-origin requests from this origin (repeatable)")
+	daemonInstallCmd.Flags().StringVar(&daemonWebDirRef, "web-dir", "", "serve a built web client from this directory at /")
 
 	daemonCmd.AddCommand(daemonInstallCmd, daemonRestartCmd, daemonUninstallCmd)
 }
@@ -231,7 +245,23 @@ func linuxUnitPath() (string, error) {
 	return filepath.Join(dir, "systemd", "user", daemonUnitName), nil
 }
 
-func linuxUnit(binary, dataDir, host string, port uint16) string {
+func quoteArg(s string) string {
+	if strings.ContainsAny(s, " \t") {
+		return "'" + s + "'"
+	}
+
+	return s
+}
+
+func linuxUnit(binary, dataDir string, args []string) string {
+	var quoted []string
+	var i int
+
+	quoted = make([]string, len(args))
+	for i = range args {
+		quoted[i] = quoteArg(args[i])
+	}
+
 	return fmt.Sprintf(`[Unit]
 Description=mininaru HTTP API server
 After=network-online.target
@@ -242,13 +272,110 @@ Type=simple
 UMask=0077
 Environment=NARU_PATH=%s
 Environment=MININARU_NO_UPDATE_CHECK=1
-ExecStart=%s serve --host %s --port %d
+ExecStart=%s %s
 Restart=on-failure
 RestartSec=5
 
 [Install]
 WantedBy=default.target
-`, dataDir, binary, host, port)
+`, dataDir, quoteArg(binary), strings.Join(quoted, " "))
+}
+
+func shellTokenize(line string) []string {
+	var pattern *regexp.Regexp
+	var matches []string
+	var i int
+
+	pattern = regexp.MustCompile(`'[^']*'|"[^"]*"|\S+`)
+	matches = pattern.FindAllString(line, -1)
+
+	for i = range matches {
+		matches[i] = strings.Trim(matches[i], `'"`)
+	}
+
+	return matches
+}
+
+func parseServeArgs(tokens []string) daemonPreset {
+	var i int
+	var preset daemonPreset
+	var port uint64
+
+	for i = 0; i < len(tokens); i++ {
+		switch tokens[i] {
+		case "--host":
+			i++
+			if i < len(tokens) {
+				preset.Host = tokens[i]
+			}
+		case "--port":
+			i++
+			if i < len(tokens) {
+				port, _ = strconv.ParseUint(tokens[i], 10, 16)
+				preset.Port = uint16(port)
+			}
+		case "--cors-origin":
+			i++
+			if i < len(tokens) {
+				preset.CorsOrigins = append(preset.CorsOrigins, tokens[i])
+			}
+		case "--web-dir":
+			i++
+			if i < len(tokens) {
+				preset.WebDir = tokens[i]
+			}
+		}
+	}
+
+	return preset
+}
+
+func linuxExistingConfig(ctx context.Context) (daemonPreset, bool, error) {
+	var unitPath string
+	var body []byte
+	var pattern *regexp.Regexp
+	var match []string
+
+	var err error
+
+	unitPath, err = linuxUnitPath()
+	if err != nil {
+		return daemonPreset{}, false, err
+	}
+
+	body, err = os.ReadFile(unitPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return daemonPreset{}, false, nil
+		}
+
+		return daemonPreset{}, false, err
+	}
+
+	pattern = regexp.MustCompile(`(?m)^ExecStart=(.*)$`)
+	match = pattern.FindStringSubmatch(string(body))
+	if match == nil {
+		return daemonPreset{}, true, nil
+	}
+
+	return parseServeArgs(shellTokenize(match[1])), true, nil
+}
+
+func daemonExecArgs() []string {
+	var args []string
+	var origin string
+
+	args = []string{"serve", "--host", daemonHostRef, "--port", strconv.Itoa(int(daemonPortRef))}
+
+	for _, origin = range daemonCorsOriginsRef {
+		args = append(args, "--cors-origin", origin)
+	}
+
+	if daemonWebDirRef != "" {
+		args = append(args, "--web-dir", daemonWebDirRef)
+	}
+
+	return args
 }
 
 func linuxDaemonInstall(ctx context.Context, binary string) error {
@@ -271,7 +398,7 @@ func linuxDaemonInstall(ctx context.Context, binary string) error {
 		return err
 	}
 
-	err = util.WriteFileAtomic(unitPath, []byte(linuxUnit(binary, util.RootDir, daemonHostRef, daemonPortRef)), 0600)
+	err = util.WriteFileAtomic(unitPath, []byte(linuxUnit(binary, util.RootDir, daemonExecArgs())), 0600)
 	if err != nil {
 		return err
 	}
@@ -394,7 +521,20 @@ func darwinPlistPath() (string, error) {
 	return filepath.Join(home, "Library", "LaunchAgents", daemonLaunchLabel+".plist"), nil
 }
 
-func darwinPlist(binary, dataDir, host string, port uint16) string {
+func darwinProgramArguments(binary string, args []string) string {
+	var builder strings.Builder
+	var arg string
+
+	fmt.Fprintf(&builder, "\t\t<string>%s</string>\n", binary)
+
+	for _, arg = range args {
+		fmt.Fprintf(&builder, "\t\t<string>%s</string>\n", arg)
+	}
+
+	return strings.TrimRight(builder.String(), "\n")
+}
+
+func darwinPlist(binary, dataDir string, args []string) string {
 	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -403,12 +543,7 @@ func darwinPlist(binary, dataDir, host string, port uint16) string {
 	<string>%s</string>
 	<key>ProgramArguments</key>
 	<array>
-		<string>%s</string>
-		<string>serve</string>
-		<string>--host</string>
-		<string>%s</string>
-		<string>--port</string>
-		<string>%d</string>
+%s
 	</array>
 	<key>EnvironmentVariables</key>
 	<dict>
@@ -423,7 +558,48 @@ func darwinPlist(binary, dataDir, host string, port uint16) string {
 	<true/>
 </dict>
 </plist>
-`, daemonLaunchLabel, binary, host, port, dataDir)
+`, daemonLaunchLabel, darwinProgramArguments(binary, args), dataDir)
+}
+
+func darwinExistingConfig(ctx context.Context) (daemonPreset, bool, error) {
+	var plistPath string
+	var body []byte
+	var arrayPattern *regexp.Regexp
+	var arrayMatch []string
+	var stringPattern *regexp.Regexp
+	var matches [][]string
+	var m []string
+	var tokens []string
+
+	var err error
+
+	plistPath, err = darwinPlistPath()
+	if err != nil {
+		return daemonPreset{}, false, err
+	}
+
+	body, err = os.ReadFile(plistPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return daemonPreset{}, false, nil
+		}
+
+		return daemonPreset{}, false, err
+	}
+
+	arrayPattern = regexp.MustCompile(`(?s)<key>ProgramArguments</key>\s*<array>(.*?)</array>`)
+	arrayMatch = arrayPattern.FindStringSubmatch(string(body))
+	if arrayMatch == nil {
+		return daemonPreset{}, true, nil
+	}
+
+	stringPattern = regexp.MustCompile(`<string>(.*?)</string>`)
+	matches = stringPattern.FindAllStringSubmatch(arrayMatch[1], -1)
+	for _, m = range matches {
+		tokens = append(tokens, m[1])
+	}
+
+	return parseServeArgs(tokens), true, nil
 }
 
 func darwinDaemonInstall(ctx context.Context, binary string) error {
@@ -441,7 +617,7 @@ func darwinDaemonInstall(ctx context.Context, binary string) error {
 		return err
 	}
 
-	err = util.WriteFileAtomic(plistPath, []byte(darwinPlist(binary, util.RootDir, daemonHostRef, daemonPortRef)), 0644)
+	err = util.WriteFileAtomic(plistPath, []byte(darwinPlist(binary, util.RootDir, daemonExecArgs())), 0644)
 	if err != nil {
 		return err
 	}
@@ -523,12 +699,53 @@ func darwinDaemonUninstall(ctx context.Context) error {
 	return nil
 }
 
-func windowsTaskAction(binary string) string {
-	return fmt.Sprintf(`"%s" serve --host %s --port %d`, binary, daemonHostRef, daemonPortRef)
+func winQuoteArg(s string) string {
+	if strings.Contains(s, " ") {
+		return `"` + s + `"`
+	}
+
+	return s
+}
+
+func windowsTaskAction(binary string, args []string) string {
+	var quoted []string
+	var i int
+
+	quoted = make([]string, len(args))
+	for i = range args {
+		quoted[i] = winQuoteArg(args[i])
+	}
+
+	return fmt.Sprintf(`"%s" %s`, binary, strings.Join(quoted, " "))
 }
 
 func windowsTaskExists(ctx context.Context) bool {
 	return exec.CommandContext(ctx, "schtasks", "/Query", "/TN", daemonTaskName).Run() == nil
+}
+
+func windowsExistingConfig(ctx context.Context) (daemonPreset, bool, error) {
+	var out []byte
+	var pattern *regexp.Regexp
+	var match []string
+
+	var err error
+
+	if !windowsTaskExists(ctx) {
+		return daemonPreset{}, false, nil
+	}
+
+	out, err = exec.CommandContext(ctx, "schtasks", "/Query", "/TN", daemonTaskName, "/V", "/FO", "LIST").Output()
+	if err != nil {
+		return daemonPreset{}, true, err
+	}
+
+	pattern = regexp.MustCompile(`(?m)^Task To Run:\s*(.*)$`)
+	match = pattern.FindStringSubmatch(string(out))
+	if match == nil {
+		return daemonPreset{}, true, nil
+	}
+
+	return parseServeArgs(shellTokenize(match[1])), true, nil
 }
 
 func windowsDaemonInstall(ctx context.Context, binary string) error {
@@ -540,7 +757,7 @@ func windowsDaemonInstall(ctx context.Context, binary string) error {
 	}
 
 	err = run(ctx, "schtasks", "/Create", "/TN", daemonTaskName,
-		"/TR", windowsTaskAction(binary), "/SC", "ONLOGON", "/RL", "LIMITED", "/F")
+		"/TR", windowsTaskAction(binary, daemonExecArgs()), "/SC", "ONLOGON", "/RL", "LIMITED", "/F")
 	if err != nil {
 		return err
 	}
@@ -599,14 +816,195 @@ func windowsDaemonUninstall(ctx context.Context) error {
 	return nil
 }
 
-func daemonInstallExecute(cmd *cobra.Command, args []string) error {
-	var binary string
+func daemonWizardNeeded(cmd *cobra.Command) bool {
+	var changed bool
+
+	changed = cmd.Flags().Changed("host") || cmd.Flags().Changed("port") ||
+		cmd.Flags().Changed("cors-origin") || cmd.Flags().Changed("web-dir")
+
+	return !changed && term.IsTerminal(int(os.Stdin.Fd()))
+}
+
+func existingConfig(ctx context.Context) (daemonPreset, bool, error) {
+	switch runtime.GOOS {
+	case "linux":
+		return linuxExistingConfig(ctx)
+	case "darwin":
+		return darwinExistingConfig(ctx)
+	case "windows":
+		return windowsExistingConfig(ctx)
+	default:
+		return daemonPreset{}, false, nil
+	}
+}
+
+func applyPreset(preset daemonPreset) {
+	if preset.Host != "" {
+		daemonHostRef = preset.Host
+	}
+	if preset.Port != 0 {
+		daemonPortRef = preset.Port
+	}
+	if len(preset.CorsOrigins) > 0 {
+		daemonCorsOriginsRef = preset.CorsOrigins
+	}
+	if preset.WebDir != "" {
+		daemonWebDirRef = preset.WebDir
+	}
+}
+
+func askDefault(reader *bufio.Reader, label string, def string) string {
+	var line string
 
 	var err error
+
+	if def != "" {
+		fmt.Printf("  %s [%s]: ", label, def)
+	} else {
+		fmt.Printf("  %s: ", label)
+	}
+
+	line, err = reader.ReadString('\n')
+	if err != nil {
+		return def
+	}
+
+	line = strings.TrimSpace(line)
+	if line == "" {
+		return def
+	}
+
+	return line
+}
+
+func daemonWizard(preset daemonPreset, existed bool) {
+	var reader *bufio.Reader
+	var text string
+	var port uint64
+	var origins []string
+	var i int
+	var info os.FileInfo
+
+	var err error
+
+	if existed {
+		applyPreset(preset)
+
+		fmt.Println("mininaru daemon setup (updating the already-installed service)")
+	} else {
+		fmt.Println("mininaru daemon setup")
+	}
+
+	reader = bufio.NewReader(os.Stdin)
+
+	daemonHostRef = askDefault(reader, "host", daemonHostRef)
+
+	text = askDefault(reader, "port", strconv.Itoa(int(daemonPortRef)))
+	port, err = strconv.ParseUint(text, 10, 16)
+	if err == nil {
+		daemonPortRef = uint16(port)
+	}
+
+	text = askDefault(reader, "cors origins, comma separated (needed for a browser web client on another origin)", strings.Join(daemonCorsOriginsRef, ","))
+	if text == "" {
+		daemonCorsOriginsRef = nil
+	} else {
+		origins = strings.Split(text, ",")
+		for i = range origins {
+			origins[i] = strings.TrimSpace(origins[i])
+		}
+		daemonCorsOriginsRef = origins
+	}
+
+	daemonWebDirRef = askDefault(reader, "web client directory to serve at / (blank = api only)", daemonWebDirRef)
+	if daemonWebDirRef != "" {
+		info, err = os.Stat(daemonWebDirRef)
+		if err != nil || !info.IsDir() {
+			fmt.Printf("  warning: %s does not look like a directory yet\n", daemonWebDirRef)
+		}
+	}
+
+	fmt.Println()
+}
+
+func confirmYesNo(reader *bufio.Reader, label string) bool {
+	var line string
+
+	var err error
+
+	fmt.Printf("%s [y/N]: ", label)
+
+	line, err = reader.ReadString('\n')
+	if err != nil {
+		return false
+	}
+
+	line = strings.ToLower(strings.TrimSpace(line))
+
+	return line == "y" || line == "yes"
+}
+
+func daemonConfirmPlan(binary string, existed bool) bool {
+	var reader *bufio.Reader
+
+	reader = bufio.NewReader(os.Stdin)
+
+	fmt.Println("about to install:")
+	fmt.Printf("  binary    %s\n", binary)
+	fmt.Printf("  data dir  %s\n", util.RootDir)
+	fmt.Printf("  host      %s\n", daemonHostRef)
+	fmt.Printf("  port      %d\n", daemonPortRef)
+
+	if len(daemonCorsOriginsRef) > 0 {
+		fmt.Printf("  cors      %s\n", strings.Join(daemonCorsOriginsRef, ", "))
+	} else {
+		fmt.Println("  cors      (none)")
+	}
+
+	if daemonWebDirRef != "" {
+		fmt.Printf("  web-dir   %s\n", daemonWebDirRef)
+	} else {
+		fmt.Println("  web-dir   (none, api only)")
+	}
+
+	if existed {
+		fmt.Println("  note      this replaces the already-installed service")
+	}
+
+	fmt.Println()
+
+	return confirmYesNo(reader, "proceed")
+}
+
+func daemonInstallExecute(cmd *cobra.Command, args []string) error {
+	var binary string
+	var preset daemonPreset
+	var existed bool
+
+	var err error
+
+	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" && runtime.GOOS != "windows" {
+		return fmt.Errorf("mininaru daemon is not supported on %s", runtime.GOOS)
+	}
 
 	binary, err = daemonBinary()
 	if err != nil {
 		return err
+	}
+
+	if daemonWizardNeeded(cmd) {
+		preset, existed, err = existingConfig(cmd.Context())
+		if err != nil {
+			return err
+		}
+
+		daemonWizard(preset, existed)
+
+		if !daemonConfirmPlan(binary, existed) {
+			fmt.Println("aborted")
+
+			return nil
+		}
 	}
 
 	switch runtime.GOOS {
@@ -616,9 +1014,9 @@ func daemonInstallExecute(cmd *cobra.Command, args []string) error {
 		return darwinDaemonInstall(cmd.Context(), binary)
 	case "windows":
 		return windowsDaemonInstall(cmd.Context(), binary)
-	default:
-		return fmt.Errorf("mininaru daemon is not supported on %s", runtime.GOOS)
 	}
+
+	return nil
 }
 
 func daemonRestartExecute(cmd *cobra.Command, args []string) error {
