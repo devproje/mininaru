@@ -766,9 +766,17 @@ admin groups — `mcp` in its own section above, `skill` with `list`/`show
 `cli/daemon.go` is `mininaru daemon install`/`restart`/`uninstall` — it
 switches on `runtime.GOOS` to write a `systemd --user` unit (Linux), a
 `launchd` agent (macOS), or a per-logon Scheduled Task (Windows) that runs
-`mininaru serve` with `NARU_PATH` pinned to the current data directory, and
-also pins `export NARU_PATH` into the user's shell rc (`pinNaruPath`) so an
-interactive `mininaru` shares that directory. The bare `mininaru` command
+`mininaru serve --host --port --cors-origin --web-dir` (`daemonExecArgs`)
+with `NARU_PATH` pinned to the current data directory, and also pins
+`export NARU_PATH` into the user's shell rc (`pinNaruPath`) so an
+interactive `mininaru` shares that directory. `daemon install` with none of
+those flags set and a tty attached runs an interactive wizard instead
+(`daemonWizard`): it reads the already-installed unit/plist/scheduled task
+back into a `daemonPreset` (`linuxExistingConfig`/`darwinExistingConfig`/
+`windowsExistingConfig`, sharing a `parseServeArgs`/`shellTokenize` pair) so
+a reinstall is pre-filled from what's actually running rather than the flag
+defaults, then prints the resulting plan and asks for `y/N`
+(`daemonConfirmPlan`) before writing anything. The bare `mininaru` command
 (no subcommand) is the REPL: `cli/main.go`'s `execute` calls `shortPrompt`
 (`cli/prompt.go`) when `-p` is set, otherwise `client.Run`
 (`cli/client.go`).

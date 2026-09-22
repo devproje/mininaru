@@ -62,9 +62,13 @@ directory no matter which working directory you start it from — see
 
 To keep a server up, `mininaru daemon install` registers a per-user service
 that runs `mininaru serve` (with `NARU_PATH` pinned to the current data
-directory) and starts it — `--host` and `--port` to change the bind address.
-`mininaru daemon restart` restarts it after config changes;
-`mininaru daemon uninstall` removes it. The backend is:
+directory) and starts it — `--host`/`--port` to change the bind address,
+`--cors-origin` (repeatable) and `--web-dir` to pass through `serve`'s CORS
+and web-client options. Run it with none of those flags in a terminal and it
+walks you through a setup wizard instead — pre-filled from the
+already-installed service's config when reinstalling, with a plan to confirm
+before anything is written. `mininaru daemon restart` restarts it after
+config changes; `mininaru daemon uninstall` removes it. The backend is:
 
 - **Linux** — a `systemd --user` unit; run `loginctl enable-linger` to keep
   it running after logout.
