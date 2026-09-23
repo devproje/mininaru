@@ -757,10 +757,17 @@ The tool itself never talks to `server/sock` directly — `core/tools.go`'s
 `modules.AskFunc` closure that's all `modules/ask_question` ever sees
 (mirrors how `modules/web_search`/`modules/web_fetch` take a bound
 `WebBackendLookup` instead of importing `core`, since `core` imports them
-and a direct import would cycle). If `ask` is `nil` — the `-p
---format json|xml` path, `renderer.collect` auto-answers `""` the same way
-it auto-denies an `approval_request` — the tool returns an error
-immediately instead of blocking forever.
+and a direct import would cycle). Two distinct fallbacks keep a call from
+blocking forever with nobody to answer it: if `ask` itself is `nil` (no
+caller wired one — the one production case is `core/context.go`'s
+`buildTools` call, made only to size a context window, never to run a
+turn), the tool returns an error immediately without ever reaching
+`server/sock`. `-p --format json|xml` runs through the real `/ws`/`askFunc`
+path like any other turn, so `ask` there is never `nil` — instead
+`renderer.collect` (`modules/client/render.go`), the same as it does for
+`approval_request`, auto-replies `{type: "question", answer: ""}` the
+moment a `question_request` arrives, so the call still returns promptly
+with an empty answer rather than an error.
 
 `renderer.ask` (`render.go`) prints the question and, if given options,
 a numbered list; it reads one line via the new `renderer.readLine` (Enter

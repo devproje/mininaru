@@ -124,19 +124,28 @@ taken from the first message and never moves, so the agent keeps resolving
 paths against the directory you opened even if you carry on from somewhere
 else. A session with no directory, which is what you get over the REST API
 unless you pass a `cwd`, runs without `bash_exec` or the file tools at all;
-the browser, memory, skill, MCP, and delegation tools still work. A remote
-client may only pin a directory under the server's home; anything else is
-refused and the session stays without one.
+the browser, web search/fetch, question, memory, skill, MCP, and delegation
+tools still work. A remote client may only pin a directory under the
+server's home; anything else is refused and the session stays without one.
 
 An agent can run `bash_exec`, read/write/edit files, drive a headless
 browser (`browser_navigate`/`browser_click`/`browser_type`/`browser_read`/
-`browser_screenshot`/`browser_close`), delegate one self-contained task to
-another of your configured agents with `agent_spawn`, and inject a message
-into one of its own already-running sessions with `session_send` — plus
-whatever MCP servers you configure (see [MCP servers](#mcp-servers) below).
-`browser_*`
+`browser_screenshot`/`browser_close`), search the web and fetch a URL
+(`web_search`, `web_fetch`), ask you a question mid-conversation
+(`ask_user_question`), delegate one self-contained task to another of your
+configured agents with `agent_spawn`, and inject a message into one of its
+own already-running sessions with `session_send` — plus whatever MCP
+servers you configure (see [MCP servers](#mcp-servers) below). `browser_*`
 needs a Chrome or Chromium binary reachable via `$PATH` or
-`MININARU_CHROME`; nothing else has an external dependency. `agent_spawn`
+`MININARU_CHROME`. `web_search` needs a backend configured with
+`mininaru webprovider add` (Brave, Tavily, or Ollama Search) and returns an
+error if none is selected; `web_fetch` works with no configuration at all
+— a direct, SSRF-guarded fetch — unless a Tavily backend is selected, in
+which case it uses Tavily's extract endpoint instead. `ask_user_question`
+needs someone actually watching the session to answer it: over `-p
+--format json`/`xml` or with no client connected it gets back an empty
+answer or an error rather than hanging. Nothing else here has an external
+dependency. `agent_spawn`
 runs the delegate as a real session (it shows up in `session list` like any
 other), starts it with no memory of the calling conversation; `session_send`
 targets any session that already exists, including one owned by a
