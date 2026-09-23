@@ -249,21 +249,24 @@ same details when a session is resumed. A canceled turn records the current
 tool and pending message as failed, then stops before another tool call or
 completion round can start.
 
-`buildTools(root, sessionId, caller, depth, onTool, approve)` (`core/tools.go`)
+`buildTools(root, sessionId, caller, depth, onTool, approve, ask)` (`core/tools.go`)
 assembles the tool list every round: `bash_exec` and the three file tools
 from `modules/bash`/`modules/file` rooted at `root`, the six
 `modules/browser` tools scoped to `sessionId` (see below), `web_search`
-(`modules/web_search`) and `web_fetch` (`modules/web_fetch`), whatever
-`modules/mcp.Tools()` currently exposes from `mcp.json`-configured MCP
-servers, the three `modules/memory` tools scoped to `caller.Id`, the two
-`modules/skill` tools, the `session_list`/`agent_list` discovery pair, and —
-only while `depth` hasn't hit its cap — `agent_spawn` and `session_send`
-(see "Delegation" below). Every `modules.Tool` carries a `Permission`
+(`modules/web_search`) and `web_fetch` (`modules/web_fetch`),
+`ask_user_question` (`modules/ask_question`, bound to `sessionId` and
+`ask` — see "`ask_user_question`" below), whatever `modules/mcp.Tools()`
+currently exposes from `mcp.json`-configured MCP servers, the three
+`modules/memory` tools scoped to `caller.Id`, the two `modules/skill`
+tools, the `session_list`/`agent_list` discovery pair, and — only while
+`depth` hasn't hit its cap — `agent_spawn` and `session_send` (see
+"Delegation" below). Every `modules.Tool` carries a `Permission`
 (`Safe`/`Dangerous`): `bash_exec`, the file tools, the `browser_*` tools,
 `agent_spawn`, and `session_send` are `Dangerous`; `memory_*`,
-`skill`/`skill_create`, `session_list`/`agent_list`, `web_search`, and
-`web_fetch` are `Safe` (pure reads, or writes confined to a validated slug
-under a managed directory). `web_search`/`web_fetch` read outbound-only —
+`skill`/`skill_create`, `session_list`/`agent_list`, `web_search`,
+`web_fetch`, and `ask_user_question` are `Safe` (pure reads, or writes
+confined to a validated slug under a managed directory).
+`web_search`/`web_fetch` read outbound-only —
 `web_fetch` additionally resolves the target host itself and refuses any
 address `net.IP` classifies as loopback, private, link-local, multicast, or
 unspecified before dialing, closing the SSRF gap that would otherwise argue
@@ -729,6 +732,43 @@ than an error when the message contains `context canceled`.
 turn the same channel feeds the line editor. `{type: "tool", ...}` frames
 are handled by `renderer.tool` — a spinner while a call is open, a settled
 `●` line (with a diff block for a multi-line message) once it finishes.
+
+### `ask_user_question` — the same round-trip, for an actual question
+
+`modules/ask_question` is a single `PermissionSafe` tool — it never goes
+through the approval gate above; that gate exists for dangerous side
+effects, and asking a question has none. It reuses the HIL round-trip's
+plumbing rather than adding a second one: `server/sock/sock.go`'s `askFunc`
+registers on the same `approvalRouter` (`server/sock/session.go`), keyed by
+session id exactly like `approveFunc`, and sends
+`{type: "question_request", session_id, question, options}` instead of an
+`approval_request`. The client answers with
+`{type: "question", session_id, answer}`; the router's `wait` doesn't know
+or care which kind of request is pending, so the one pending-channel map
+serves both — safe because `core.SessionLock` already limits a session to
+one in-flight tool call at a time. `wait` takes the value to return on
+`ctx.Done()` as a parameter now (`"deny"` for approval, `""` for a
+question) rather than hardcoding it, since an unanswered question isn't a
+"deny."
+
+The tool itself never talks to `server/sock` directly — `core/tools.go`'s
+`buildTools` takes an `ask AskFunc` (`core/tool_loop.go`) from
+`SendChatMessage` and binds it to the current session id, producing a
+`modules.AskFunc` closure that's all `modules/ask_question` ever sees
+(mirrors how `modules/web_search`/`modules/web_fetch` take a bound
+`WebBackendLookup` instead of importing `core`, since `core` imports them
+and a direct import would cycle). If `ask` is `nil` — the `-p
+--format json|xml` path, `renderer.collect` auto-answers `""` the same way
+it auto-denies an `approval_request` — the tool returns an error
+immediately instead of blocking forever.
+
+`renderer.ask` (`render.go`) prints the question and, if given options,
+a numbered list; it reads one line via the new `renderer.readLine` (Enter
+submits, Backspace edits, Ctrl+C aborts to `""`) built on the same
+`readByte`/`rawByte` primitive `key()` already used for the single-keystroke
+approval prompt. A reply that parses as a valid option number returns that
+option's text; anything else is taken verbatim — so a multiple-choice
+question still accepts a free-typed answer instead of one of the options.
 
 ## `server/` — three route groups, one gin engine
 

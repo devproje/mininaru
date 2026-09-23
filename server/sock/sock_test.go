@@ -28,11 +28,13 @@ type testFrame struct {
 			} `json:"delta"`
 		} `json:"choices"`
 	} `json:"chunk,omitempty"`
-	Message   string `json:"message,omitempty"`
-	Name      string `json:"name,omitempty"`
-	Status    string `json:"status,omitempty"`
-	Arguments string `json:"arguments,omitempty"`
-	Cwd       string `json:"cwd,omitempty"`
+	Message   string   `json:"message,omitempty"`
+	Name      string   `json:"name,omitempty"`
+	Status    string   `json:"status,omitempty"`
+	Arguments string   `json:"arguments,omitempty"`
+	Cwd       string   `json:"cwd,omitempty"`
+	Question  string   `json:"question,omitempty"`
+	Options   []string `json:"options,omitempty"`
 }
 
 func setupTestDB(t *testing.T) {

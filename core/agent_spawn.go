@@ -54,7 +54,7 @@ func lastAssistantMessage(sessionId string) (string, error) {
 	return "", fmt.Errorf("agent produced no answer")
 }
 
-func agentSpawnTool(caller *Agent, anchor string, depth int, onTool func(name, status, message string), approve ApproveFunc) modules.Tool {
+func agentSpawnTool(caller *Agent, anchor string, depth int, onTool func(name, status, message string), approve ApproveFunc, ask AskFunc) modules.Tool {
 	return modules.Tool{
 		Name: AgentSpawnToolName,
 		Description: "Delegate one self-contained task to another configured agent and return its final answer. " +
@@ -127,7 +127,7 @@ func agentSpawnTool(caller *Agent, anchor string, depth int, onTool func(name, s
 				onTool(target.Name, "started", "spawned by "+caller.Name+", running independently — "+payload.Prompt)
 			}
 
-			err = SendChatMessage(ctx, target, &session, anchor, depth+1, func(openai.ChatCompletionChunk) {}, childOnTool, approve)
+			err = SendChatMessage(ctx, target, &session, anchor, depth+1, func(openai.ChatCompletionChunk) {}, childOnTool, approve, ask)
 			if err != nil {
 				if onTool != nil {
 					onTool(target.Name, "failed", err.Error())

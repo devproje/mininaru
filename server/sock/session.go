@@ -130,7 +130,7 @@ func newApprovalRouter() *approvalRouter {
 	return &approvalRouter{pending: make(map[string]chan string)}
 }
 
-func (r *approvalRouter) wait(ctx context.Context, sessionId string, ready func()) string {
+func (r *approvalRouter) wait(ctx context.Context, sessionId string, onCancel string, ready func()) string {
 	var ch chan string
 	var decision string
 
@@ -151,7 +151,7 @@ func (r *approvalRouter) wait(ctx context.Context, sessionId string, ready func(
 	case decision = <-ch:
 		return decision
 	case <-ctx.Done():
-		return "deny"
+		return onCancel
 	}
 }
 

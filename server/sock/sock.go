@@ -27,6 +27,7 @@ type inboundFrame struct {
 	Content   string   `json:"content,omitempty"`
 	Cwd       string   `json:"cwd,omitempty"`
 	Decision  string   `json:"decision,omitempty"`
+	Answer    string   `json:"answer,omitempty"`
 	Images    []string `json:"images,omitempty"`
 	NoCache   bool     `json:"no_cache,omitempty"`
 }
@@ -41,6 +42,8 @@ type outboundFrame struct {
 	Status    string                      `json:"status,omitempty"`
 	Arguments string                      `json:"arguments,omitempty"`
 	Cwd       string                      `json:"cwd,omitempty"`
+	Question  string                      `json:"question,omitempty"`
+	Options   []string                    `json:"options,omitempty"`
 }
 
 type reasoningChunk struct {
@@ -129,7 +132,7 @@ func approveFunc(conn *safeConn, router *approvalRouter) core.ApproveFunc {
 			return "once", nil
 		}
 
-		decision = router.wait(ctx, sessionId, func() {
+		decision = router.wait(ctx, sessionId, "deny", func() {
 			conn.writeFrame(outboundFrame{Type: "approval_request", SessionId: sessionId, Name: name, Arguments: arguments, Cwd: root})
 		})
 		if decision == "session" {
@@ -137,6 +140,25 @@ func approveFunc(conn *safeConn, router *approvalRouter) core.ApproveFunc {
 		}
 
 		return decision, nil
+	}
+}
+
+func askFunc(conn *safeConn, router *approvalRouter) core.AskFunc {
+	return func(ctx context.Context, sessionId, question string, options []string) (string, error) {
+		var answer string
+
+		var err error
+
+		answer = router.wait(ctx, sessionId, "", func() {
+			conn.writeFrame(outboundFrame{Type: "question_request", SessionId: sessionId, Question: question, Options: options})
+		})
+
+		err = ctx.Err()
+		if err != nil {
+			return "", err
+		}
+
+		return answer, nil
 	}
 }
 
@@ -261,7 +283,7 @@ func handleFrame(ctx context.Context, remoteAddr string, conn *safeConn, frame i
 		conn.writeFrame(outboundFrame{Type: "chunk", SessionId: session.Id, Chunk: &chunk, Reasoning: chunkReasoning(chunk)})
 	}, func(name, status, message string) {
 		conn.writeFrame(outboundFrame{Type: "tool", SessionId: session.Id, Name: name, Status: status, Message: message})
-	}, approveFunc(conn, router))
+	}, approveFunc(conn, router), askFunc(conn, router))
 	if err != nil {
 		writeErrorFrame(conn, session.Id, err.Error())
 		return
@@ -376,6 +398,11 @@ func SockHandler(ctx *gin.Context) {
 
 		if frame.Type == "approval" {
 			router.deliver(frame.SessionId, frame.Decision)
+			continue
+		}
+
+		if frame.Type == "question" {
+			router.deliver(frame.SessionId, frame.Answer)
 			continue
 		}
 

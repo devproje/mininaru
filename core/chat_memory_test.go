@@ -87,7 +87,7 @@ func TestSendChatMessageIncludesSavedMemoryForItsAgent(t *testing.T) {
 	}
 
 	err = SendChatMessage(t.Context(), agent, session, t.TempDir(), 0, func(chunk openai.ChatCompletionChunk) {}, func(name, status, message string) {},
-		func(ctx context.Context, sessionId, root, name, arguments string) (string, error) { return "once", nil })
+		func(ctx context.Context, sessionId, root, name, arguments string) (string, error) { return "once", nil }, nil)
 	if err != nil {
 		t.Fatalf("SendChatMessage failed: %v", err)
 	}
@@ -138,7 +138,7 @@ func TestSendChatMessageDoesNotLeakMemoryAcrossAgents(t *testing.T) {
 	}
 
 	err = SendChatMessage(t.Context(), agentB, sessionB, t.TempDir(), 0, func(chunk openai.ChatCompletionChunk) {}, func(name, status, message string) {},
-		func(ctx context.Context, sessionId, root, name, arguments string) (string, error) { return "once", nil })
+		func(ctx context.Context, sessionId, root, name, arguments string) (string, error) { return "once", nil }, nil)
 	if err != nil {
 		t.Fatalf("SendChatMessage failed: %v", err)
 	}

@@ -142,7 +142,7 @@ func TestSessionSendDeliversAndReturnsTheReply(t *testing.T) {
 
 	err = SendChatMessage(t.Context(), caller, session, t.TempDir(), 0, func(chunk openai.ChatCompletionChunk) {},
 		func(name, status, message string) { toolEvents = append(toolEvents, name+":"+status) },
-		func(ctx context.Context, sessionId, root, name, arguments string) (string, error) { return "once", nil })
+		func(ctx context.Context, sessionId, root, name, arguments string) (string, error) { return "once", nil }, nil)
 	if err != nil {
 		t.Fatalf("SendChatMessage failed: %v", err)
 	}
@@ -203,7 +203,7 @@ func TestSessionSendUsesTheTargetExecutionContextForApproval(t *testing.T) {
 			approvedTool = name
 
 			return "deny", nil
-		})
+		}, nil)
 
 	_, err = tool.Execute(t.Context(), `{"session":"s2","content":"run pwd"}`)
 	if err != nil {
@@ -259,7 +259,7 @@ func TestSessionSendDeliversAcrossAgentsWithASenderMarker(t *testing.T) {
 
 	err = SendChatMessage(t.Context(), caller, session, t.TempDir(), 0, func(chunk openai.ChatCompletionChunk) {},
 		func(name, status, message string) {},
-		func(ctx context.Context, sessionId, root, name, arguments string) (string, error) { return "once", nil })
+		func(ctx context.Context, sessionId, root, name, arguments string) (string, error) { return "once", nil }, nil)
 	if err != nil {
 		t.Fatalf("SendChatMessage failed: %v", err)
 	}
@@ -304,7 +304,7 @@ func TestSessionSendRefusesItsOwnSession(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	tool = sessionSendTool(caller, "s1", 0, nil, nil)
+	tool = sessionSendTool(caller, "s1", 0, nil, nil, nil)
 
 	_, err = tool.Execute(t.Context(), `{"session":"s1","content":"hi"}`)
 	if err == nil || !strings.Contains(err.Error(), "own session") {
@@ -330,7 +330,7 @@ func TestSessionSendRefusesItsOwnSessionByName(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	tool = sessionSendTool(caller, "s1", 0, nil, nil)
+	tool = sessionSendTool(caller, "s1", 0, nil, nil, nil)
 
 	_, err = tool.Execute(t.Context(), `{"session":"quiet-otter","content":"hi"}`)
 	if err == nil || !strings.Contains(err.Error(), "own session") {
@@ -364,7 +364,7 @@ func TestSessionSendRefusesABusyTarget(t *testing.T) {
 	}
 	defer unlock()
 
-	tool = sessionSendTool(caller, "s1", 0, nil, nil)
+	tool = sessionSendTool(caller, "s1", 0, nil, nil, nil)
 	_, err = tool.Execute(t.Context(), `{"session":"s2","content":"hi"}`)
 	if err == nil || !strings.Contains(err.Error(), "busy") {
 		t.Fatalf("error = %v, want a busy-session refusal", err)
@@ -424,7 +424,7 @@ func TestBuildToolsHidesSessionSendBeyondMaxDepth(t *testing.T) {
 
 	caller = &Agent{Id: "a1", Name: "caller", Model: "test:gpt-4o-mini"}
 
-	tools = buildTools(t.TempDir(), "s1", caller, 0, nil, nil)
+	tools = buildTools(t.TempDir(), "s1", caller, 0, nil, nil, nil)
 	for _, tool = range tools {
 		if tool.Name == SessionSendToolName {
 			found = true
@@ -435,7 +435,7 @@ func TestBuildToolsHidesSessionSendBeyondMaxDepth(t *testing.T) {
 	}
 
 	found = false
-	tools = buildTools(t.TempDir(), "s1", caller, maxSpawnDepth, nil, nil)
+	tools = buildTools(t.TempDir(), "s1", caller, maxSpawnDepth, nil, nil, nil)
 	for _, tool = range tools {
 		if tool.Name == SessionSendToolName {
 			found = true
@@ -495,7 +495,7 @@ func TestSessionSendMirrorsTheInjectedMessageBeforeTheReply(t *testing.T) {
 
 	err = SendChatMessage(t.Context(), caller, session, t.TempDir(), 0, func(chunk openai.ChatCompletionChunk) {},
 		func(name, status, message string) {},
-		func(ctx context.Context, sessionId, root, name, arguments string) (string, error) { return "once", nil })
+		func(ctx context.Context, sessionId, root, name, arguments string) (string, error) { return "once", nil }, nil)
 	if err != nil {
 		t.Fatalf("SendChatMessage failed: %v", err)
 	}

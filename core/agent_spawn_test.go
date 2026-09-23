@@ -100,7 +100,7 @@ func TestAgentSpawnDelegatesAndReturnsTheAnswer(t *testing.T) {
 
 	err = SendChatMessage(t.Context(), caller, session, session.Cwd, 0, func(chunk openai.ChatCompletionChunk) {},
 		func(name, status, message string) { toolEvents = append(toolEvents, name+":"+status) },
-		func(ctx context.Context, sessionId, root, name, arguments string) (string, error) { return "once", nil })
+		func(ctx context.Context, sessionId, root, name, arguments string) (string, error) { return "once", nil }, nil)
 	if err != nil {
 		t.Fatalf("SendChatMessage failed: %v", err)
 	}
@@ -153,7 +153,7 @@ func TestAgentSpawnRefusesSelfDelegation(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	tool = agentSpawnTool(caller, t.TempDir(), 0, nil, nil)
+	tool = agentSpawnTool(caller, t.TempDir(), 0, nil, nil, nil)
 
 	_, err = tool.Execute(t.Context(), `{"agent":"caller","prompt":"do it"}`)
 	if err == nil || !strings.Contains(err.Error(), "cannot spawn itself") {
@@ -171,7 +171,7 @@ func TestBuildToolsHidesAgentSpawnBeyondMaxDepth(t *testing.T) {
 
 	caller = &Agent{Id: "a1", Name: "caller", Model: "test:gpt-4o-mini"}
 
-	tools = buildTools(t.TempDir(), "s1", caller, 0, nil, nil)
+	tools = buildTools(t.TempDir(), "s1", caller, 0, nil, nil, nil)
 	for _, tool = range tools {
 		if tool.Name == AgentSpawnToolName {
 			found = true
@@ -182,7 +182,7 @@ func TestBuildToolsHidesAgentSpawnBeyondMaxDepth(t *testing.T) {
 	}
 
 	found = false
-	tools = buildTools(t.TempDir(), "s1", caller, maxSpawnDepth, nil, nil)
+	tools = buildTools(t.TempDir(), "s1", caller, maxSpawnDepth, nil, nil, nil)
 	for _, tool = range tools {
 		if tool.Name == AgentSpawnToolName {
 			found = true

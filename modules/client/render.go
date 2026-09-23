@@ -6,6 +6,7 @@ package client
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
 	"sync"
@@ -68,26 +69,7 @@ func (r *renderer) watch(done chan struct{}) {
 	}
 }
 
-func (r *renderer) key() string {
-	var b byte
-
-	if r.keys == nil {
-		return readKey()
-	}
-
-	r.awaiting.Store(true)
-	defer r.awaiting.Store(false)
-
-	b = <-r.answers
-
-	return strings.ToLower(string(b))
-}
-
-func isTty() bool {
-	return term.IsTerminal(int(os.Stdin.Fd()))
-}
-
-func readKey() string {
+func rawByte() byte {
 	var state *term.State
 	var buf []byte
 	var fd int
@@ -100,24 +82,77 @@ func readKey() string {
 	if !term.IsTerminal(fd) {
 		_, err = os.Stdin.Read(buf)
 		if err != nil {
-			return ""
+			return 0
 		}
 
-		return strings.ToLower(strings.TrimSpace(string(buf)))
+		return buf[0]
 	}
 
 	state, err = term.MakeRaw(fd)
 	if err != nil {
-		return ""
+		return 0
 	}
 	defer term.Restore(fd, state)
 
 	_, err = os.Stdin.Read(buf)
 	if err != nil {
-		return ""
+		return 0
 	}
 
-	return strings.ToLower(string(buf))
+	return buf[0]
+}
+
+func (r *renderer) readByte() byte {
+	if r.keys == nil {
+		return rawByte()
+	}
+
+	r.awaiting.Store(true)
+	defer r.awaiting.Store(false)
+
+	return <-r.answers
+}
+
+func (r *renderer) key() string {
+	return strings.ToLower(string(r.readByte()))
+}
+
+func (r *renderer) readLine() string {
+	var b byte
+	var buf []byte
+
+	for {
+		b = r.readByte()
+		if b == 0 || b == '\r' || b == '\n' {
+			write("\n")
+
+			break
+		}
+
+		if b == 0x03 {
+			write("\n")
+
+			return ""
+		}
+
+		if b == 0x7f || b == 0x08 {
+			if len(buf) > 0 {
+				buf = buf[:len(buf)-1]
+				write("\b \b")
+			}
+
+			continue
+		}
+
+		buf = append(buf, b)
+		write("%c", b)
+	}
+
+	return string(buf)
+}
+
+func isTty() bool {
+	return term.IsTerminal(int(os.Stdin.Fd()))
 }
 
 func (r *renderer) decide(sessionId, cwd, name, arguments string) string {
@@ -143,6 +178,38 @@ func (r *renderer) decide(sessionId, cwd, name, arguments string) string {
 	write("N\n")
 
 	return "deny"
+}
+
+func (r *renderer) ask(question string, options []string) string {
+	var index int
+	var option string
+	var line string
+	var choice int
+
+	var err error
+
+	write("\n%s%s%s\n", PURPLE, question, RESET)
+
+	if len(options) > 0 {
+		for index, option = range options {
+			write("  %d) %s\n", index+1, option)
+		}
+
+		write("%sanswer (number or type your own)%s: ", GRAY, RESET)
+	} else {
+		write("%sanswer%s: ", GRAY, RESET)
+	}
+
+	line = strings.TrimSpace(r.readLine())
+
+	if len(options) > 0 {
+		choice, err = strconv.Atoi(line)
+		if err == nil && choice >= 1 && choice <= len(options) {
+			return options[choice-1]
+		}
+	}
+
+	return line
 }
 
 func (r *renderer) halt() {
@@ -347,6 +414,17 @@ func (r *renderer) frame(reply Reply) (bool, error) {
 		if err != nil {
 			return true, err
 		}
+	case "question_request":
+		r.endLine()
+
+		err = r.send(Frame{
+			Type:      "question",
+			SessionId: reply.SessionId,
+			Answer:    r.ask(reply.Question, reply.Options),
+		})
+		if err != nil {
+			return true, err
+		}
 	case "error":
 		r.endLine()
 
@@ -407,6 +485,11 @@ func (r *renderer) collect(reply Reply) (bool, error) {
 		}
 	case "approval_request":
 		err = r.send(Frame{Type: "approval", SessionId: reply.SessionId, Decision: "deny"})
+		if err != nil {
+			return true, err
+		}
+	case "question_request":
+		err = r.send(Frame{Type: "question", SessionId: reply.SessionId, Answer: ""})
 		if err != nil {
 			return true, err
 		}

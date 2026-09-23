@@ -55,7 +55,7 @@ func markSenderAgent(caller *Agent, targetAgentId, content string) string {
 	return fmt.Sprintf("[message from agent %q via session_send]\n%s", caller.Name, content)
 }
 
-func sessionSendTool(caller *Agent, callerSessionId string, depth int, onTool func(name, status, message string), approve ApproveFunc) modules.Tool {
+func sessionSendTool(caller *Agent, callerSessionId string, depth int, onTool func(name, status, message string), approve ApproveFunc, ask AskFunc) modules.Tool {
 	return modules.Tool{
 		Name: SessionSendToolName,
 		Description: "Inject a message into another already-running session, even one owned by a different " +
@@ -156,7 +156,7 @@ func sessionSendTool(caller *Agent, callerSessionId string, depth int, onTool fu
 				if mirrorChunk != nil {
 					mirrorChunk(target.Id, chunk)
 				}
-			}, childOnTool, approve)
+			}, childOnTool, approve, ask)
 			if err != nil {
 				if mirrorDone != nil {
 					mirrorDone(target.Id, err.Error())
