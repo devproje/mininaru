@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/devproje/mininaru/modules"
 	"github.com/openai/openai-go"
@@ -190,5 +191,20 @@ func TestBuildToolsHidesAgentSpawnBeyondMaxDepth(t *testing.T) {
 	}
 	if found {
 		t.Fatal("agent_spawn should not be offered once the spawn depth limit is reached")
+	}
+}
+
+func TestSpawnSessionNameTruncatesMultiByteRunesSafely(t *testing.T) {
+	var prompt string
+	var name string
+
+	prompt = strings.Repeat("안녕하세요 ", 20)
+
+	name = spawnSessionName(prompt)
+	if !utf8.ValidString(name) {
+		t.Fatalf("name %q is not valid UTF-8", name)
+	}
+	if !strings.HasSuffix(name, "…") {
+		t.Fatalf("name = %q, want truncation ellipsis", name)
 	}
 }

@@ -8,8 +8,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/devproje/mininaru/modules"
+	"github.com/devproje/mininaru/util"
 	"github.com/google/uuid"
 	"github.com/openai/openai-go"
 )
@@ -24,8 +26,8 @@ func spawnSessionName(prompt string) string {
 	var preview string
 
 	preview = strings.Join(strings.Fields(prompt), " ")
-	if len(preview) > spawnNamePreviewChars {
-		preview = preview[:spawnNamePreviewChars] + "…"
+	if utf8.RuneCountInString(preview) > spawnNamePreviewChars {
+		preview = util.TruncateRunes(preview, spawnNamePreviewChars) + "…"
 	}
 
 	return "spawn: " + preview

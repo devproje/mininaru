@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 func readBeforeModify(t *testing.T, root, path string) {
@@ -80,6 +81,29 @@ func TestFileReadTruncatesOutput(t *testing.T) {
 		t.Fatal(err)
 	}
 	if result != "1234\n[truncated]" {
+		t.Fatalf("truncated result = %q", result)
+	}
+}
+
+func TestFileReadTruncatesMultiByteOutputSafely(t *testing.T) {
+	var root string
+	var result string
+
+	var err error
+
+	root = t.TempDir()
+	err = os.WriteFile(filepath.Join(root, "korean.txt"), []byte("안녕하세요"), 0600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err = Read(root).Execute(context.Background(), `{"path":"korean.txt","max_chars":3}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !utf8.ValidString(result) {
+		t.Fatalf("truncated result %q is not valid UTF-8", result)
+	}
+	if result != "안녕하\n[truncated]" {
 		t.Fatalf("truncated result = %q", result)
 	}
 }
