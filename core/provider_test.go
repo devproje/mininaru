@@ -67,6 +67,32 @@ func TestProviderCRUD(t *testing.T) {
 	}
 }
 
+func TestProviderUpdateNoFieldsIsNoop(t *testing.T) {
+	var got *Provider
+
+	var err error
+
+	setupTestDB(t)
+
+	err = ProviderCreate(&Provider{Id: "p1", Name: "one", ApiKey: "key1", BaseUrl: "https://one.example"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = ProviderUpdate("p1", &Provider{})
+	if err != nil {
+		t.Fatalf("update with no fields failed: %v", err)
+	}
+
+	got, err = ProviderRead("p1")
+	if err != nil {
+		t.Fatalf("read after no-op update failed: %v", err)
+	}
+	if got.Name != "one" || got.ApiKey != "key1" || got.BaseUrl != "https://one.example" {
+		t.Fatalf("read = %+v, row changed after a no-op update", got)
+	}
+}
+
 func TestProviderByName(t *testing.T) {
 	var got *Provider
 
