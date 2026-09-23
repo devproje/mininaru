@@ -94,7 +94,7 @@ func TestSendChatMessageCompactsOldTurns(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = SendChatMessage(t.Context(), agent, session, t.TempDir(), 0, func(openai.ChatCompletionChunk) {}, nil, nil)
+	err = SendChatMessage(t.Context(), agent, session, t.TempDir(), 0, func(openai.ChatCompletionChunk) {}, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

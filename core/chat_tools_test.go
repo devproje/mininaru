@@ -99,7 +99,7 @@ func TestSendChatMessageToolRoundtrip(t *testing.T) {
 	}
 
 	err = SendChatMessage(t.Context(), agent, session, t.TempDir(), 0, func(chunk openai.ChatCompletionChunk) {}, func(name, status, message string) {},
-		func(ctx context.Context, sessionId, root, name, arguments string) (string, error) { return "once", nil })
+		func(ctx context.Context, sessionId, root, name, arguments string) (string, error) { return "once", nil }, nil)
 	if err != nil {
 		t.Fatalf("SendChatMessage failed: %v", err)
 	}
@@ -203,7 +203,7 @@ func TestSendChatMessageDeniesDangerousToolOnDeny(t *testing.T) {
 		func(ctx context.Context, sessionId, root, name, arguments string) (string, error) {
 			approveCalls++
 			return "deny", nil
-		})
+		}, nil)
 	if err != nil {
 		t.Fatalf("SendChatMessage failed: %v", err)
 	}
@@ -286,7 +286,7 @@ func TestSendChatMessagePreservesFailedToolOutput(t *testing.T) {
 	}
 
 	err = SendChatMessage(t.Context(), agent, session, t.TempDir(), 0, func(openai.ChatCompletionChunk) {}, func(name, status, message string) {},
-		func(ctx context.Context, sessionId, root, name, arguments string) (string, error) { return "once", nil })
+		func(ctx context.Context, sessionId, root, name, arguments string) (string, error) { return "once", nil }, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -365,7 +365,7 @@ func TestSendChatMessageStopsAfterToolCancellation(t *testing.T) {
 			cancel()
 
 			return "once", nil
-		})
+		}, nil)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("error = %v, want context.Canceled", err)
 	}

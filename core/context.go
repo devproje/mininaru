@@ -365,7 +365,7 @@ func SessionContextUsage(agent *Agent, session *Session) (*ContextUsage, error) 
 		union = append([]openai.ChatCompletionMessageParamUnion{openai.SystemMessage(agent.Soul)}, union...)
 	}
 
-	tools = buildTools(session.Cwd, session.Id, agent, 0, nil, nil)
+	tools = buildTools(session.Cwd, session.Id, agent, 0, nil, nil, nil)
 	tokens, err = contextTokenEstimate(agent, union, tools)
 	if err != nil {
 		return nil, err

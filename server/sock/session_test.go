@@ -19,7 +19,7 @@ func TestApprovalRouterRegistersBeforeSendingTheRequest(t *testing.T) {
 	var decision string
 
 	router = newApprovalRouter()
-	decision = router.wait(context.Background(), "s1", func() {
+	decision = router.wait(context.Background(), "s1", "deny", func() {
 		router.deliver("s1", "once")
 	})
 

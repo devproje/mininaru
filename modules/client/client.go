@@ -33,6 +33,7 @@ type Frame struct {
 	Content   string   `json:"content,omitempty"`
 	Cwd       string   `json:"cwd,omitempty"`
 	Decision  string   `json:"decision,omitempty"`
+	Answer    string   `json:"answer,omitempty"`
 	Images    []string `json:"images,omitempty"`
 	NoCache   bool     `json:"no_cache,omitempty"`
 }
@@ -47,6 +48,8 @@ type Reply struct {
 	Status    string                      `json:"status,omitempty"`
 	Arguments string                      `json:"arguments,omitempty"`
 	Cwd       string                      `json:"cwd,omitempty"`
+	Question  string                      `json:"question,omitempty"`
+	Options   []string                    `json:"options,omitempty"`
 }
 
 func ApiBase(endpoint string) (string, error) {

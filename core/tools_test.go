@@ -31,11 +31,11 @@ func TestBuildToolsModeByRoot(t *testing.T) {
 
 	caller = &Agent{Id: "a1", Name: "caller", Model: "gpt-4o-mini"}
 
-	if !hasFilesystemTools(buildTools(t.TempDir(), "s1", caller, 0, nil, nil)) {
+	if !hasFilesystemTools(buildTools(t.TempDir(), "s1", caller, 0, nil, nil, nil)) {
 		t.Fatal("dev mode is missing the filesystem tools")
 	}
 
-	if hasFilesystemTools(buildTools("", "s1", caller, 0, nil, nil)) {
+	if hasFilesystemTools(buildTools("", "s1", caller, 0, nil, nil, nil)) {
 		t.Fatal("chat mode still exposes the filesystem tools")
 	}
 }

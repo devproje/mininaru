@@ -17,6 +17,8 @@ import (
 
 type ApproveFunc func(ctx context.Context, sessionId, root, name, arguments string) (string, error)
 
+type AskFunc func(ctx context.Context, sessionId, question string, options []string) (string, error)
+
 const maxToolRounds = 50
 
 const screenshotDataPrefix = "data:image/"

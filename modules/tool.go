@@ -9,6 +9,8 @@ import (
 
 type Permission int
 
+type AskFunc func(ctx context.Context, question string, options []string) (string, error)
+
 type Tool struct {
 	Name        string
 	Description string

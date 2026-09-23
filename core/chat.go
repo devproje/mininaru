@@ -343,7 +343,7 @@ func failedToolResult(result string, err error) string {
 	return text
 }
 
-func SendChatMessage(ctx context.Context, agent *Agent, session *Session, anchor string, depth int, onChunk func(openai.ChatCompletionChunk), onTool func(name, status, message string), approve ApproveFunc) error {
+func SendChatMessage(ctx context.Context, agent *Agent, session *Session, anchor string, depth int, onChunk func(openai.ChatCompletionChunk), onTool func(name, status, message string), approve ApproveFunc, ask AskFunc) error {
 	var history []*Message
 	var tail []*Message
 	var summary *Summary
@@ -410,7 +410,7 @@ func SendChatMessage(ctx context.Context, agent *Agent, session *Session, anchor
 		return err
 	}
 
-	tools = buildTools(anchor, session.Id, agent, depth, onTool, approve)
+	tools = buildTools(anchor, session.Id, agent, depth, onTool, approve, ask)
 	contextErr = contextLimit(agent, union, tools)
 	if contextErr != nil {
 		isContextLimit = errors.As(contextErr, &limitErr)
