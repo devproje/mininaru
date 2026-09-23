@@ -60,6 +60,8 @@ var (
 	updateForceRef bool
 )
 
+var updateCheckDone chan struct{}
+
 var updateCmd *cobra.Command = &cobra.Command{
 	Use:   "update",
 	Short: "download the latest release and replace this executable",
@@ -539,6 +541,10 @@ func updateCheckStart(cmd *cobra.Command) {
 		var latest *release
 
 		var err error
+
+		if updateCheckDone != nil {
+			defer close(updateCheckDone)
+		}
 
 		ctx, cancel = context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()

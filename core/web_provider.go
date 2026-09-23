@@ -227,6 +227,10 @@ func WebProviderUpdate(id string, prov *WebProvider) error {
 		values = append(values, prov.BaseUrl)
 	}
 
+	if len(opts) == 0 {
+		return nil
+	}
+
 	values = append(values, id)
 	query = fmt.Sprintf("UPDATE web_providers SET %s WHERE id = ?;", strings.Join(opts, ", "))
 

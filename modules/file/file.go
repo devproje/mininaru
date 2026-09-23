@@ -109,8 +109,8 @@ func diff(path, before, after string) string {
 	}
 
 	result = buf.String()
-	if len(result) > maxDiffChars {
-		return result[:maxDiffChars] + "\n[diff truncated]"
+	if utf8.RuneCountInString(result) > maxDiffChars {
+		return util.TruncateRunes(result, maxDiffChars) + "\n[diff truncated]"
 	}
 
 	return result
@@ -218,8 +218,8 @@ func Read(root string) modules.Tool {
 			rememberRevision(target, buf)
 
 			text = sliceLines(string(buf), payload.Offset, payload.Limit)
-			if len(text) > payload.MaxChars {
-				return text[:payload.MaxChars] + "\n[truncated]", nil
+			if utf8.RuneCountInString(text) > payload.MaxChars {
+				return util.TruncateRunes(text, payload.MaxChars) + "\n[truncated]", nil
 			}
 
 			return text, nil

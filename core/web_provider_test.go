@@ -72,6 +72,32 @@ func TestWebProviderCRUD(t *testing.T) {
 	}
 }
 
+func TestWebProviderUpdateNoFieldsIsNoop(t *testing.T) {
+	var got *WebProvider
+
+	var err error
+
+	setupTestDB(t)
+
+	err = WebProviderCreate(&WebProvider{Id: "w1", Name: "one", Kind: "brave", ApiKey: "key1", BaseUrl: "https://one.example"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = WebProviderUpdate("w1", &WebProvider{})
+	if err != nil {
+		t.Fatalf("update with no fields failed: %v", err)
+	}
+
+	got, err = WebProviderRead("w1")
+	if err != nil {
+		t.Fatalf("read after no-op update failed: %v", err)
+	}
+	if got.Name != "one" || got.Kind != "brave" || got.ApiKey != "key1" || got.BaseUrl != "https://one.example" {
+		t.Fatalf("read = %+v, row changed after a no-op update", got)
+	}
+}
+
 func TestWebProviderByName(t *testing.T) {
 	var got *WebProvider
 

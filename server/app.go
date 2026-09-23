@@ -6,6 +6,7 @@ package server
 import (
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/devproje/mininaru/server/sock"
 	"github.com/devproje/mininaru/util"
@@ -23,6 +24,11 @@ type Options struct {
 type AppServer struct {
 	WebServer *http.Server
 }
+
+const (
+	readHeaderTimeout = 10 * time.Second
+	idleTimeout       = 2 * time.Minute
+)
 
 var App *AppServer
 
@@ -54,8 +60,10 @@ func NewAppServer(options Options) *AppServer {
 	}
 
 	webserver = http.Server{
-		Addr:    fmt.Sprintf("%s:%d", options.Host, options.Port),
-		Handler: core,
+		Addr:              fmt.Sprintf("%s:%d", options.Host, options.Port),
+		Handler:           core,
+		ReadHeaderTimeout: readHeaderTimeout,
+		IdleTimeout:       idleTimeout,
 	}
 
 	app = AppServer{

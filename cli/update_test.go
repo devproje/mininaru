@@ -509,7 +509,6 @@ func TestUpdateCheckSkippedForUpdateAndServe(t *testing.T) {
 
 func TestUpdateCheckStartWritesTheCacheInTheBackground(t *testing.T) {
 	var cmd cobra.Command
-	var deadline time.Time
 	var cache util.UpdateCache
 
 	cmd.Use = "provider"
@@ -519,19 +518,23 @@ func TestUpdateCheckStartWritesTheCacheInTheBackground(t *testing.T) {
 
 	newFakeGithub(t, []release{{TagName: "v1.0.0-alpha.9", Prerelease: true}}, nil)
 
+	updateCheckDone = make(chan struct{})
+	defer func() {
+		updateCheckDone = nil
+	}()
+
 	updateCheckStart(&cmd)
 
-	deadline = time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		cache = util.UpdateCacheRead()
-		if cache.Tag == "v1.0.0-alpha.9" {
-			return
-		}
-
-		time.Sleep(10 * time.Millisecond)
+	select {
+	case <-updateCheckDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("update check goroutine never finished")
 	}
 
-	t.Fatalf("update cache was never written, got %+v", cache)
+	cache = util.UpdateCacheRead()
+	if cache.Tag != "v1.0.0-alpha.9" {
+		t.Fatalf("update cache was never written, got %+v", cache)
+	}
 }
 
 func TestUpdateAssetNameMatchesTheReleaseWorkflowNaming(t *testing.T) {

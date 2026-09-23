@@ -198,6 +198,10 @@ func ProviderUpdate(id string, prov *Provider) error {
 		values = append(values, prov.BaseUrl)
 	}
 
+	if len(opts) == 0 {
+		return nil
+	}
+
 	values = append(values, id)
 	query = fmt.Sprintf("UPDATE providers SET %s WHERE id = ?;", strings.Join(opts, ", "))
 
