@@ -22,8 +22,8 @@ func TestFormatResultsEmpty(t *testing.T) {
 }
 
 func TestFormatResultsIncludesEachHit(t *testing.T) {
-	var got string
 	var results []searchResult
+	var got string
 
 	results = []searchResult{
 		{Title: "first", Url: "https://one.example", Snippet: "about one"},
@@ -54,8 +54,8 @@ func TestSearchRequiresQuery(t *testing.T) {
 }
 
 func TestSearchSurfacesLookupError(t *testing.T) {
-	var lookup modules.WebBackendLookup
 	var wantErr error
+	var lookup modules.WebBackendLookup
 	var err error
 
 	wantErr = fmt.Errorf("no web provider is selected")
