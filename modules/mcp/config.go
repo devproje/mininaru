@@ -97,14 +97,53 @@ func accept(loaded Config) Config {
 	return accepted
 }
 
+func mapHeaders(config Config, transform func(string) (string, error)) (Config, error) {
+	var out Config
+	var index int
+	var name string
+	var value string
+	var transformed string
+
+	var err error
+
+	out.Servers = make([]Server, len(config.Servers))
+	copy(out.Servers, config.Servers)
+
+	for index = range out.Servers {
+		if out.Servers[index].Headers == nil {
+			continue
+		}
+
+		out.Servers[index].Headers = make(map[string]string, len(config.Servers[index].Headers))
+
+		for name, value = range config.Servers[index].Headers {
+			transformed, err = transform(value)
+			if err != nil {
+				return config, err
+			}
+
+			out.Servers[index].Headers[name] = transformed
+		}
+	}
+
+	return out, nil
+}
+
 func Save() error {
 	var path string
 	var buf []byte
+	var encrypted Config
 
 	var err error
 
 	path = util.Path(configPath)
-	buf, err = json.MarshalIndent(Loaded, "", "    ")
+
+	encrypted, err = mapHeaders(Loaded, util.Encrypt)
+	if err != nil {
+		return err
+	}
+
+	buf, err = json.MarshalIndent(encrypted, "", "    ")
 	if err != nil {
 		return err
 	}
@@ -137,6 +176,11 @@ func Load() error {
 	}
 
 	err = json.Unmarshal(buf, &loaded)
+	if err != nil {
+		return err
+	}
+
+	loaded, err = mapHeaders(loaded, util.Decrypt)
 	if err != nil {
 		return err
 	}

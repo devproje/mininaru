@@ -90,6 +90,8 @@ func init() {
 func loadGateways() (gatewayStore, error) {
 	var store gatewayStore
 	var buf []byte
+	var name string
+	var entry gatewayEntry
 
 	var err error
 
@@ -109,15 +111,38 @@ func loadGateways() (gatewayStore, error) {
 		return nil, err
 	}
 
+	for name, entry = range store {
+		entry.ApiKey, err = util.Decrypt(entry.ApiKey)
+		if err != nil {
+			return nil, err
+		}
+
+		store[name] = entry
+	}
+
 	return store, nil
 }
 
 func saveGateways(store gatewayStore) error {
+	var encrypted gatewayStore
+	var name string
+	var entry gatewayEntry
 	var buf []byte
 
 	var err error
 
-	buf, err = json.MarshalIndent(store, "", "  ")
+	encrypted = gatewayStore{}
+
+	for name, entry = range store {
+		entry.ApiKey, err = util.Encrypt(entry.ApiKey)
+		if err != nil {
+			return err
+		}
+
+		encrypted[name] = entry
+	}
+
+	buf, err = json.MarshalIndent(encrypted, "", "  ")
 	if err != nil {
 		return err
 	}

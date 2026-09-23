@@ -21,9 +21,9 @@ type Provider struct {
 func ProviderCreate(prov *Provider) error {
 	var opts []string
 	var values []any
+	var apiKey string
 	var i int
 	var wild []string
-
 	var query string
 	var stmt *sql.Stmt
 
@@ -33,8 +33,13 @@ func ProviderCreate(prov *Provider) error {
 	values = []any{prov.Id, prov.Name}
 
 	if prov.ApiKey != "" {
+		apiKey, err = util.Encrypt(prov.ApiKey)
+		if err != nil {
+			return err
+		}
+
 		opts = append(opts, "api_key")
-		values = append(values, prov.ApiKey)
+		values = append(values, apiKey)
 	}
 
 	if prov.BaseUrl != "" {
@@ -91,6 +96,11 @@ func ProviderRead(id string) (*Provider, error) {
 		return nil, err
 	}
 
+	obj.ApiKey, err = util.Decrypt(obj.ApiKey)
+	if err != nil {
+		return nil, err
+	}
+
 	return &obj, nil
 }
 
@@ -107,6 +117,11 @@ func ProviderByName(name string) (*Provider, error) {
 	}
 
 	err = row.Scan(&obj.Id, &obj.Name, &obj.ApiKey, &obj.BaseUrl)
+	if err != nil {
+		return nil, err
+	}
+
+	obj.ApiKey, err = util.Decrypt(obj.ApiKey)
 	if err != nil {
 		return nil, err
 	}
@@ -133,6 +148,11 @@ func ProviderList() ([]*Provider, error) {
 			return nil, err
 		}
 
+		obj.ApiKey, err = util.Decrypt(obj.ApiKey)
+		if err != nil {
+			return nil, err
+		}
+
 		list = append(list, &Provider{
 			Id:      obj.Id,
 			Name:    obj.Name,
@@ -152,9 +172,10 @@ func ProviderList() ([]*Provider, error) {
 func ProviderUpdate(id string, prov *Provider) error {
 	var opts []string
 	var values []any
+	var apiKey string
 	var query string
-
 	var stmt *sql.Stmt
+
 	var err error
 
 	if prov.Name != "" {
@@ -163,8 +184,13 @@ func ProviderUpdate(id string, prov *Provider) error {
 	}
 
 	if prov.ApiKey != "" {
+		apiKey, err = util.Encrypt(prov.ApiKey)
+		if err != nil {
+			return err
+		}
+
 		opts = append(opts, "api_key = ?")
-		values = append(values, prov.ApiKey)
+		values = append(values, apiKey)
 	}
 
 	if prov.BaseUrl != "" {
