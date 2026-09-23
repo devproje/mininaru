@@ -8,6 +8,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"sync"
 	"sync/atomic"
@@ -117,6 +118,18 @@ func (r *renderer) key() string {
 	return strings.ToLower(string(r.readByte()))
 }
 
+func dropLastRune(buf []byte) []byte {
+	var width int
+
+	if len(buf) == 0 {
+		return buf
+	}
+
+	_, width = utf8.DecodeLastRune(buf)
+
+	return buf[:len(buf)-width]
+}
+
 func (r *renderer) readLine() string {
 	var b byte
 	var buf []byte
@@ -137,7 +150,7 @@ func (r *renderer) readLine() string {
 
 		if b == 0x7f || b == 0x08 {
 			if len(buf) > 0 {
-				buf = buf[:len(buf)-1]
+				buf = dropLastRune(buf)
 				write("\b \b")
 			}
 
