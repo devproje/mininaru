@@ -64,25 +64,6 @@ const braveDefaultUrl = "https://api.search.brave.com/res/v1/web/search"
 const tavilyDefaultUrl = "https://api.tavily.com/search"
 const ollamaDefaultUrl = "https://ollama.com/api/web_search"
 
-func formatResults(results []searchResult) string {
-	var body strings.Builder
-	var index int
-	var result searchResult
-
-	if len(results) == 0 {
-		return "no results"
-	}
-
-	for index, result = range results {
-		body.WriteString(fmt.Sprintf("%d. %s\n   %s\n", index+1, result.Title, result.Url))
-		if result.Snippet != "" {
-			body.WriteString(fmt.Sprintf("   %s\n", result.Snippet))
-		}
-	}
-
-	return strings.TrimRight(body.String(), "\n")
-}
-
 func braveSearch(ctx context.Context, backend *modules.WebBackend, query string, maxResults int) ([]searchResult, error) {
 	var endpoint string
 	var request *http.Request
@@ -90,8 +71,8 @@ func braveSearch(ctx context.Context, backend *modules.WebBackend, query string,
 	var response *http.Response
 	var body []byte
 	var payload braveResponse
-	var results []searchResult
 	var hit braveHit
+	var results []searchResult
 
 	var err error
 
@@ -144,8 +125,8 @@ func tavilySearch(ctx context.Context, backend *modules.WebBackend, query string
 	var response *http.Response
 	var body []byte
 	var payload tavilyResponse
-	var results []searchResult
 	var hit tavilyHit
+	var results []searchResult
 
 	var err error
 
@@ -206,8 +187,8 @@ func ollamaSearch(ctx context.Context, backend *modules.WebBackend, query string
 	var response *http.Response
 	var body []byte
 	var payload ollamaResponse
-	var results []searchResult
 	var hit ollamaHit
+	var results []searchResult
 
 	var err error
 
@@ -255,6 +236,25 @@ func ollamaSearch(ctx context.Context, backend *modules.WebBackend, query string
 	}
 
 	return results, nil
+}
+
+func formatResults(results []searchResult) string {
+	var index int
+	var result searchResult
+	var body strings.Builder
+
+	if len(results) == 0 {
+		return "no results"
+	}
+
+	for index, result = range results {
+		body.WriteString(fmt.Sprintf("%d. %s\n   %s\n", index+1, result.Title, result.Url))
+		if result.Snippet != "" {
+			body.WriteString(fmt.Sprintf("   %s\n", result.Snippet))
+		}
+	}
+
+	return strings.TrimRight(body.String(), "\n")
 }
 
 func Search(lookup modules.WebBackendLookup) modules.Tool {
