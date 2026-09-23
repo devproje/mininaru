@@ -5,10 +5,13 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/devproje/mininaru/modules/mcp"
 	"github.com/devproje/mininaru/server"
@@ -19,6 +22,8 @@ import (
 const (
 	SERVER_DEFAULT_HOST string = "0.0.0.0"
 	SERVER_DEFAULT_PORT uint16 = 8223
+
+	shutdownTimeout = 5 * time.Second
 )
 
 var serve *cobra.Command = &cobra.Command{
@@ -73,8 +78,28 @@ func watchReload(ctx context.Context) {
 	}
 }
 
+func shutdownOnSignal(ctx context.Context) {
+	var shutdownCtx context.Context
+	var cancel context.CancelFunc
+
+	var err error
+
+	<-ctx.Done()
+	util.Log.Info("shutting down webserver")
+
+	shutdownCtx, cancel = context.WithTimeout(context.Background(), shutdownTimeout)
+	defer cancel()
+
+	err = server.App.WebServer.Shutdown(shutdownCtx)
+	if err != nil {
+		util.Log.Error("webserver shutdown failed", "error", err)
+	}
+}
+
 func serveExecute(cmd *cobra.Command, args []string) error {
 	var key string
+	var ctx context.Context
+	var stop context.CancelFunc
 
 	var err error
 
@@ -98,9 +123,14 @@ func serveExecute(cmd *cobra.Command, args []string) error {
 		WebDir:      webDirRef,
 	})
 
+	ctx, stop = signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	go shutdownOnSignal(ctx)
+
 	fmt.Printf("webserver bind at http://%s:%d\n", serverHostRef, serverPortRef)
 	err = server.App.WebServer.ListenAndServe()
-	if err != nil {
+	if err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
 
