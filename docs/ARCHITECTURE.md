@@ -33,13 +33,15 @@ exist here.
 ## Packages
 
 ```
-cli/            cobra root, `serve`, `daemon`, and the provider/agent/session/mcp/skill admin subcommands
+cli/            cobra root, `serve`, `daemon`, and the provider/webprovider/agent/session/mcp/skill admin subcommands
 modules/client/ the `mininaru` REPL — line editor, websocket turn loop, streamed-reply renderer, slash commands
-core/           Provider, Agent, Session, Message, ToolCall CRUD, the tool-calling chat loop, and yolo trust state
-modules/          the Tool/Permission type — a pure leaf package, imports only the standard library
+core/           Provider, WebProvider, Agent, Session, Message, ToolCall CRUD, the tool-calling chat loop, and yolo trust state
+modules/          the Tool/Permission/WebBackend types — a pure leaf package, imports only the standard library
 modules/bash/     the bash_exec builtin tool
 modules/file/     the file_read/file_write/file_edit builtin tools
 modules/browser/  the browser_* computer-use tools (chromedp), the one tool package with cross-call state
+modules/web_search/ the web_search tool (Brave/Tavily/Ollama Search backends)
+modules/web_fetch/  the web_fetch tool (SSRF-guarded direct fetch, or Tavily extract)
 modules/mcp/      the MCP client (stdio + streamable-HTTP transports, mcp.json config, `cli/mcp.go` admin CLI)
 modules/memory/   the memory_save/memory_read/memory_forget tools over a per-agent markdown store
 modules/skill/    skill discovery plus the skill/skill_create tools
@@ -112,7 +114,7 @@ tool_calls(id, message_id REFERENCES messages ON DELETE CASCADE, call_id,
   -- status is CHECKed against pending/completed/failed; hangs off the user
   -- message whose turn produced the call, so a session resume can replay it
 skill_uses(id, skill, scope, path, rel, session_id, call_id, created_at)
-  -- one row per `skill` tool call (core/skilluse.go); session_id is indexed
+  -- one row per `skill` tool call (core/skill_use.go); session_id is indexed
   -- but not a foreign key, so it outlives the session it was logged in
 attachments(id, session_id REFERENCES sessions ON DELETE CASCADE,
             message_id REFERENCES messages ON DELETE SET NULL, mime, bytes,
@@ -170,7 +172,7 @@ stays completion-only, mirroring how it takes the caller's entire message
 history with no server-side session.
 
 Images ride the OpenAI content-parts shape. `imageUserMessage`
-(`core/toolloop.go`) turns a text string plus a list of image URLs / data
+(`core/tool_loop.go`) turns a text string plus a list of image URLs / data
 URIs into a `openai.UserMessage([]…ContentPartUnionParam{…})` — the same
 form the browser-screenshot tool path already used. The stateless path fills
 `ChatMessage.Images` from `parseOpenAIContent` (a `content` field that is
@@ -220,7 +222,7 @@ sets from the `Frame`/`inboundFrame`'s `no_cache` bit for that one turn.
 
 ## Tool calling — session-backed only
 
-`SendChatMessage` (`core/chat.go`, `core/toolloop.go`), the entry point the
+`SendChatMessage` (`core/chat.go`, `core/tool_loop.go`), the entry point the
 `/ws` handler calls, is a round loop (`maxToolRounds = 50`): it rebuilds the
 session's message history via `historyUnion` — replaying each earlier turn's
 recorded `tool_calls` back as an assistant tool-call message plus a matching
@@ -250,7 +252,8 @@ completion round can start.
 `buildTools(root, sessionId, caller, depth, onTool, approve)` (`core/tools.go`)
 assembles the tool list every round: `bash_exec` and the three file tools
 from `modules/bash`/`modules/file` rooted at `root`, the six
-`modules/browser` tools scoped to `sessionId` (see below), whatever
+`modules/browser` tools scoped to `sessionId` (see below), `web_search`
+(`modules/web_search`) and `web_fetch` (`modules/web_fetch`), whatever
 `modules/mcp.Tools()` currently exposes from `mcp.json`-configured MCP
 servers, the three `modules/memory` tools scoped to `caller.Id`, the two
 `modules/skill` tools, the `session_list`/`agent_list` discovery pair, and —
@@ -258,9 +261,13 @@ only while `depth` hasn't hit its cap — `agent_spawn` and `session_send`
 (see "Delegation" below). Every `modules.Tool` carries a `Permission`
 (`Safe`/`Dangerous`): `bash_exec`, the file tools, the `browser_*` tools,
 `agent_spawn`, and `session_send` are `Dangerous`; `memory_*`,
-`skill`/`skill_create`, and `session_list`/`agent_list` are `Safe` (pure
-reads, or writes confined to a validated slug under a managed directory).
-MCP tools infer it from
+`skill`/`skill_create`, `session_list`/`agent_list`, `web_search`, and
+`web_fetch` are `Safe` (pure reads, or writes confined to a validated slug
+under a managed directory). `web_search`/`web_fetch` read outbound-only —
+`web_fetch` additionally resolves the target host itself and refuses any
+address `net.IP` classifies as loopback, private, link-local, multicast, or
+unspecified before dialing, closing the SSRF gap that would otherwise argue
+for `Dangerous`. MCP tools infer it from
 `ToolAnnotations.ReadOnlyHint` unless a server or per-tool override in
 `mcp.json` says otherwise. `executeTool` only consults `Permission` and the
 caller-supplied `ApproveFunc`: a `Safe` tool always runs
@@ -395,7 +402,7 @@ for facts and preferences — entirely at the model's own judgment during
 normal conversation.
 
 Every `skill` tool call is recorded in the `skill_uses` table
-(`core/skilluse.go`, hooked into `core/chat.go`'s tool-call loop) —
+(`core/skill_use.go`, hooked into `core/chat.go`'s tool-call loop) —
 `skill, scope, path, rel, session_id, call_id, created_at` — queryable via
 `SkillUseStats` / `mininaru skill uses`.
 
@@ -438,7 +445,7 @@ message can only carry text (`ChatCompletionToolMessageParam.Content` is
 `user` message can (`openai.UserMessage([]ChatCompletionContentPartUnionParam{
 openai.ImageContentPart(...)})`). So `browser_screenshot` returns the PNG as
 a `data:image/png;base64,...` string, and `core/chat.go`'s round loop
-(`isScreenshotResult`, `core/toolloop.go`) special-cases any tool result with
+(`isScreenshotResult`, `core/tool_loop.go`) special-cases any tool result with
 that prefix: the `tool_calls` row and the `ToolMessage` both get a short
 `"screenshot captured"` placeholder instead of the raw data, and a synthetic
 `UserMessage` carrying the image is appended right after — so the model sees
@@ -446,7 +453,41 @@ it as an attached image on its next round. The image itself is never
 persisted to SQLite (avoids blob bloat); a resumed session replays the
 placeholder text only, not the picture.
 
-### Delegation — `core/agentspawn.go`, `core/sessionconnect.go`
+### Web search & fetch — `modules/web_search`, `modules/web_fetch`
+
+`web_search` and `web_fetch` are separate from `modules/browser`: no
+chromedp, no JS execution, no browser tab. Both read the currently selected
+backend through `core.WebProviderSelected()` — `web_providers` is a table
+shaped like `providers` (`kind`, `api_key`, `base_url`) plus a `selected`
+column with the same unique-partial-index-backed single-selection pattern
+`agents.selected` uses (`core/agent.go`'s `AgentSelect`/`AgentSelected`;
+`providers.active` tried this shape once and was dropped unused in
+`0007_agent_selected_provider_active_removal.sql` — `web_providers` reuses
+the pattern the project kept, not the one it abandoned). `core/tools.go`'s
+`resolveWebBackend` adapts a `*core.WebProvider` into the leaf
+`modules.WebBackend{Kind, ApiKey, BaseUrl}` struct so `modules/web_search`
+and `modules/web_fetch` don't need to import `core` (which would cycle,
+since `core/tools.go` imports them). `mininaru webprovider add/list/set/
+primary/remove` manages the table; `api_key` is encrypted at rest the same
+way `providers.api_key` is (`util.Encrypt`/`util.Decrypt`).
+
+`web_search`'s `kind` selects the backend at call time: `brave` (GET
+`api.search.brave.com`, `X-Subscription-Token` header), `tavily` (POST
+`api.tavily.com/search`), or `ollama` (POST `ollama.com/api/web_search`,
+bearer token) — each mapped to a common `title`/`url`/`snippet` shape before
+formatting. `web_fetch` defaults to fetching the URL directly; if the
+selected backend is `tavily` it calls `api.tavily.com/extract` instead,
+since that handles JS-rendered pages a raw GET can't. The direct path is an
+SSRF-guarded `http.Client`: `guardedDialContext` resolves the host itself,
+rejects the request if any resolved `net.IP` is loopback, private,
+link-local, multicast, or unspecified, and dials the validated IP directly
+rather than the hostname — resolving once and reusing that address closes
+the DNS-rebinding gap between the check and the connection. An HTML
+response is rendered to plain text via `browser.HTMLToText` (exported from
+`modules/browser/htmldoc.go` for this reuse) rather than duplicating that
+renderer.
+
+### Delegation — `core/agent_spawn.go`, `core/session_connect.go`
 
 `agent_spawn` lives in `core` rather than `modules/*` — it needs
 `AgentByName`/`SessionCreate`/`MessageCreate`/`SendChatMessage` directly,
@@ -500,7 +541,7 @@ carry the target session id and working directory.
 
 Because a cross-agent injection would otherwise look, from the receiving
 session's own history, indistinguishable from that agent's own user typing
-a message, `markSenderAgent` (`sessionconnect.go`) prefixes the content
+a message, `markSenderAgent` (`session_connect.go`) prefixes the content
 with `[message from agent "<caller>" via session_send]` whenever
 `target.AgentId != caller.Id` — a same-agent send (still the common case)
 is left untouched, byte for byte. The mirrored copy a live viewer sees
@@ -513,7 +554,7 @@ tries `SessionRead` first and, only on `sql.ErrNoRows`, falls back to a
 name match against `SessionListAll()` (every session, matching
 `session_list`'s output). `session_list` shows the model each session's
 `Name` alongside its id, and every session has a random `adjective-noun`
-name (`core/sessionname.go`), so a model shown `quiet-otter` can pass that
+name (`core/session_name.go`), so a model shown `quiet-otter` can pass that
 back verbatim. A miss on either path reports `no session %q — check
 session_list`, not a raw `sql: no rows in result set`.
 
@@ -521,7 +562,7 @@ Because the target session may have a person watching it live over another
 `/ws` connection, two extra pieces exist purely to serve that case:
 
 - **`core.SessionLock(ctx, sessionId)` and `core.SessionTryLock(sessionId)`**
-  (`core/sessionlock.go`) — a `sync.Map` of per-session channel semaphores,
+  (`core/session_lock.go`) — a `sync.Map` of per-session channel semaphores,
   `Load`-or-`Store`d by id. Normal WebSocket turns wait with their connection
   context, while `session_send` immediately returns a busy error when another
   turn owns its target. Every
@@ -537,7 +578,7 @@ Because the target session may have a person watching it live over another
   `sessionAutoApprove` map in the same file), populated the moment a session
   is resolved and cleared for a connection's sessions when `SockHandler`'s
   loop exits. `core` can't import `server/sock` (cycle), so the wiring runs
-  the other way: `core/sessionrouter.go` exposes
+  the other way: `core/session_router.go` exposes
   `SetSessionRouter(messageFn, chunkFn, toolFn, doneFn)`, and
   `server/sock/session.go`'s `init()` calls it once with closures that look a
   session up in `liveConns` and, if present, `writeFrame` the same frame
@@ -565,7 +606,7 @@ its owner is idle is delivered and persisted, but only rendered on that
 person's screen the next time they take a turn (the stored transcript is
 correct either way).
 
-`session_list` and `agent_list` (`core/sessiontools.go`) exist so a model
+`session_list` and `agent_list` (`core/session_tools.go`) exist so a model
 can pick a valid target for the two tools above without being told one in
 its prompt: `agent_list` is `AgentList()` unfiltered, and `session_list` is
 `SessionListAll()` (**every** session, not just the caller's own agent's)
@@ -730,7 +771,7 @@ are handled by `renderer.tool` — a spinner while a call is open, a settled
 
 All three require `Authorization: Bearer <key>` (`server/auth.go`). The key
 is a random 32-byte value generated on first use and stored at
-`NARU_PATH/mininaru.key`, mode `0600` (`util.APIKey`, `util/apikey.go`) —
+`NARU_PATH/mininaru.key`, mode `0600` (`util.APIKey`, `util/api_key.go`) —
 there is no setup step and no separate command to reveal it again later;
 reading the file is the only way. `cli/serve.go` calls `util.APIKey()` at
 startup and passes it into `NewAppServer`; `modules/client` resolves the key
@@ -911,7 +952,7 @@ used by `/bash`: unix puts the child in its own process group
 (`Setpgid`) and signals the group with `SIGINT`; Windows leaves the group
 alone and calls `Process.Kill()`. Split with `//go:build unix` /
 `//go:build windows`, the same shape
-`modules/bash/bashproc_unix.go`/`bashproc_other.go` uses. Everything else is
+`modules/bash/bash_proc_unix.go`/`bash_proc_other.go` uses. Everything else is
 cross-platform Go stdlib or `golang.org/x/term`, which has its own
 `term_windows.go` (setting `ENABLE_VIRTUAL_TERMINAL_INPUT` so arrow-key
 escapes arrive the same way a unix pty sends them).
