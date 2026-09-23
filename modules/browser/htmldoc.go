@@ -96,3 +96,16 @@ func htmlDocument(node *html.Node) string {
 
 	return strings.TrimSpace(strings.Join(cleaned, "\n"))
 }
+
+func HTMLToText(raw string) (string, error) {
+	var node *html.Node
+
+	var err error
+
+	node, err = html.Parse(strings.NewReader(raw))
+	if err != nil {
+		return "", err
+	}
+
+	return htmlDocument(node), nil
+}

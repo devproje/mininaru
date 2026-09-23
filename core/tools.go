@@ -11,7 +11,22 @@ import (
 	"github.com/devproje/mininaru/modules/mcp"
 	"github.com/devproje/mininaru/modules/memory"
 	"github.com/devproje/mininaru/modules/skill"
+	"github.com/devproje/mininaru/modules/web_fetch"
+	"github.com/devproje/mininaru/modules/web_search"
 )
+
+func resolveWebBackend() (*modules.WebBackend, error) {
+	var prov *WebProvider
+
+	var err error
+
+	prov, err = WebProviderSelected()
+	if err != nil {
+		return nil, err
+	}
+
+	return &modules.WebBackend{Kind: prov.Kind, ApiKey: prov.ApiKey, BaseUrl: prov.BaseUrl}, nil
+}
 
 func buildTools(root, sessionId string, caller *Agent, depth int, onTool func(name, status, message string), approve ApproveFunc) []modules.Tool {
 	var tools []modules.Tool
@@ -21,6 +36,8 @@ func buildTools(root, sessionId string, caller *Agent, depth int, onTool func(na
 	}
 
 	tools = append(tools, browser.Tools(sessionId)...)
+	tools = append(tools, web_search.Tools(resolveWebBackend)...)
+	tools = append(tools, web_fetch.Tools(resolveWebBackend)...)
 	tools = append(tools, mcp.Tools()...)
 	tools = append(tools, memory.Tools(caller.Id)...)
 	tools = append(tools, skill.Tool(), skill.CreateTool())

@@ -131,6 +131,7 @@ func main() {
 	root.AddCommand(gatewayCmd)
 	root.AddCommand(daemonCmd)
 	root.AddCommand(providerCmd)
+	root.AddCommand(webProviderCmd)
 	root.AddCommand(agentCmd)
 	root.AddCommand(mcpCmd)
 	root.AddCommand(skillCmd)
