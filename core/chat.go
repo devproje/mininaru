@@ -343,6 +343,23 @@ func failedToolResult(result string, err error) string {
 	return text
 }
 
+func prependSystemContext(union []openai.ChatCompletionMessageParamUnion, summary *Summary, memoryIndex string, skillCatalog string, soul string) []openai.ChatCompletionMessageParamUnion {
+	if summary != nil {
+		union = append([]openai.ChatCompletionMessageParamUnion{openai.SystemMessage(summary.Content)}, union...)
+	}
+	if memoryIndex != "" {
+		union = append([]openai.ChatCompletionMessageParamUnion{openai.SystemMessage(memoryIndex)}, union...)
+	}
+	if skillCatalog != "" {
+		union = append([]openai.ChatCompletionMessageParamUnion{openai.SystemMessage(skillCatalog)}, union...)
+	}
+	if soul != "" {
+		union = append([]openai.ChatCompletionMessageParamUnion{openai.SystemMessage(soul)}, union...)
+	}
+
+	return union
+}
+
 func SendChatMessage(ctx context.Context, agent *Agent, session *Session, anchor string, depth int, onChunk func(openai.ChatCompletionChunk), onTool func(name, status, message string), approve ApproveFunc, ask AskFunc) error {
 	var history []*Message
 	var tail []*Message
@@ -390,20 +407,9 @@ func SendChatMessage(ctx context.Context, agent *Agent, session *Session, anchor
 		return err
 	}
 
-	if summary != nil {
-		union = append([]openai.ChatCompletionMessageParamUnion{openai.SystemMessage(summary.Content)}, union...)
-	}
 	memoryIndex = memory.LoadIndex(agent.Id)
-	if memoryIndex != "" {
-		union = append([]openai.ChatCompletionMessageParamUnion{openai.SystemMessage(memoryIndex)}, union...)
-	}
 	skillCatalog = skill.Catalog()
-	if skillCatalog != "" {
-		union = append([]openai.ChatCompletionMessageParamUnion{openai.SystemMessage(skillCatalog)}, union...)
-	}
-	if agent.Soul != "" {
-		union = append([]openai.ChatCompletionMessageParamUnion{openai.SystemMessage(agent.Soul)}, union...)
-	}
+	union = prependSystemContext(union, summary, memoryIndex, skillCatalog, agent.Soul)
 
 	prov, modelName, err = resolveProviderModel(agent.Model)
 	if err != nil {
@@ -439,18 +445,7 @@ func SendChatMessage(ctx context.Context, agent *Agent, session *Session, anchor
 		if err != nil {
 			return err
 		}
-		if summary != nil {
-			union = append([]openai.ChatCompletionMessageParamUnion{openai.SystemMessage(summary.Content)}, union...)
-		}
-		if memoryIndex != "" {
-			union = append([]openai.ChatCompletionMessageParamUnion{openai.SystemMessage(memoryIndex)}, union...)
-		}
-		if skillCatalog != "" {
-			union = append([]openai.ChatCompletionMessageParamUnion{openai.SystemMessage(skillCatalog)}, union...)
-		}
-		if agent.Soul != "" {
-			union = append([]openai.ChatCompletionMessageParamUnion{openai.SystemMessage(agent.Soul)}, union...)
-		}
+		union = prependSystemContext(union, summary, memoryIndex, skillCatalog, agent.Soul)
 
 		contextErr = contextLimit(agent, union, tools)
 		if contextErr != nil {
