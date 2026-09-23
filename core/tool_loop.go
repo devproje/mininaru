@@ -126,7 +126,11 @@ func executeTool(ctx context.Context, tools []modules.Tool, sessionId, root, nam
 		return "", fmt.Errorf("unknown tool %q", name)
 	}
 
-	if tool.Permission == modules.PermissionDangerous && approve != nil {
+	if tool.Permission == modules.PermissionDangerous {
+		if approve == nil {
+			return "", fmt.Errorf("dangerous tool %q has no approval channel", name)
+		}
+
 		decision, err = approve(ctx, sessionId, root, name, arguments)
 		if err != nil {
 			return "", err
