@@ -6,6 +6,7 @@ package util
 import (
 	"context"
 	"database/sql"
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -143,6 +144,47 @@ func TestDatabaseRejectsOrphanMessage(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected foreign key violation for a message without a session")
 	}
+}
+
+func TestNewDatabaseClosesConnectionOnMigrationFailure(t *testing.T) {
+	var path string
+	var file *os.File
+	var db *sql.DB
+
+	var err error
+
+	path = filepath.Join(t.TempDir(), "readonly.db")
+
+	file, err = os.Create(path)
+	if err != nil {
+		t.Fatalf("create readonly.db failed: %v", err)
+	}
+	err = file.Close()
+	if err != nil {
+		t.Fatalf("close readonly.db failed: %v", err)
+	}
+
+	err = os.Chmod(path, 0444)
+	if err != nil {
+		t.Fatalf("chmod readonly.db failed: %v", err)
+	}
+
+	db, err = NewDatabase(path)
+	if err == nil {
+		db.Close()
+		t.Fatal("expected an error for a read-only database file")
+	}
+
+	err = os.Chmod(path, 0644)
+	if err != nil {
+		t.Fatalf("chmod restore failed: %v", err)
+	}
+
+	db, err = NewDatabase(path)
+	if err != nil {
+		t.Fatalf("NewDatabase after restoring write permission failed, connection may have leaked: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
 }
 
 func TestDatabaseRejectsOrphanSession(t *testing.T) {

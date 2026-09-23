@@ -160,6 +160,7 @@ func NewDatabase(dbPath string) (*sql.DB, error) {
 
 	err = migrations(db)
 	if err != nil {
+		db.Close()
 		return nil, err
 	}
 
