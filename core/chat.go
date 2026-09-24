@@ -19,6 +19,7 @@ import (
 	"github.com/openai/openai-go/packages/pagination"
 	"github.com/openai/openai-go/packages/ssestream"
 	"github.com/openai/openai-go/shared"
+	"github.com/tidwall/gjson"
 )
 
 type ChatMessage struct {
@@ -284,7 +285,20 @@ func ChatCompletionStream(ctx context.Context, agent *Agent, messages []ChatMess
 	return nil
 }
 
-func chatStreamRound(ctx context.Context, prov *Provider, params openai.ChatCompletionNewParams, onChunk func(openai.ChatCompletionChunk)) (*openai.ChatCompletionAccumulator, error) {
+func cachedTokensFromUsage(usage openai.CompletionUsage) uint64 {
+	var cached int64
+
+	cached = usage.PromptTokensDetails.CachedTokens
+	if cached > 0 {
+		return uint64(cached)
+	}
+
+	cached = gjson.Get(usage.RawJSON(), "cache_read_input_tokens").Int()
+
+	return uint64(cached)
+}
+
+func chatStreamRound(ctx context.Context, prov *Provider, params openai.ChatCompletionNewParams, onChunk func(openai.ChatCompletionChunk)) (*openai.ChatCompletionAccumulator, uint64, error) {
 	var client openai.Client
 	var roundCtx context.Context
 	var cancel context.CancelFunc
@@ -292,6 +306,7 @@ func chatStreamRound(ctx context.Context, prov *Provider, params openai.ChatComp
 	var stream *ssestream.Stream[openai.ChatCompletionChunk]
 	var chunk openai.ChatCompletionChunk
 	var accumulator openai.ChatCompletionAccumulator
+	var cachedTokens uint64
 
 	var err error
 
@@ -313,23 +328,27 @@ func chatStreamRound(ctx context.Context, prov *Provider, params openai.ChatComp
 		chunk.Model = params.Model
 		accumulator.AddChunk(chunk)
 
+		if chunk.Usage.PromptTokens > 0 {
+			cachedTokens = cachedTokensFromUsage(chunk.Usage)
+		}
+
 		onChunk(chunk)
 	}
 
 	err = stream.Err()
 	if err != nil {
 		if roundCtx.Err() != nil && ctx.Err() == nil {
-			return nil, fmt.Errorf("provider stopped sending data (idle for %s)", streamIdleTimeout)
+			return nil, 0, fmt.Errorf("provider stopped sending data (idle for %s)", streamIdleTimeout)
 		}
 
-		return nil, err
+		return nil, 0, err
 	}
 
 	if len(accumulator.Choices) == 0 {
-		return nil, fmt.Errorf("provider returned no completion choices")
+		return nil, 0, fmt.Errorf("provider returned no completion choices")
 	}
 
-	return &accumulator, nil
+	return &accumulator, cachedTokens, nil
 }
 
 func failedToolResult(result string, err error) string {
@@ -378,6 +397,7 @@ func SendChatMessage(ctx context.Context, agent *Agent, session *Session, anchor
 	var round int
 	var params openai.ChatCompletionNewParams
 	var accumulator *openai.ChatCompletionAccumulator
+	var cachedTokens uint64
 	var message openai.ChatCompletionMessage
 	var assistant Message
 	var call openai.ChatCompletionMessageToolCall
@@ -481,7 +501,7 @@ func SendChatMessage(ctx context.Context, agent *Agent, session *Session, anchor
 
 		params = chatParamsUnion(agent, union, tools, modelName)
 
-		accumulator, err = chatStreamRound(ctx, prov, params, onChunk)
+		accumulator, cachedTokens, err = chatStreamRound(ctx, prov, params, onChunk)
 		if err != nil {
 			updateErr = MessageUpdate(pending.Id, &Message{Status: "failed", Error: err.Error()})
 			if updateErr != nil {
@@ -492,7 +512,7 @@ func SendChatMessage(ctx context.Context, agent *Agent, session *Session, anchor
 		}
 
 		if accumulator.Usage.PromptTokens > 0 {
-			err = SessionUsageSave(session.Id, uint64(accumulator.Usage.PromptTokens+accumulator.Usage.CompletionTokens), uint64(accumulator.Usage.PromptTokensDetails.CachedTokens))
+			err = SessionUsageSave(session.Id, uint64(accumulator.Usage.PromptTokens+accumulator.Usage.CompletionTokens), cachedTokens)
 			if err != nil {
 				return err
 			}
