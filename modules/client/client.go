@@ -52,6 +52,23 @@ type Reply struct {
 	Options   []string                    `json:"options,omitempty"`
 }
 
+type Options struct {
+	Url      string
+	Session  string
+	Agent    string
+	ApiKey   string
+	Cwd      string
+	NoCache  bool
+	Resume   bool
+	Gateways []Gateway
+}
+
+type Gateway struct {
+	Name   string
+	Url    string
+	ApiKey string
+}
+
 func ApiBase(endpoint string) (string, error) {
 	var parsed *url.URL
 
@@ -239,8 +256,8 @@ func Agent(base string, apiKey string, name string) (*core.Agent, error) {
 
 func Session(base string, apiKey string, seed string, agent string) (*core.Session, error) {
 	var session core.Session
-	var created core.Session
 	var target *core.Agent
+	var created core.Session
 
 	var err error
 
@@ -264,6 +281,63 @@ func Session(base string, apiKey string, seed string, agent string) (*core.Sessi
 	}
 
 	return &created, nil
+}
+
+func LatestSession(base string, apiKey string, agentRef string, cwd string) (*core.Session, error) {
+	var target *core.Agent
+	var list []*core.Session
+	var item *core.Session
+	var fallback *core.Session
+
+	var err error
+
+	target, err = Agent(base, apiKey, agentRef)
+	if err != nil {
+		return nil, err
+	}
+
+	err = Api(http.MethodGet, base+"/sessions?agent_id="+url.QueryEscape(target.Id), apiKey, nil, &list)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, item = range list {
+		if fallback == nil {
+			fallback = item
+		}
+
+		if item.Cwd == cwd {
+			return item, nil
+		}
+	}
+
+	return fallback, nil
+}
+
+func FindSession(base string, apiKey string, agentId string, ref string) (*core.Session, error) {
+	var found core.Session
+	var list []*core.Session
+	var item *core.Session
+
+	var err error
+
+	err = Api(http.MethodGet, base+"/sessions/"+ref, apiKey, nil, &found)
+	if err == nil {
+		return &found, nil
+	}
+
+	err = Api(http.MethodGet, base+"/sessions?agent_id="+url.QueryEscape(agentId), apiKey, nil, &list)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, item = range list {
+		if item.Name == ref {
+			return item, nil
+		}
+	}
+
+	return nil, fmt.Errorf("no session %q", ref)
 }
 
 func isLoopbackUrl(endpoint string) bool {

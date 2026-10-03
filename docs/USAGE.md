@@ -5,14 +5,13 @@
 Everything lives under `.mininaru/` by default; set `NARU_PATH` to use
 another directory. The default is resolved **relative to the working
 directory** each process starts in, so running `mininaru` from different
-places gives you different data directories — and the REPL talking to a
+places gives you different data directories — and the TUI talking to a
 loopback server won't find its key unless both sides agree. `NARU_PATH` is
 never re-exported, so pin it yourself for a stable location; the installers
 do this (`export NARU_PATH=~/.mininaru` in your shell rc, a `User` variable
 on Windows). The directory is created at mode `0700`, and an existing
 one is tightened to `0700` on every start. Chat history is SQLite
-(`.mininaru/data.db`, WAL mode); the REPL's input history is a plain text
-file (`.mininaru/history` by default, or `$NARU_HISTFILE`); the server's
+(`.mininaru/data.db`, WAL mode); the server's
 API key is `.mininaru/mininaru.key` (mode `0600`, generated the first time
 anything needs it); yolo trust state is `.mininaru/directory.json`, managed
 through `/yolo` rather than hand-edited; MCP servers are configured in
@@ -34,7 +33,7 @@ switch. An `agent` names its model as `<provider>:<model>` (e.g.
 `openai:gpt-4o-mini`), plus an optional system prompt (`--soul`), reasoning
 effort, and context budget. Exactly one agent is the "primary" one at a time,
 managed with `mininaru agent primary`; the first agent you create becomes
-primary automatically, and it's the agent the REPL, `-p`, and a gateway's
+primary automatically, and it's the agent the TUI, `-p`, and a gateway's
 "+ new session" connect to when none is named explicitly.
 
 ```sh
@@ -77,7 +76,7 @@ mininaru agent remove naru
 `session remove <id>` inspect and clean up conversations directly against
 the local database — no server needs to be running for any of this. Provider
 and agent administration always operates on the local `NARU_PATH` database;
-`serve` and the REPL are the two that can instead point at a remote one over
+`serve` and the TUI are the two that can instead point at a remote one over
 `--url`.
 
 ## Serving
@@ -175,14 +174,14 @@ approval prompt — since they're confined to that agent's own memory
 directory, never an arbitrary path.
 
 Every dangerous tool above is gated by **yolo mode**, set per directory with
-`/yolo <off|persist|on>` in the REPL:
+`/yolo <off|persist|on>` in the TUI:
 
 - `off` (default) — always ask before running one.
 - `persist` — auto-run inside the directory you set it in.
 - `on` — auto-run everywhere, no prompts; `/yolo on` asks you to confirm
   once before switching.
 
-When a call needs asking, the REPL shows the tool name and arguments and you
+When a call needs asking, the TUI shows the tool name and arguments and you
 answer once / for the rest of the session / no.
 
 ## MCP servers
@@ -205,7 +204,7 @@ override always wins over a per-server one. A running `mininaru serve`
 reloads its MCP connections on `SIGHUP` (`kill -HUP <pid>`), so changes made
 with `mininaru mcp` take effect without restarting it.
 
-## The interactive REPL
+## The interactive TUI
 
 ```sh
 mininaru                                          # connects to ws://127.0.0.1:8223/ws
@@ -215,53 +214,65 @@ mininaru --agent coder                            # pick an agent by name for a 
 mininaru --cwd ~/src/project                      # pin the session to another directory
 ```
 
-Every line you type goes straight to the agent — there's no shell mode to
-switch into; `/bash`/`/!bash` cover running a one-off shell command instead
-(see [Tools](#tools) above for what the agent itself can run). A session is
-created as soon as the REPL starts (unless `--session` names an existing
-one), named at that point with a random `adjective-noun` pair
-(`quiet-otter`, `still-meadow`, ...) rather than anything you have to pick.
+`mininaru` opens a full-screen terminal UI (`modules/tui`, built on
+bubbletea): a scrollable chat log on top and a one-line compose box at the
+bottom. Every message you send goes straight to the agent — there's no
+shell mode to switch into; `/bash`/`/!bash` cover running a one-off shell
+command instead (see [Tools](#tools) above for what the agent itself can
+run). A session is created as soon as the TUI starts (unless `--session`
+names an existing one), named at that point with a random `adjective-noun`
+pair (`quiet-otter`, `still-meadow`, ...) rather than anything you have to
+pick.
 
 | Key | Effect |
 |---|---|
-| `↑` / `↓` | recall input history |
-| `Shift+Enter` (or `Ctrl+J`) | insert a newline, keep composing |
+| `↑` / `↓` | recall input history, or step through `/command` suggestions, or (while a prompt is open) move the selection — scrolls the chat log instead once `Esc` has taken focus off the compose box |
+| `Tab` | complete the highlighted `/command` suggestion |
+| `Enter` | send the message, run the command, or confirm the selected prompt option |
+| `Esc` | toggle focus between the compose box and the chat log |
+| `Ctrl+V` | paste an image from the clipboard |
 | `Ctrl+A` / `Ctrl+E` | start / end of line |
-| `Ctrl+K` / `Ctrl+U` / `Ctrl+W` | kill to end / kill to start / kill word back |
-| `Ctrl+Y` | yank the last kill back in |
-| `Ctrl+L` | clear the screen |
-| `Ctrl+←` / `Ctrl+→`, `Home` / `End` | word-wise and line-edge cursor movement |
-| `Ctrl+C` (typing) | cancel the current line |
-| `Esc` / `Ctrl+C` (response in flight) | interrupt the agent's turn |
+| `Ctrl+K` / `Ctrl+U` | kill to end of line / kill to start of line |
+| `Ctrl+W` (or `Alt+Backspace`) | delete the previous word |
+| `Ctrl+C` | interrupt the agent's turn if one is running, otherwise exit |
 | `Ctrl+D` | exit |
 
 ```
 /help       list available commands
 /exit       quit
-/clear      clear the terminal screen
+/clear      clear the chat log
 /usage      refresh and show the current context input budget usage
 /compact    summarize completed conversation turns
 /bash       run one shell command; the command and its output are posted to the agent
 /!bash      same, without sharing the output with the agent
 /session    show or switch the current session
 /gateway    pick a saved gateway and a session on it, then reconnect
-/img        attach an image file to your next message
 /model      pick a provider:model from a live-fetched numbered list, or set one directly
 /effort     change the connected agent's reasoning effort (off|low|medium|high|max)
 /yolo       set dangerous-tool trust for this directory (off|persist|on)
 ```
 
-The first prompt line shows `ctx:used/limit (percent)` next to the Git branch.
-It is refreshed after each turn, session change, and `/usage`; `limit` is
-80% of `max_context` (mininaru reserves the rest for output). Before a
-session's first completed round, `used` is a local estimate; after that it's
-the provider's own reported `prompt_tokens + completion_tokens` for the last
-round. A cyan `cache:percent` segment is appended when the provider reports
-cached prompt tokens.
+Typing `/` pops up a suggestion list capped at 5 visible rows that scrolls
+to follow `↑`/`↓` once there are more matches than that.
 
-Input history is a plain text file, `.mininaru/history` by default (or
-`$NARU_HISTFILE`); `$HISTSIZE`/`$HISTFILESIZE` cap what's kept in memory and
-written back, the same way bash honors them.
+There is no `/img` command. To attach an image, either paste one from the
+clipboard (`Ctrl+V`, tried as a copied file reference first, then raw
+clipboard image bytes) or paste/drag in the path to an existing image file
+(`.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`, `.bmp`). Either way a `[image #N]`
+placeholder is inserted into the compose box immediately and the upload runs
+in the background; nothing is shown on success, and a line appears in the
+chat log only if the upload fails.
+
+`/usage` and `/compact` (and most other commands that talk to the server)
+run without blocking the UI: a dim "running /x..." line appears right away
+and is replaced in place once the result comes back. Sending a new message
+while one of these is still running, or while the agent is still replying,
+queues it with a "queued — sends once the current turn finishes" note
+instead of dropping it; it's sent automatically as soon as the connection is
+free.
+
+Input history (`↑`/`↓` recall) lives only in memory for the running
+session — it is not written to disk and does not survive a restart.
 
 ## Non-interactive (`-p`)
 
@@ -273,12 +284,13 @@ mininaru -p "<prompt>" --image shot.png           # attach an image, repeatable
 mininaru -p "<prompt>" --cwd ~/src/project        # run the turn against another directory
 ```
 
-`-p` runs a single turn without the REPL and exits. With no `--session` the
+`-p` runs a single turn without the TUI and exits. With no `--session` the
 throwaway session it creates is deleted on exit.
 
-`--format string` (the default) prints the same streamed transcript the REPL
-shows. `--format json` and `--format xml` suppress the transcript and print one
-object when the turn ends:
+`--format string` (the default) prints a streamed plain-text transcript —
+reasoning, tool calls, and the reply as they arrive — to stdout. `--format
+json` and `--format xml` suppress the transcript and print one object when
+the turn ends:
 
 ```json
 {
@@ -292,7 +304,7 @@ In `json`/`xml` mode there is no prompt to approve tool calls, so any
 approval request is auto-denied; a failed turn still prints the object (with an
 `error` field) and exits non-zero.
 
-`--no-cache` (root flag, works for both the REPL and `-p`) disables provider
+`--no-cache` (root flag, works for both the TUI and `-p`) disables provider
 prompt caching for that one run only — nothing is written back to the agent
 or session. By default mininaru marks the conversation's fixed system prefix
 with an Anthropic-style `cache_control` breakpoint so providers that support
@@ -317,7 +329,7 @@ in the clear, same as `.mininaru/mininaru.key`).
 `--gateway <name>` (or a bare `--url`/`--api-key`) then works anywhere:
 
 ```sh
-mininaru --gateway prod                 # REPL against the remote
+mininaru --gateway prod                 # TUI against the remote
 mininaru -p "hi" --gateway prod         # one-shot against the remote
 
 mininaru agent list --gateway prod      # inspect the remote's agents
@@ -335,8 +347,8 @@ and are always local.
 `--gateway` cannot be combined with an explicit `--url`. With neither,
 everything is local: `ws://127.0.0.1:8223/ws` and the local SQLite DB.
 
-Inside the REPL, `/gateway` opens an arrow-key picker over the saved
-gateways, then over that gateway's sessions (or `＋ new session`), and
-reconnects the shell to the chosen one — no restart needed.
+Inside the TUI, `/gateway` with no argument lists the saved gateways;
+`/gateway <name>` reconnects to that one (starting a new session there) —
+no restart needed.
 
 See [docs/API.md](API.md) for the HTTP/websocket API this all sits on top of.

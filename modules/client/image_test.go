@@ -10,11 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
-
-	"github.com/devproje/mininaru/core"
-	"github.com/gorilla/websocket"
 )
 
 func TestUploadPostsMultipart(t *testing.T) {
@@ -70,83 +66,5 @@ func TestUploadPostsMultipart(t *testing.T) {
 	}
 	if gotName != "shot.png" {
 		t.Fatalf("filename = %q", gotName)
-	}
-}
-
-func TestTurnSendsAndClearsPendingImages(t *testing.T) {
-	var srv *httptest.Server
-	var conn *websocket.Conn
-	var sh Shell
-	var got Frame
-	var done chan struct{}
-
-	var err error
-
-	done = make(chan struct{})
-
-	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var up websocket.Upgrader
-		var server *websocket.Conn
-		var frame Frame
-
-		var err error
-
-		defer close(done)
-
-		server, err = up.Upgrade(w, r, nil)
-		if err != nil {
-			t.Error(err)
-			return
-		}
-		defer server.Close()
-
-		for {
-			frame = Frame{}
-
-			err = server.ReadJSON(&frame)
-			if err != nil {
-				t.Error(err)
-				return
-			}
-
-			if frame.Type == "attach" {
-				continue
-			}
-
-			got = frame
-			break
-		}
-
-		server.WriteJSON(Reply{Type: "done", SessionId: "s1"})
-	}))
-	defer srv.Close()
-
-	conn, _, err = websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(srv.URL, "http"), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer conn.Close()
-
-	sh = Shell{conn: conn, session: &core.Session{Id: "s1"}, cwd: "/tmp", pending: []string{"att-1", "att-2"}}
-	sh.frames = Pump(conn)
-
-	err = conn.WriteJSON(Frame{Type: "attach", SessionId: "s1"})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	err = sh.turn("look at this")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	<-done
-
-	if got.Content != "look at this" || len(got.Images) != 2 || got.Images[0] != "att-1" {
-		t.Fatalf("frame = %+v", got)
-	}
-
-	if sh.pending != nil {
-		t.Fatalf("pending not cleared: %v", sh.pending)
 	}
 }

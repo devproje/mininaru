@@ -5,11 +5,13 @@ runtime — a tool-calling round loop with bash, file, headless-browser, and
 MCP tools, per-agent memory, skills, and one-level delegation — and two front
 ends put a user in front of it:
 
-- **`mininaru`** (`modules/client/`) — a terminal REPL where every line goes
-  straight to the agent; `/bash` and `/!bash` run one shell command on
-  request, other slash commands manage the session. `mininaru -p "<prompt>"`
-  is the same client wire protocol without the REPL: attach, one message,
-  print the reply, exit.
+- **`mininaru`** (`modules/tui/`, built on the shared wire protocol in
+  `modules/client/`) — a full-screen terminal chat client where every
+  message goes straight to the agent; `/bash` and `/!bash` run one shell
+  command on request, other slash commands manage the session, and pasting
+  or dragging in an image attaches it. `mininaru -p "<prompt>"` is the same
+  client wire protocol without the TUI: attach, one message, print the
+  reply, exit.
 - **`mininaru serve`** (`server/`) — a stateless-per-request
   OpenAI-compatible HTTP API backed by SQLite, plus a `/ws` websocket for
   streaming chat, the approval round-trip, and interrupts.
@@ -27,14 +29,16 @@ below.
 
 This is a from-scratch rewrite, currently in the `1.0.0-alpha` series. An
 earlier version had a Discord front end, a paired gRPC client, a full-screen
-TUI, and a dual-mode `mininaru shell` / `narush` terminal; none of those
-exist here.
+TUI, and a dual-mode `mininaru shell` / `narush` terminal. The full-screen
+TUI came back as `modules/tui` — a different, lighter bubbletea-based
+design, not the old one; the rest don't exist here.
 
 ## Packages
 
 ```
 cli/            cobra root, `serve`, `daemon`, and the provider/webprovider/agent/session/mcp/skill admin subcommands
-modules/client/ the `mininaru` REPL — line editor, websocket turn loop, streamed-reply renderer, slash commands
+modules/client/ shared wire protocol (Frame/Reply, HTTP + websocket helpers), the classic `-p` streamed-reply renderer and markdown formatter
+modules/tui/    the `mininaru` full-screen TUI (bubbletea) — chat viewport, async slash commands, clipboard/drag-drop image paste
 core/           Provider, WebProvider, Agent, Session, Message, ToolCall CRUD, the tool-calling chat loop, and yolo trust state
 modules/          the Tool/Permission/WebBackend types — a pure leaf package, imports only the standard library
 modules/bash/     the bash_exec builtin tool
@@ -55,11 +59,14 @@ depends on `util` and every `modules/*` tool package (`bash`, `file`,
 `util` but not on each other. Nothing in `core`, `modules`, or `util` imports
 its callers.
 
-`modules/client` is the odd one under `modules/` — not a tool package but a
-front end. It imports `core` for its `Agent`/`Session` types and `util`, and
-reaches a `mininaru serve` instance only through its public `/api` and `/ws`
-surface; it never touches SQLite and nothing in `core` imports it. The admin
-subcommands (`provider`, `agent`, `session`) default to the opposite:
+`modules/client` and `modules/tui` are the odd ones under `modules/` — not
+tool packages but front ends. `modules/client` imports `core` for its
+`Agent`/`Session` types and `util`, and reaches a `mininaru serve` instance
+only through its public `/api` and `/ws` surface; it never touches SQLite
+and nothing in `core` imports it. `modules/tui` imports `modules/client` for
+that same wire protocol and layers the bubbletea UI on top of it; nothing
+outside `cli/` imports `modules/tui`. The admin subcommands (`provider`,
+`agent`, `session`) default to the opposite:
 `cli/main.go` opens the local SQLite file itself and those commands call
 `core/*` directly against the `NARU_PATH` database. Passing `--gateway <name>`
 (a saved endpoint from `cli/gateway.go`, `.mininaru/gateways.json`) or a bare
@@ -304,7 +311,7 @@ servers dropped from the config or disabled have their client closed.
 calls `util.NewLog(util.LogOptions{})` once at startup (default level `info`,
 text-or-JSON auto-picked by whether stderr is a terminal). The few
 `util.Log.*` calls in `modules/client` are `Debug`-level, below that
-threshold, so they stay out of the REPL's interactive output.
+threshold, so they stay out of the TUI's interactive output.
 
 `mcp.StatusAll() []Status` (`client.go`, next to `Tools()`) reports, per
 *configured* server (`Loaded.Servers`, not just the currently-live ones — so
@@ -595,19 +602,18 @@ Because the target session may have a person watching it live over another
   the injected content.
 
   A session counts as live from the moment the client connects, not just
-  once it sends a message: `Run()` (`modules/client/repl.go`) writes a
-  `{"type":"attach","session_id":...}` frame right after dialing, and
-  `SockHandler` dispatches `"attach"` to `handleAttach` (`server/sock/sock.go`)
-  — a synchronous, no-round path that validates the session exists
-  (`core.SessionRead`) and calls the same `registerLiveConn`/`seen.Store`
-  pair `handleFrame` uses.
+  once it sends a message: `RunTuiSession` (`modules/tui/tui_session.go`)
+  writes a `{"type":"attach","session_id":...}` frame right after dialing,
+  and `SockHandler` dispatches `"attach"` to `handleAttach`
+  (`server/sock/sock.go`) — a synchronous, no-round path that validates the
+  session exists (`core.SessionRead`) and calls the same
+  `registerLiveConn`/`seen.Store` pair `handleFrame` uses.
 
-The current `modules/client` REPL reads the socket only inside `Receive`
-during an active turn — it does not drain mirrored frames while sitting at
-the prompt — so a message injected into the session by `session_send` while
-its owner is idle is delivered and persisted, but only rendered on that
-person's screen the next time they take a turn (the stored transcript is
-correct either way).
+The TUI's `pumpTuiReplies` goroutine reads the socket continuously for the
+whole connection, not only during an active turn, so a message injected into
+the session by `session_send` while its owner is idle is rendered on that
+person's screen as soon as it arrives — it does not wait for their next
+turn (see "`modules/tui/` — the full-screen TUI" below).
 
 `session_list` and `agent_list` (`core/session_tools.go`) exist so a model
 can pick a valid target for the two tools above without being told one in
@@ -648,21 +654,11 @@ file; `"off"` is stored as an explicit entry rather than a deletion, so a
 subdirectory can be locked back down under a more permissive ancestor.
 `POST /api/yolo` (`server/controller/yolo.go`) is how a client sets this —
 plain REST, not a `/ws` frame, since it's a one-off directory declaration,
-not part of a live turn. `modules/client`'s `/yolo [off|persist|on]` command
-(`cmdYolo`, `command.go`) calls it, and with no argument reads it back with
-`GET /api/yolo?cwd=`; `Run()` also calls `cmdYolo(&sh, "")` once at startup
-to seed `sh.yolo`. The prompt colours the path segment by that value
-(`pathColor`, `style.go`): yellow for `persist`, red for `on`, dim for
-`off`. The prompt (`sh.prompt()`, `repl.go`) is two lines — `agent-name
-[effort] session-name git:(branch) ctx:used/limit (percent)` then `path ❯` — one string with an
-embedded `\n`; `write()` turns `\n` into `\r\n`, and `rowsFor` (`input.go`)
-splits on `\n` and sums wrapped-row counts per line so `redraw()`'s
-up-then-clear cursor math lands with a multi-row prompt. The `git:(branch)`
-segment reads from `sh.cwd` (fixed for the process); `git.go` resolves the
-branch by reading `.git/HEAD` directly (following a `.git` *file*'s
-`gitdir:` pointer for worktrees/submodules) rather than running `git`, and
-reports the branch name or the first 7 hex chars of a detached `HEAD`.
-There is deliberately no dirty/staged indicator.
+not part of a live turn. The TUI's `/yolo [off|persist|on]` command calls
+it, and with no argument reads it back with `GET /api/yolo?cwd=` (see
+"`modules/tui/` — the full-screen TUI" below for how the command itself
+runs). There is no always-visible trust indicator — checking means running
+`/yolo` with no argument.
 
 `GET /api/sessions/:id/usage` (`SessionContextUsage`, `core/context.go`)
 returns `session.last_prompt_tokens` (a session column set from the
@@ -674,17 +670,10 @@ a session has any completed round, it falls back to rebuilding the session's
 next prompt — stored summary, memory, skills, tool schemas — and returning a
 conservative tiktoken estimate instead. `/compact` (`SessionCompact`) resets
 both stored counters to 0 so the display falls back to the estimate until
-the next real round lands. The REPL caches this response so `sh.prompt()`
-never waits on the network. It refreshes after a completed turn, a session
-or agent switch, and `/usage`, which also prints the cached
-`ctx:used/limit (percent)` label (plus a `cache:percent` segment when
-`cached` is nonzero).
-
-Line one carries the connected agent's `Name` and `ThinkingLevel` (from
-`sh.agent`, a `*core.Agent` fetched once via `GET /api/agents` at startup
-and replaced whole by `/model`/`/effort`), coloured by level
-(`effortColor`, `style.go`: dim `off`, blue `low`, gray `medium`, yellow
-`high`, red `max`).
+the next real round lands. The TUI only fetches this on demand (`/usage`,
+and again after `/compact`) rather than keeping it visible continuously; the
+label is `ctx:used/limit (percent)`, plus a `cache:percent` segment when
+`cached` is nonzero (`client.ContextLabel`, `modules/client/style.go`).
 
 ### The HIL round-trip
 
@@ -723,14 +712,17 @@ a context-canceled error, `handleFrame` sends it as an `"error"` frame, and
 the client (`render.go`'s `frame`) prints a plain `interrupted` line rather
 than an error when the message contains `context canceled`.
 
-`modules/client` reads a single raw stdin stream (`keys`, a
-`chan byte` filled by one goroutine in `input.go`). During a turn,
-`renderer.watch` (`render.go`) consumes that channel: while
-`renderer.awaiting` is set (an approval prompt is up) each byte goes to the
-`answers` channel `decide()` reads a `y`/`a`/`n` from; otherwise a `0x03`
-(Ctrl+C) or `0x1b` (Esc) sends an `{type: "interrupt"}` frame. Outside a
-turn the same channel feeds the line editor. `{type: "tool", ...}` frames
-are handled by `renderer.tool` — a spinner while a call is open, a settled
+`Receive`'s `keys` parameter (`render.go`) exists for a caller that wants to
+feed it a background `chan byte` so `renderer.watch` can route bytes to the
+approval `y`/`a`/`n` reader (`decide`) while one is pending, and treat a
+`0x03` (Ctrl+C) or `0x1b` (Esc) elsewhere as an `{type: "interrupt"}` frame.
+`cli/prompt.go` (`-p`) always passes `nil`, so `watch` never actually runs
+today; `readByte` falls back to a direct blocking `rawByte()` read of stdin
+instead, which is how `-p --format string` answers an approval or question
+prompt interactively when one comes up. The TUI has its own key handling
+entirely (`modules/tui/tui_update.go`) and never calls into `render.go` at
+all. `{type: "tool", ...}` frames are handled by `renderer.tool` — a spinner
+while a call is open, a settled
 `●` line (with a diff block for a multi-line message) once it finishes.
 
 ### `ask_user_question` — the same round-trip, for an actual question
@@ -865,9 +857,9 @@ back into a `daemonPreset` (`linuxExistingConfig`/`darwinExistingConfig`/
 a reinstall is pre-filled from what's actually running rather than the flag
 defaults, then prints the resulting plan and asks for `y/N`
 (`daemonConfirmPlan`) before writing anything. The bare `mininaru` command
-(no subcommand) is the REPL: `cli/main.go`'s `execute` calls `shortPrompt`
-(`cli/prompt.go`) when `-p` is set, otherwise `client.Run`
-(`cli/client.go`).
+(no subcommand) is the TUI: `cli/main.go`'s `execute` calls `shortPrompt`
+(`cli/prompt.go`) when `-p` is set, otherwise `clientExecute` (`cli/client.go`),
+which calls `tui.RunTuiSession`.
 
 ### `cli/update.go` — self-update
 
@@ -896,14 +888,14 @@ renames the running `.exe` aside to `<name>.exe.old` first (Windows refuses to
 overwrite an open file, but allows renaming one), moves the staged build into
 place, then best-effort removes the `.old` file.
 
-`util/update.go` holds the half both `cli` (writes `update.json`) and
-`modules/client` (only reads it, to print a notice in `banner()`) need —
-`cli` is `package main` and can't be imported. `updateCheckStart`, wired
-into `root.PersistentPreRunE` in `cli/main.go`, runs a TTL-gated
-(`util.UpdateCacheTTL`, 24h) background check on every command except
-`update` and `serve` itself, so the notice in `showVersion()` and the REPL
-banner are usually a command or two behind rather than triggering a network
-call on every invocation.
+`util/update.go` (`UpdateNotice`) is read only from `cli/main.go`'s
+`showVersion()`, under `--version` — neither `modules/client` nor
+`modules/tui` reads it; there is no notice on a plain `mininaru` launch.
+`updateCheckStart`, wired into `root.PersistentPreRunE` in `cli/main.go`,
+runs a TTL-gated (`util.UpdateCacheTTL`, 24h) background check on every
+command except `update` and `serve` itself, writing the cache
+`showVersion()` reads, so the notice is usually a command or two behind
+rather than triggering a network call on every invocation.
 
 ### `scripts/` — install helpers
 
@@ -932,181 +924,181 @@ writes uses the `# >>> mininaru env >>>` sentinel block, shared with
 `ci.yml`'s `scripts` job shellchecks the `.sh` files and parse-checks the
 `.ps1` files.
 
-## `modules/client/` — the REPL
+## `modules/client/` — the wire protocol and the `-p` renderer
 
-`mininaru` is a hand-rolled raw-terminal line editor and streamed-reply
-renderer — no TUI framework. It talks to a `mininaru serve` instance only
-over `/api` and `/ws`; it imports `core` for `Agent`/`Session` types and
-`util`, never `server`, and never touches SQLite.
+`modules/client` is the layer both front ends share: `Frame`/`Reply` and the
+HTTP/WS helpers (`Api`, `Upload`, `Dial`, `Pump`, `Agent`, `Session`,
+`FindSession`, `ResolveApiKey`, `ResolveCwd`, …), plus the markdown→ANSI
+formatter and the classic streamed-reply renderer that only `-p` still uses.
+It imports `core` for `Agent`/`Session` types and `util`, never `server`, and
+never touches SQLite; it reaches a `mininaru serve` instance only over `/api`
+and `/ws`.
 
-### One mode
-
-Every submitted line either dispatches a `/command` or is sent to the agent
-as a turn — there is no shell mode, no mode toggle. `Run()` (`repl.go`)
-resolves the agent (`GET /api/agents`) and session (`GET /api/sessions/:id`
-for `--session`, else `POST /api/sessions`), dials `/ws`, sends an `attach`
-frame, prints the banner, seeds yolo mode, puts the terminal in raw mode
-(`golang.org/x/term`), and runs `loop()`: read a line, record it in
-history, and either `dispatch` it or `sh.turn(line)` it. `sh.turn` writes
-the chat frame and calls `Receive` to stream the reply; on a write error it
-reconnects once and retries the send.
-
-`/gateway` (`gateway.go`) is the one command that re-points the whole shell:
-`selectFrom` (`selector.go`, an arrow-key list picker over `sh.keys`) chooses a
-saved `Gateway` (passed in via `Options.Gateways`), then a session on it
-(sweeping every agent, since `/api/sessions` needs an `agent_id`) or a fresh
-one, then `switchGateway` sets `sh.url`/`base`/`apiKey`/`session`/`agent` and
-calls `sh.reconnect()` — which already re-dials `sh.url`, re-attaches, and
-starts a new `Pump`.
-
-One goroutine owns every `/ws` read for the session's lifetime: `Pump`
-(`client.go`) loops `conn.ReadJSON` into a buffered `<-chan Reply` and closes
-it when the socket drops. Both `Receive` (during a turn) and `editor.readLine`
-(at the prompt) consume that one channel, so a frame is never lost to whichever
-side isn't looking — `session_send` from another agent, which the session lock
-serialises to only arrive while your session is idle, reaches the editor
-instead of sitting in the socket buffer until your next turn. `readLine`
-`select`s the frame channel against the key channel; a `session_send` round is
-folded into an `ambient` (`ambient.go`) — name, injected prompt, reply deltas,
-tool names — and printed as one blue-`┆`-guttered block above a redrawn prompt
-when the round's `done`/`error` lands. A closed channel surfaces as `errGone`
-from either consumer; `loop()` reconnects and carries on, `turn()` reports it
-and the user re-sends.
-
-Non-TTY stdin is refused with a pointer to `-p`. `mininaru -p "<prompt>"`
-(`cli/prompt.go`) runs the same wire protocol without the editor: resolve a
-session (deleting it on exit unless `--session` was given), dial, `attach`,
-send one frame, and `Receive` (fed by its own `Pump`) with a `nil` key stream
-so there is no interrupt watcher. `--image <path>` (repeatable) is uploaded
-via `client.Upload` (multipart `POST /api/sessions/:id/attachments`) before
-the frame goes out, and the returned ids ride the frame's `images` array; the
-REPL's `/img` does the same upload up front and stashes the id on
-`Shell.pending`, which `sh.turn` attaches to the next message and clears.
+`mininaru -p "<prompt>"` (`cli/prompt.go`) runs the wire protocol without any
+UI: resolve a session (deleting it on exit unless `--session` was given),
+dial, `attach`, upload any `--image <path>` (repeatable, via `client.Upload`
+— multipart `POST /api/sessions/:id/attachments` before the frame goes out,
+the returned ids riding the frame's `images` array), send one frame, and
+`Receive` (`render.go`, fed by its own `Pump`) with a `nil` key stream so
+there is no interrupt watcher.
 
 `--format` / `-f` (`string` default, or `json`/`xml`) is checked by
 `client.ValidFormat` and threaded into `Receive`. For `string` the read loop
-drives `renderer.frame` exactly as the REPL does; for `json`/`xml` it drives
-`renderer.collect` instead, which writes nothing to stdout — it accumulates the
-content deltas and terminal `tool` statuses, auto-denies `approval_request`
-(no TTY to ask), and on `done`/`error` marshals one `client.Result`
-(`format.go`) via `marshalResult` and prints it. An `error` frame still prints
-the object and returns the error, so the process exits non-zero.
+drives `renderer.frame`, which prints a streamed transcript: content and
+reasoning deltas go through `renderer.text`, switching "mode" between
+`reasoning` (dimmed, under a `● thinking` heading) and `content`; on a TTY
+(`r.rich`) content runs through `MdRenderer` (`markdown.go`), a
+dependency-free, line-buffered markdown→ANSI pass — a line is styled and
+emitted only once its newline arrives, so output streams per line, not per
+token. It handles ATX headings, `-`/`*`/`+`/`1.`/`1)` list markers
+(normalised to `•`), blockquotes, thematic breaks, fenced code blocks (a
+gutter, no inline processing inside), inline `` `code` `` / `**bold**` /
+`*em*` / `~~strike~~` / `[text](url)`, and GFM pipe tables (buffered row by
+row in `MdRenderer.table` since column widths need every row, and drained by
+`drainTable()` on the table's end or at `Flush()`). Piped (non-TTY) output
+skips markdown and prints raw text. A `tool` frame with a multi-line message
+(a file diff) is printed under a `+n -n` header with per-line numbers by
+`FormatDiff`/`writeDiff`.
 
-### Platform split — `exec_unix.go` / `exec_windows.go`
+For `json`/`xml`, `Receive` drives `renderer.collect` instead, which writes
+nothing to stdout — it accumulates the content deltas and terminal `tool`
+statuses, auto-denies `approval_request` (no TTY to ask), and on
+`done`/`error` marshals one `client.Result` (`format.go`) via
+`marshalResult` and prints it. An `error` frame still prints the object and
+returns the error, so the process exits non-zero. Non-TTY stdin to the TUI
+(no `-p`) is refused with a pointer to `-p`.
 
-Two functions, `setGroup` and `killGroup`, are the only OS-specific surface,
-used by `/bash`: unix puts the child in its own process group
-(`Setpgid`) and signals the group with `SIGINT`; Windows leaves the group
-alone and calls `Process.Kill()`. Split with `//go:build unix` /
-`//go:build windows`, the same shape
-`modules/bash/bash_proc_unix.go`/`bash_proc_other.go` uses. Everything else is
-cross-platform Go stdlib or `golang.org/x/term`, which has its own
-`term_windows.go` (setting `ENABLE_VIRTUAL_TERMINAL_INPUT` so arrow-key
-escapes arrive the same way a unix pty sends them).
+## `modules/tui/` — the full-screen TUI
 
-### Reconnecting
+`mininaru` (no `-p`) is a [bubbletea](https://github.com/charmbracelet/bubbletea)
+`Model`/`Update`/`View` program, not a hand-rolled line editor: a scrollable
+chat log (`bubbles/viewport`) on top, a one-line compose box
+(`bubbles/textarea`) at the bottom. It imports `modules/client` for the wire
+protocol and adds nothing to the dependency graph below it — nothing outside
+`cli/` imports `modules/tui`.
 
-There is no background dialer. `sh.reconnect()` (`repl.go`) dials a fresh
-`/ws`, closes the old conn, re-sends the `attach` frame for the **existing**
-session id, and starts a new `Pump`. `sh.turn` calls it once on a failed
-`WriteJSON` and retries the send; `Receive` and `readLine` call it when the
-frame channel closes mid-stream. A `mininaru serve` restart between turns is
-invisible; a drop *during* a streamed reply loses that turn and the user
-re-sends.
+- `tui.go` — the `tuiModel` struct, its construction (`newTuiModel`,
+  `newTuiSessionModel`), the banner header block, and `Init()`.
+- `tui_update.go` — `Update()`, the single dispatch point for every
+  keystroke, websocket event, and async-command result.
+- `tui_view.go` — `View()` and everything it composes: `layout()` (resizes
+  the viewport, repaints the header, pads the chat body), `footer()`, the
+  approval/question menu, and the `/command` suggestion popup.
+- `tui_actions.go` — the mutating helpers `Update()` calls: appending to the
+  transcript, `submit()`, `sendMessage()`, the queued-message flush, and the
+  generic async-command scaffolding (`beginAsync`/`landAsyncResult`).
+- `tui_command.go` — the slash-command registry and `runCommand`.
+- `tui_session.go` — `RunTuiSession` (resolve agent/session, dial, attach,
+  start the model and the reply pump) and the message types + `tea.Cmd`
+  constructors for session/gateway switching.
+- `tui_clipboard.go` — clipboard and pasted/dropped-path image detection.
 
-### Line editing
+### One mode, and who owns the socket
 
-`editor.readLine()` (`input.go`) is a byte-at-a-time raw-terminal reader that
-`select`s the shared `keys` channel against the `Pump` frame channel (see "One
-mode"). There is no Tab completion and no `@file` expansion — both were
-shell-era features.
+Every submitted line either dispatches a `/command` or is sent to the agent
+as a turn — there is no shell mode, no mode toggle, same as before.
+`RunTuiSession` resolves the agent (`GET /api/agents`) and session
+(`GET /api/sessions/:id` for `--session`, else `POST /api/sessions`), dials
+`/ws`, sends an `attach` frame, builds the `tuiModel`, and hands it to
+`tea.NewProgram(..., tea.WithAltScreen())`.
 
-- Left/Right by character; Ctrl+Left/Right (`ESC [ 1;5 D/C`) and Home/End
-  (`ESC [ H/F` or VT220 `ESC [ 1~`/`4~`) by word / line end. Typing and
-  backspace act at the cursor.
-- Ctrl+A/E line start/end; Ctrl+K kill to end, Ctrl+U kill to start, Ctrl+W
-  kill word behind (readline semantics — `wordBoundaryLeft`/`Right` share the
-  boundary logic), Ctrl+Y yank the last kill. Ctrl+L clears the screen.
-- Ctrl+C returns `errInterrupted` (the loop just re-prompts), Ctrl+D returns
-  `io.EOF` (quit).
-- `Run` (`repl.go`) writes `ESC [ > 1 u` after `MakeRaw` to push the Kitty
-  keyboard protocol (and `ESC [ < u` to pop it on exit). With it on, Shift+Enter
-  arrives as CSI-u `13;2u`; `csiUCode` parses any `<code>;<mods>u`, a modified
-  Enter (`code == 13`) inserts a literal newline instead of submitting, and a
-  Ctrl+letter event — which the protocol also reports as CSI-u — is turned back
-  into its control byte and re-fed through `synth`/`haveSynth` so Ctrl+C/D and
-  the kill/yank keys keep working. Ctrl+J is the fallback on terminals that
-  ignore the push.
-- Up/Down recall `sh.history` — one list, since there is only one mode.
-  `history.go` loads/saves it to `NARU_PATH/history` (`NARU_HISTFILE` to
-  override), trimmed to `HISTSIZE`/`HISTFILESIZE` (default 500);
-  `recordHistory` drops consecutive duplicates. There is no `history`
-  builtin.
-- `redraw()` (`input.go`) strips ANSI to measure the *visible* width of
-  `prompt+line` (`displayWidth` is East-Asian-width aware), computes the row
-  count it wrapped to, moves up that many rows and clears with `\x1b[0J`
-  before reprinting — a plain `\r\x1b[2K` would leave stale wrapped rows once
-  a line exceeds the terminal width. `rowsFor` splits the two-line prompt on
-  `\n` so the cursor math survives a multi-row prompt.
+One goroutine owns the `/ws` read for the connection's lifetime:
+`pumpTuiReplies` (`tui_session.go`) loops `client.Pump(conn)`'s channel and
+calls `p.Send(...)` for every frame, translating each `Reply` into the
+matching bubbletea message (`tuiChunkMsg`, `tuiToolMsg`, `tuiMessageMsg`,
+`tuiPromptMsg`, `tuiDoneMsg`) and routing `approval_request`/
+`question_request` through the same `answers` channel `Update()` writes to
+when a prompt is confirmed. Because this goroutine runs continuously —
+not only "during a turn" the way the old REPL's `Receive` did — a
+`session_send` injection from another agent reaches the screen immediately
+as a `←`-prefixed message line, live, instead of waiting for the viewer's
+next turn. A closed channel sends one `tuiDoneMsg{errText:
+client.ErrGone.Error()}` and the goroutine returns; **there is no automatic reconnect** — unlike the
+old REPL's `sh.reconnect()`, a dropped connection surfaces the error and
+stays dropped until the TUI is restarted. The one exception is `/gateway`,
+whose `switchGatewayCmd` dials the new endpoint itself and calls
+`restartPump` to start a fresh `pumpTuiReplies` goroutine on the new
+connection.
 
-### Streaming a reply
+### Key handling and focus
 
-`Receive` (`render.go`) reads `/ws` frames until a `"done"` or `"error"` and
-drives a `renderer`. Content and reasoning deltas go through `renderer.text`,
-which switches "mode" between `reasoning` (dimmed, under a `● thinking`
-heading) and `content`. On a TTY (`r.rich`), content runs through
-`mdRenderer` (`markdown.go`), a dependency-free, line-buffered markdown→ANSI
-pass: a line is styled and emitted only once its newline arrives (the
-trailing partial is held until the next delta or a `flush()` at close), so
-output streams per line, not per token. It handles ATX headings,
-`-`/`*`/`+`/`1.`/`1)` list markers (normalised to `•`), blockquotes,
-thematic breaks, fenced code blocks (a gutter, no inline processing inside),
-inline `` `code` `` (red text) / `**bold**` / `*em*` /
-`[text](url)`, and GFM pipe tables. A table can't stream row-by-row — column
-widths need every row — so `line()` buffers consecutive `|…|` rows into
-`mdRenderer.table` and `drainTable()` renders the block (bold header, a `─`
-rule, alignment from the `:---`/`---:`/`:---:` separator) when the table ends
-or at `flush()`; a `|…|` run with no separator row is emitted verbatim. Nested
-lists are still out of scope. Piped (non-TTY) output skips markdown and prints
-raw text.
+`Esc` toggles focus between the compose box and the chat viewport — bubbles'
+`textarea.Update` is a no-op while blurred, so a blurred `Up`/`Down` falls
+through to the viewport's own key handling and scrolls the log instead of
+walking input history. While focused, `Up`/`Down` first check for an open
+approval/question prompt (move the selection), then a `/command` suggestion
+popup (move the highlighted entry, capped at `maxCmdSuggestionRows` and
+scrolled with `suggestionWindow` to keep the cursor visible), then input
+history (`m.history`, in-memory for the session only — not written to disk,
+gone on restart). `Tab` completes the highlighted suggestion. `Enter` sends
+the message, runs the command, or confirms the selected prompt option —
+`ta.KeyMap.InsertNewline` is disabled, so there is no multi-line compose and
+no Shift+Enter behavior to speak of. Everything else (`Ctrl+A/E` line
+start/end, `Ctrl+K`/`Ctrl+U` kill to end/start, `Ctrl+W` kill word back, left
+/right, home/end) falls through to `bubbles/textarea`'s own default keymap
+unmodified. `Ctrl+C` interrupts the agent's turn if one is running
+(`{type: "interrupt"}` over `/ws`) or exits; `Ctrl+D` always exits.
 
-Interrupt and approval are covered under "The HIL round-trip" above:
-`renderer.watch` consumes the shared `keys` channel during a turn, routing
-each byte either to the approval `y`/`a`/`n` reader (`decide`) or, on Ctrl+C
-/ Esc, to an `{type: "interrupt"}` frame. A `tool` frame with a multi-line
-message (a file diff) is printed under a `+n -n` header with per-line numbers
-by `writeDiff`.
+### Async commands and queued messages
+
+Every network-touching slash command (`/usage`, `/compact`, `/session`,
+`/gateway`, `/model`, `/effort`, `/yolo`, `/bash`, `/!bash`) runs through
+`beginAsync(label)`/`landAsyncResult(label, lines)`: a dim "running
+/label..." line is inserted and the work runs in its own `tea.Cmd` goroutine
+(never inside `Update()`, which must not block), with the footer's
+`BarFrame` spinner ticking for as long as `m.busy` stays true. When the
+result lands, `landAsyncResult` replaces that same line in place rather than
+appending a new one. Sending a chat message while an async command or the
+agent's own turn is still in flight doesn't drop it: `submit()` appends it to
+`m.queuedMsgs` and shows a "queued — sends once the current turn finishes"
+line; `flushQueued()` sends the oldest queued message automatically the next
+time the connection goes idle (`tuiDoneMsg`, `tuiCmdResultMsg`, and the
+session/gateway/image result handlers all call it on their way out).
+
+### Attaching an image
+
+There is no `/img` command. `tui_clipboard.go` wires two paths into the same
+upload flow (`queueImage`, which inserts a `[image #N]` placeholder into the
+compose box and fires the upload in the background, silent on success and
+reporting a chat-log line only on failure):
+
+- **`Ctrl+V`** (`resolveClipboardImageCmd`) — tries a copied file reference
+  first (`text/uri-list` via `wl-paste`/`xclip`), then raw clipboard image
+  bytes (`image/png` via `wl-paste`/`xclip`/`pngpaste`, saved to a temp file
+  that's removed after the upload).
+- **Paste or drag-and-drop** of a path to an existing image file
+  (`.png`/`.jpg`/`.jpeg`/`.gif`/`.webp`/`.bmp`) — caught in `Update()`'s
+  bracketed-paste handling (`kmsg.Paste`) via `extractPastedImagePath`,
+  before the pasted text ever reaches the textarea.
 
 ### `/bash` and `/!bash`
 
-`cmdBash` / `cmdBashQuiet` (`command.go`) run one `$SHELL -c <args>` in
-`sh.cwd`, output tee'd to the terminal and to an `strings.Builder`
-(`crlfWriter` rewrites `\n`→`\r\n` for raw mode). The child is put in its own
-process group (`setGroup`); a `0x03` byte on the shared `keys` channel while
-it runs calls `killGroup` (`feedChild`). `/bash` then POSTs the command, exit
-status, and captured output (capped at `bashShareLimit`, 8000 bytes) to
-`POST /api/sessions/:id/messages` as a `user` message, so the agent reads it
-on its next turn; `/!bash` skips that POST. `/help` prints a standing warning
-that `/bash` output is recorded in the session.
+`runLocalBash` (`tui_command.go`) runs one `$SHELL -c <args>` in the
+session's `cwd` and captures combined output with a plain `exec.Command`;
+unlike the old REPL there is no process-group setup and no kill path — the
+child is not interruptible from the TUI once started, and `Ctrl+C` while one
+is running only sends the websocket interrupt frame, which has no effect on
+it. `/bash` POSTs the command, exit status, and captured output (capped at
+`bashShareLimit`, 8000 bytes, via `bashTranscript`) to
+`POST /api/sessions/:id/messages` as a `user` message once it finishes, so
+the agent reads it on its next turn; `/!bash` skips that POST.
 
 ### Slash commands
 
-A name-keyed registry (`commands`, `command.go`); `dispatch` (`repl.go`)
-splits `/<name> <args>` and runs the handler, which takes `*Shell` directly.
-`/help`, `/clear`, `/exit` (sets `sh.quit`), `/bash`, `/!bash` (above),
-`/session [id-or-name]` (show, or switch — `findSession` tries
-`GET /api/sessions/:ref` then a name match against the agent's sessions, then
-re-`attach`es), `/model [provider:model]` (no args: `GET /api/providers/models`
-live-fetches every provider's own `/v1/models` catalog server-side and
-`readNumber` — a plain numbered-list, digit-entry picker in `selector.go`,
-distinct from `selectFrom`'s arrow-key menu — lets the user pick one by
-number; an explicit `provider:model` arg sets it directly) and `/effort
-<off|low|medium|high|max>` (PATCH `/api/agents/:id` via `sh.patchAgent`,
-which replaces `sh.agent` whole with the response — against `AgentUpdate`'s
-"only touch non-empty fields" semantics, so `{"model": …}` leaves the rest
-alone), and `/yolo [off|persist|on]` (see "Yolo mode" above). There is no
-`/agent` (agent switching now happens with `mininaru agent primary`, outside
-the REPL) and no `/reset` or persisted client preferences file.
+A name-keyed slice (`tuiCmdList`, `tui_command.go`); `runCommand` splits
+`/<name> <args>` and switches on the name. `/help`, `/clear`, `/exit`,
+`/bash`/`/!bash` (above), `/usage` and `/compact` (refresh/summarize the
+context window, async), `/session [id-or-name]` (show, or switch —
+`FindSession` tries `GET /api/sessions/:ref` then a name match against the
+agent's sessions, then re-`attach`es), `/gateway [name]` (no args: lists the
+saved gateways; a name: reconnects to it via `switchGatewayCmd`, starting a
+new session there), `/model [provider:model]` (no args: `GET
+/api/providers/models` live-fetches every provider's own `/v1/models`
+catalog server-side and lists it; an explicit `provider:model` arg sets it
+directly via `patchAgent`), `/effort <off|low|medium|high|max>` (same
+`patchAgent` path against `/api/agents/:id`), and `/yolo [off|persist|on]`
+(see "Yolo mode" above). There is no `/agent` (agent switching happens with
+`mininaru agent primary`, outside the TUI) and no `/reset`.
 
 ## Development
 

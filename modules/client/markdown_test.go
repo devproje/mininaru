@@ -11,13 +11,13 @@ import (
 const mdSample = "# Title\n\nsome **bold** and `code` and *em*.\n\n- one\n- two\n1. first\n\n> quoted\n\n```go\nfmt.Println(\"x\")\n```\n\ntail without newline"
 
 func renderWhole(md string) string {
-	var r mdRenderer
-	return r.write(md) + r.flush()
+	var r MdRenderer
+	return r.Write(md) + r.Flush()
 }
 
 func renderSplit(md string, at int) string {
-	var r mdRenderer
-	return r.write(md[:at]) + r.write(md[at:]) + r.flush()
+	var r MdRenderer
+	return r.Write(md[:at]) + r.Write(md[at:]) + r.Flush()
 }
 
 func TestMarkdownStreamingInvariant(t *testing.T) {
@@ -55,8 +55,8 @@ func TestMarkdownRendersElements(t *testing.T) {
 	if !strings.Contains(out, "• "+RESET+"first") {
 		t.Error("ordered list marker not normalised")
 	}
-	if !strings.Contains(out, "│ "+RESET+"fmt.Println") {
-		t.Error("fenced code line missing gutter / got inline-processed")
+	if !strings.Contains(stripAnsi(out), "│ fmt.Println(\"x\")") {
+		t.Error("fenced code line missing gutter or syntax highlighting broke content")
 	}
 	if !strings.Contains(out, RED+"code"+RESET) {
 		t.Error("inline code not styled as red text")
@@ -149,16 +149,29 @@ func TestMarkdownNonTablePipes(t *testing.T) {
 }
 
 func TestMarkdownKeepsMultibyteBytes(t *testing.T) {
-	var md mdRenderer
+	var md MdRenderer
 	var got string
 
-	got = md.write("안녕하세요, 잘돼요.\n")
+	got = md.Write("안녕하세요, 잘돼요.\n")
 	if got != "안녕하세요, 잘돼요.\n" {
 		t.Fatalf("multibyte text mangled: %q", got)
 	}
 
-	got = md.write("**굵게**") + md.flush()
+	got = md.Write("**굵게**") + md.Flush()
 	if !strings.Contains(got, "굵게") {
 		t.Fatalf("inline multibyte mangled: %q", got)
+	}
+}
+
+func TestMarkdownRendersStrikethrough(t *testing.T) {
+	var out string
+
+	out = renderWhole("~~gone~~ stays")
+
+	if !strings.Contains(out, "\x1b[9mgone\x1b[29m") {
+		t.Fatalf("strikethrough not applied: %q", out)
+	}
+	if strings.Contains(out, "~~") {
+		t.Fatalf("tilde markers leaked into output: %q", out)
 	}
 }

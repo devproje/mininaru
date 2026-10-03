@@ -4,6 +4,7 @@
 package client
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -17,11 +18,13 @@ import (
 	"golang.org/x/term"
 )
 
+type keys chan byte
+
 type renderer struct {
 	conn     *websocket.Conn
 	session  string
 	keys     keys
-	md       mdRenderer
+	md       MdRenderer
 	mode     string
 	rich     bool
 	format   string
@@ -32,6 +35,8 @@ type renderer struct {
 	awaiting atomic.Bool
 	answers  chan byte
 }
+
+var ErrGone error = errors.New("connection lost")
 
 func (r *renderer) send(frame Frame) error {
 	r.mu.Lock()
@@ -71,9 +76,9 @@ func (r *renderer) watch(done chan struct{}) {
 }
 
 func rawByte() byte {
-	var state *term.State
-	var buf []byte
 	var fd int
+	var buf []byte
+	var state *term.State
 
 	var err error
 
@@ -164,7 +169,7 @@ func (r *renderer) readLine() string {
 	return string(buf)
 }
 
-func isTty() bool {
+func IsTty() bool {
 	return term.IsTerminal(int(os.Stdin.Fd()))
 }
 
@@ -268,7 +273,7 @@ func (r *renderer) endLine() {
 	}
 
 	if r.rich && mode == "content" {
-		write("%s", r.md.flush())
+		write("%s", r.md.Flush())
 	}
 
 	write("%s\n", RESET)
@@ -291,7 +296,7 @@ func (r *renderer) text(next string, text string) {
 	}
 
 	if r.rich && next == "content" {
-		write("%s", r.md.write(text))
+		write("%s", r.md.Write(text))
 
 		return
 	}
@@ -303,6 +308,81 @@ func (r *renderer) text(next string, text string) {
 	}
 
 	write("%s", text)
+}
+
+func LooksLikeDiff(message string) bool {
+	return strings.Contains(message, "\n@@ ") || strings.HasPrefix(message, "@@ ")
+}
+
+func DiffStat(diff string) (added, removed int) {
+	var line string
+
+	for _, line = range strings.Split(diff, "\n") {
+		switch {
+		case strings.HasPrefix(line, "+++"), strings.HasPrefix(line, "---"):
+		case strings.HasPrefix(line, "+"):
+			added++
+		case strings.HasPrefix(line, "-"):
+			removed++
+		}
+	}
+
+	return added, removed
+}
+
+func StatusDot(status string) string {
+	switch status {
+	case "finished":
+		return GREEN + "●" + RESET
+	case "failed":
+		return RED + "●" + RESET
+	default:
+		return WHITE + "●" + RESET
+	}
+}
+
+func FormatDiff(diff string) string {
+	var line string
+	var out strings.Builder
+	var oldLine, newLine int
+	var color string
+
+	for _, line = range strings.Split(strings.TrimRight(diff, "\n"), "\n") {
+		switch {
+		case strings.HasPrefix(line, "+++"), strings.HasPrefix(line, "---"):
+			fmt.Fprintf(&out, "%s%s%s\n", WHITE, line, RESET)
+
+			continue
+		case strings.HasPrefix(line, "@@"):
+			fmt.Sscanf(line, "@@ -%d", &oldLine)
+			fmt.Sscanf(strings.SplitN(line, "+", 2)[1], "%d", &newLine)
+			fmt.Fprintf(&out, "%s%s%s\n", WHITE, line, RESET)
+
+			continue
+		case strings.HasPrefix(line, "+"):
+			fmt.Fprintf(&out, "%s%6d %s%s%s\n", WHITE, newLine, GREEN, line, RESET)
+			newLine++
+
+			continue
+		case strings.HasPrefix(line, "-"):
+			fmt.Fprintf(&out, "%s%6d %s%s%s\n", WHITE, oldLine, RED, line, RESET)
+			oldLine++
+
+			continue
+		default:
+			color = WHITE
+		}
+
+		fmt.Fprintf(&out, "%s%6d %s%s%s\n", WHITE, oldLine, color, line, RESET)
+		oldLine++
+		newLine++
+	}
+
+	return out.String()
+}
+
+func writeDiff(diff string) {
+	write("%s", FormatDiff(diff))
 }
 
 func (r *renderer) tool(name string, status string, message string) {
@@ -320,81 +400,17 @@ func (r *renderer) tool(name string, status string, message string) {
 		return
 	}
 
-	if strings.Contains(message, "\n") {
+	if LooksLikeDiff(message) {
 		var added, removed int
 
-		added, removed = diffStat(message)
-		write("%s %s%s %s %s+%d %s-%d%s\n", statusDot(status), WHITE, name, status, GREEN, added, RED, removed, RESET)
+		added, removed = DiffStat(message)
+		write("%s %s%s %s %s+%d %s-%d%s\n", StatusDot(status), WHITE, name, status, GREEN, added, RED, removed, RESET)
 		writeDiff(message)
 
 		return
 	}
 
-	write("%s %s%s %s %s%s\n", statusDot(status), WHITE, name, status, message, RESET)
-}
-
-func statusDot(status string) string {
-	switch status {
-	case "finished":
-		return GREEN + "●" + RESET
-	case "failed":
-		return RED + "●" + RESET
-	default:
-		return WHITE + "●" + RESET
-	}
-}
-
-func diffStat(diff string) (added, removed int) {
-	var line string
-
-	for _, line = range strings.Split(diff, "\n") {
-		switch {
-		case strings.HasPrefix(line, "+++"), strings.HasPrefix(line, "---"):
-		case strings.HasPrefix(line, "+"):
-			added++
-		case strings.HasPrefix(line, "-"):
-			removed++
-		}
-	}
-
-	return added, removed
-}
-
-func writeDiff(diff string) {
-	var line string
-	var color string
-	var oldLine, newLine int
-
-	for _, line = range strings.Split(strings.TrimRight(diff, "\n"), "\n") {
-		switch {
-		case strings.HasPrefix(line, "+++"), strings.HasPrefix(line, "---"):
-			write("%s%s%s\n", WHITE, line, RESET)
-
-			continue
-		case strings.HasPrefix(line, "@@"):
-			fmt.Sscanf(line, "@@ -%d", &oldLine)
-			fmt.Sscanf(strings.SplitN(line, "+", 2)[1], "%d", &newLine)
-			write("%s%s%s\n", WHITE, line, RESET)
-
-			continue
-		case strings.HasPrefix(line, "+"):
-			write("%s%6d %s%s%s\n", WHITE, newLine, GREEN, line, RESET)
-			newLine++
-
-			continue
-		case strings.HasPrefix(line, "-"):
-			write("%s%6d %s%s%s\n", WHITE, oldLine, RED, line, RESET)
-			oldLine++
-
-			continue
-		default:
-			color = WHITE
-		}
-
-		write("%s%6d %s%s%s\n", WHITE, oldLine, color, line, RESET)
-		oldLine++
-		newLine++
-	}
+	write("%s %s%s %s %s%s\n", StatusDot(status), WHITE, name, status, message, RESET)
 }
 
 func (r *renderer) frame(reply Reply) (bool, error) {
@@ -517,15 +533,15 @@ func (r *renderer) collect(reply Reply) (bool, error) {
 
 func Receive(conn *websocket.Conn, frames <-chan Reply, session string, stream keys, format string) error {
 	var render *renderer
-	var reply Reply
 	var structured bool
 	var done chan struct{}
+	var reply Reply
 	var ok bool
 	var stop bool
 
 	var err error
 
-	render = &renderer{conn: conn, session: session, keys: stream, rich: isTty(), format: format, answers: make(chan byte, 1)}
+	render = &renderer{conn: conn, session: session, keys: stream, rich: IsTty(), format: format, answers: make(chan byte, 1)}
 	defer render.halt()
 
 	structured = format != "" && format != FormatString
@@ -540,7 +556,7 @@ func Receive(conn *websocket.Conn, frames <-chan Reply, session string, stream k
 	for {
 		reply, ok = <-frames
 		if !ok {
-			return errGone
+			return ErrGone
 		}
 
 		if structured {

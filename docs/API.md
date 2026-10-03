@@ -24,7 +24,7 @@ the session store, and `messages` in the request body is the entire history
 you want considered — there is no server-side history for this endpoint.
 
 `/api` exposes plain REST CRUD for agents, providers, sessions, and messages
-(`GET/POST/PATCH/DELETE`), which is what the REPL and the `provider`/
+(`GET/POST/PATCH/DELETE`), which is what the TUI and the `provider`/
 `agent`/`session` commands ultimately talk to. A provider's API key is never
 returned in full over this API; list and read responses mask it.
 
@@ -51,9 +51,10 @@ inlined as data URIs for the model. The OpenAI endpoint takes the standard
 form directly: `content` as `[{"type":"text","text":"…"},{"type":"image_url","image_url":{"url":"data:image/png;base64,…"}}]`.
 
 The client does the upload for you: `mininaru -p "…" --image a.png --image b.png`,
-or `/img <path>` in the REPL (queued and sent with your next message).
+or by pasting/dragging an image into the TUI's compose box (queued and sent
+with your next message).
 
-`/ws` is what the REPL uses for chat (a browser authenticates it with the
+`/ws` is what the TUI uses for chat (a browser authenticates it with the
 `bearer.<key>` subprotocol, see [Serving](USAGE.md#serving)): send
 `{"session_id": "...", "content": "...", "cwd": "..."}` and receive a stream
 of `{"type": "chunk"|"tool"|"approval_request"|"done"|"error", ...}` frames.

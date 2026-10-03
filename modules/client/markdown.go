@@ -6,12 +6,15 @@ package client
 import (
 	"fmt"
 	"strings"
+
+	"github.com/alecthomas/chroma/v2/quick"
 )
 
-type mdRenderer struct {
-	buf     string
-	table   []string
-	inFence bool
+type MdRenderer struct {
+	buf       string
+	table     []string
+	inFence   bool
+	fenceLang string
 }
 
 type mdLink struct {
@@ -46,11 +49,11 @@ func parseLink(s string) mdLink {
 }
 
 func inlineMarkdown(s string) string {
+	var i int
+	var end int
 	var out string
 	var marker string
 	var link mdLink
-	var end int
-	var i int
 
 	for i = 0; i < len(s); i++ {
 		if s[i] == '`' {
@@ -67,6 +70,15 @@ func inlineMarkdown(s string) string {
 			end = strings.Index(s[i+2:], marker)
 			if end >= 0 {
 				out = fmt.Sprintf("%s%s%s%s", out, BOLD, s[i+2:i+2+end], RESET)
+				i = i + end + 3
+				continue
+			}
+		}
+
+		if strings.HasPrefix(s[i:], "~~") {
+			end = strings.Index(s[i+2:], "~~")
+			if end >= 0 {
+				out = fmt.Sprintf("%s\x1b[9m%s\x1b[29m", out, s[i+2:i+2+end])
 				i = i + end + 3
 				continue
 			}
@@ -261,16 +273,16 @@ func padCell(text string, width int, align int) string {
 
 func renderTable(rows []string) string {
 	var aligns []int
+	var r int
 	var cells []string
 	var grid [][]string
 	var cols int
 	var widths []int
-	var cell string
-	var span int
-	var align int
-	var out strings.Builder
-	var r int
 	var c int
+	var span int
+	var out strings.Builder
+	var cell string
+	var align int
 
 	aligns = cellAligns(rows[1])
 
@@ -347,11 +359,25 @@ func renderTable(rows []string) string {
 	return out.String()
 }
 
-func (m *mdRenderer) formatLine(line string) string {
+func highlightCode(lang, line string) string {
+	var buf strings.Builder
+
+	if lang == "" {
+		return line
+	}
+
+	if quick.Highlight(&buf, line, lang, "terminal256", "monokai") != nil {
+		return line
+	}
+
+	return strings.TrimRight(buf.String(), "\n")
+}
+
+func (m *MdRenderer) formatLine(line string) string {
 	var trimmed string
+	var hashes int
 	var indent string
 	var body string
-	var hashes int
 	var ok bool
 
 	trimmed = strings.TrimSpace(line)
@@ -359,13 +385,15 @@ func (m *mdRenderer) formatLine(line string) string {
 	if strings.HasPrefix(trimmed, "```") || strings.HasPrefix(trimmed, "~~~") {
 		m.inFence = !m.inFence
 		if m.inFence && len(trimmed) > 3 {
+			m.fenceLang = strings.ToLower(strings.TrimSpace(trimmed[3:]))
 			return GRAY + "│ " + RESET + DIM + strings.TrimSpace(trimmed[3:]) + RESET
 		}
+		m.fenceLang = ""
 		return GRAY + "╌╌╌" + RESET
 	}
 
 	if m.inFence {
-		return GRAY + "│ " + RESET + line
+		return GRAY + "│ " + RESET + highlightCode(m.fenceLang, line)
 	}
 
 	if line == "" {
@@ -396,7 +424,7 @@ func (m *mdRenderer) formatLine(line string) string {
 	return indent + inlineMarkdown(strings.TrimLeft(line, " \t"))
 }
 
-func (m *mdRenderer) drainTable() string {
+func (m *MdRenderer) drainTable() string {
 	var rows []string
 	var out string
 	var row string
@@ -419,7 +447,7 @@ func (m *mdRenderer) drainTable() string {
 	return renderTable(rows)
 }
 
-func (m *mdRenderer) line(raw string) string {
+func (m *MdRenderer) line(raw string) string {
 	var trimmed string
 
 	trimmed = strings.TrimSpace(raw)
@@ -433,7 +461,7 @@ func (m *mdRenderer) line(raw string) string {
 	return m.drainTable() + m.formatLine(raw) + "\n"
 }
 
-func (m *mdRenderer) write(delta string) string {
+func (m *MdRenderer) Write(delta string) string {
 	var out string
 	var i int
 
@@ -450,7 +478,7 @@ func (m *mdRenderer) write(delta string) string {
 	return out
 }
 
-func (m *mdRenderer) flush() string {
+func (m *MdRenderer) Flush() string {
 	var out string
 	var line string
 
@@ -466,8 +494,9 @@ func (m *mdRenderer) flush() string {
 	return out + m.formatLine(line)
 }
 
-func (m *mdRenderer) reset() {
+func (m *MdRenderer) Reset() {
 	m.buf = ""
 	m.table = nil
 	m.inFence = false
+	m.fenceLang = ""
 }
