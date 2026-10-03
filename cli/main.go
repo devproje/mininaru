@@ -28,6 +28,7 @@ var (
 	promptImageRef   []string
 	promptCwdRef     string
 	promptNoCacheRef bool
+	promptResumeRef  bool
 )
 
 var root *cobra.Command = &cobra.Command{
@@ -118,6 +119,7 @@ func main() {
 	root.Flags().BoolVar(&versionRef, "version", false, "checking mininaru version")
 	root.Flags().StringVarP(&promptRef, "prompt", "p", "", "sending short stateless prompt")
 	root.Flags().StringVar(&promptSessionRef, "session", "", "existing session id to prompt on")
+	root.Flags().BoolVar(&promptResumeRef, "resume", false, "continue the most recent session for this directory")
 	root.Flags().StringVar(&promptAgentRef, "agent", "", "agent name to open a new session with")
 	root.Flags().StringVarP(&promptFormatRef, "format", "f", client.FormatString, "output format for -p: string|json|xml")
 	root.Flags().StringArrayVar(&promptImageRef, "image", nil, "attach an image file to the -p prompt, repeatable")

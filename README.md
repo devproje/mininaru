@@ -6,10 +6,11 @@ An LLM harness in one Go binary: the agent runtime — a tool-calling loop with
 bash, file edit, headless-browser, and MCP tools, plus persistent memory,
 skills, and one-level delegation — reachable two ways.
 
-- **`mininaru`** — a terminal REPL where every line goes straight to the
-  agent; `/bash` runs one shell command on request (`/!bash` does the same
-  without sharing the output with the agent), and dangerous tools are gated
-  per directory.
+- **`mininaru`** — a full-screen terminal chat client where every message goes
+  straight to the agent; `/bash` runs one shell command on request (`/!bash`
+  does the same without sharing the output with the agent), paste or
+  drag-and-drop an image to attach it, and dangerous tools are gated per
+  directory.
 - **An OpenAI-compatible HTTP + websocket API** backed by SQLite, with an
   admin CLI for providers, agents, and sessions.
 
@@ -136,9 +137,8 @@ architecture once a stable release exists again.
 
 Once a day, at most, mininaru checks GitHub for the latest release tag in
 the background and caches the answer in `update.json` under `NARU_PATH`. The
-check never blocks a command: the result is written for the *next* run,
-which is when the notice appears at the top of the REPL and under
-`--version`.
+check never blocks a command: the result is written for the *next* run, and
+`mininaru --version` is what shows the notice.
 
 ```
 a newer version is available: v1.0.0-alpha.2 (run `mininaru update`)
@@ -149,10 +149,10 @@ check off entirely.
 
 ## Usage
 
-Once you have a provider and an agent configured, `mininaru` (REPL) or
+Once you have a provider and an agent configured, `mininaru` (TUI) or
 `mininaru -p "<prompt>"` (one-shot) talk to it. Full detail on storage
 layout, provider/agent setup, `serve`, the tool set and `/yolo` gating, MCP
-servers, the REPL, `-p`, and gateways lives in
+servers, the TUI, `-p`, and gateways lives in
 [docs/USAGE.md](docs/USAGE.md); the HTTP/websocket API is in
 [docs/API.md](docs/API.md).
 

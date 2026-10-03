@@ -15,9 +15,10 @@ the first edit. This document does not repeat them.
 The `1.0.0-alpha` rewrite dropped a lot of what an earlier version of this
 project had: skills, memory, subagent delegation, a Discord front end, a
 paired gRPC client, a full-screen TUI. (Tool calling, MCP, delegation — the
-`agent_spawn` and `session_send` tools — persistent memory, and skills all
-came back; see "Tool calling" in ARCHITECTURE.md. All of them are a
-different, lighter design than the old one, so don't assume the old shape.)
+`agent_spawn` and `session_send` tools — persistent memory, skills, and the
+full-screen TUI (now `modules/tui`, bubbletea-based) all came back; see "Tool
+calling" in ARCHITECTURE.md. All of them are a different, lighter design than
+the old one, so don't assume the old shape.)
 If you find a stale reference to any of the rest — in a comment, a doc, an
 old branch — it describes something that used to exist, not something you
 are missing. Check
@@ -31,7 +32,7 @@ documentation lags the code here more often than the reverse.
 | --- | --- |
 | anything | [CONVENTION.md](CONVENTION.md) |
 | `core/` or `server/` | the matching section of [ARCHITECTURE.md](ARCHITECTURE.md) |
-| `cli/shell/` | the "The interactive shell" section of [ARCHITECTURE.md](ARCHITECTURE.md) |
+| `modules/client/` or `modules/tui/` | the matching package section of [ARCHITECTURE.md](ARCHITECTURE.md) |
 | the HTTP API | "`server/` — three route groups, one gin engine" in ARCHITECTURE.md |
 
 `core/chat.go` is the one place completion happens; both the `/api/v1`
@@ -73,14 +74,14 @@ That is what CI runs on every push and pull request, alongside a plain
 `make build`, a cross-compile check for `linux/amd64`, `linux/arm64`, and
 `darwin/arm64`, and a `scripts` job that shellchecks `scripts/*.sh` and
 parse-checks `scripts/*.ps1` — `os/exec`, `syscall`, and anything
-terminal-related in `cli/shell/` deserve a `GOOS=darwin go build ./...`
-before you claim a change is done, since that platform is not what most
-development happens on.
+terminal-related in `modules/client/` or `modules/tui/` deserve a
+`GOOS=darwin go build ./...` before you claim a change is done, since that
+platform is not what most development happens on.
 
-Most packages have tests as of this writing (`cli`, `cli/shell`, `core`,
-`modules/bash`, `modules/browser`, `modules/file`, `modules/mcp`,
-`modules/memory`, `server`, `server/controller`, `server/sock`, `util`) —
-check with `go test ./... -v`
+Most packages have tests as of this writing (`cli`, `core`, `modules/bash`,
+`modules/browser`, `modules/client`, `modules/file`, `modules/mcp`,
+`modules/memory`, `modules/tui`, `server`, `server/controller`,
+`server/sock`, `util`) — check with `go test ./... -v`
 which ones actually ran; "tests pass" after running one package is a false
 statement about the rest. `modules/browser`'s integration test skips itself
 when no Chrome/Chromium binary is reachable (`browser.Available()`) — a

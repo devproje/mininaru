@@ -5,13 +5,11 @@ package client
 
 import (
 	"fmt"
-	"os"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/devproje/mininaru/core"
-	"golang.org/x/term"
 )
 
 const (
@@ -30,13 +28,13 @@ const (
 )
 
 const (
-	spinnerTick  time.Duration = 80 * time.Millisecond
+	SpinnerTick  time.Duration = 80 * time.Millisecond
 	barWidth     int           = 10
 	barSegment   int           = 3
 	barStepTicks int           = 2
 )
 
-func barFrame(tick int) string {
+func BarFrame(tick int) string {
 	var span int
 	var pos int
 
@@ -61,7 +59,7 @@ func spinner(label string) func() {
 		var tick *time.Ticker
 		var i int
 
-		tick = time.NewTicker(spinnerTick)
+		tick = time.NewTicker(SpinnerTick)
 		defer tick.Stop()
 		defer close(done)
 
@@ -70,7 +68,7 @@ func spinner(label string) func() {
 			case <-stop:
 				return
 			case <-tick.C:
-				write("\r\x1b[2K%s%s%s %s%s%s", PURPLE, barFrame(i), RESET, WHITE, label, RESET)
+				write("\r\x1b[2K%s%s%s %s%s%s", PURPLE, BarFrame(i), RESET, WHITE, label, RESET)
 				i++
 			}
 		}
@@ -83,19 +81,6 @@ func spinner(label string) func() {
 			write("\r\x1b[2K")
 		})
 	}
-}
-
-func termWidth() int {
-	var cols int
-
-	var err error
-
-	cols, _, err = term.GetSize(int(os.Stdout.Fd()))
-	if err != nil || cols <= 0 {
-		return 80
-	}
-
-	return cols
 }
 
 func stripAnsi(text string) string {
@@ -128,10 +113,6 @@ func write(format string, args ...any) {
 	fmt.Print(strings.ReplaceAll(fmt.Sprintf(format, args...), "\n", "\r\n"))
 }
 
-func notice(color string, mark string, format string, args ...any) {
-	write("%s%s%s %s\n", color, mark, RESET, fmt.Sprintf(format, args...))
-}
-
 func displayWidth(text string) int {
 	var letter rune
 	var width int
@@ -159,52 +140,7 @@ func displayWidth(text string) int {
 	return width
 }
 
-func shortPath(cwd string) string {
-	var home string
-	var parts []string
-
-	var err error
-
-	home, err = os.UserHomeDir()
-	if err == nil && strings.HasPrefix(cwd, home) {
-		cwd = "~" + strings.TrimPrefix(cwd, home)
-	}
-
-	parts = strings.Split(cwd, string(os.PathSeparator))
-	if len(parts) <= 3 {
-		return cwd
-	}
-
-	return strings.Join(append([]string{parts[0], "…"}, parts[len(parts)-2:]...), string(os.PathSeparator))
-}
-
-func pathColor(mode string) string {
-	switch mode {
-	case "persist":
-		return YELLOW
-	case "on":
-		return RED
-	}
-
-	return DIM
-}
-
-func effortColor(level string) string {
-	switch level {
-	case "off":
-		return DIM
-	case "low":
-		return BLUE
-	case "high":
-		return YELLOW
-	case "max":
-		return RED
-	}
-
-	return GRAY
-}
-
-func contextLabel(usage *core.ContextUsage) string {
+func ContextLabel(usage *core.ContextUsage) string {
 	var percent uint64
 	var label string
 	var cachePercent uint64

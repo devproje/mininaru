@@ -13,7 +13,7 @@ func TestContextLabel(t *testing.T) {
 	var usage core.ContextUsage
 
 	usage = core.ContextUsage{Used: 4800, Limit: 19200}
-	if contextLabel(&usage) != "ctx:4800/19200 (25%)" {
-		t.Fatalf("contextLabel() = %q", contextLabel(&usage))
+	if ContextLabel(&usage) != "ctx:4800/19200 (25%)" {
+		t.Fatalf("ContextLabel() = %q", ContextLabel(&usage))
 	}
 }

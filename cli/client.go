@@ -5,6 +5,7 @@ package main
 
 import (
 	"github.com/devproje/mininaru/modules/client"
+	"github.com/devproje/mininaru/modules/tui"
 )
 
 func clientExecute() error {
@@ -17,13 +18,14 @@ func clientExecute() error {
 		return err
 	}
 
-	return client.Run(client.Options{
+	return tui.RunTuiSession(client.Options{
 		Url:      promptUrlRef,
 		Session:  promptSessionRef,
 		Agent:    promptAgentRef,
 		ApiKey:   promptApiKeyRef,
 		Cwd:      promptCwdRef,
 		NoCache:  promptNoCacheRef,
+		Resume:   promptResumeRef,
 		Gateways: gateways,
 	})
 }
