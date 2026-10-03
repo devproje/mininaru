@@ -136,8 +136,10 @@ func dialTestConn(t *testing.T, handle func(server *websocket.Conn)) *websocket.
 		var up websocket.Upgrader
 		var server *websocket.Conn
 
-		server, err = up.Upgrade(w, r, nil)
-		if err != nil {
+		var handlerErr error
+
+		server, handlerErr = up.Upgrade(w, r, nil)
+		if handlerErr != nil {
 			return
 		}
 
