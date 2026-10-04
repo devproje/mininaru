@@ -9,9 +9,23 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/devproje/mininaru/util"
 )
 
+func setupManagerFS(t *testing.T) {
+	var err error
+
+	t.Helper()
+
+	err = util.InitFS(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestChromePathHonorsEnvOverride(t *testing.T) {
+	setupManagerFS(t)
 	t.Setenv("MININARU_CHROME", "/opt/custom/chrome")
 
 	if chromePath() != "/opt/custom/chrome" {
@@ -29,6 +43,8 @@ func TestChromePathFallsBackToKnownAbsolutePaths(t *testing.T) {
 	var originalCandidates []string
 
 	var err error
+
+	setupManagerFS(t)
 
 	dir = t.TempDir()
 	fake = filepath.Join(dir, "headless_shell")
@@ -48,6 +64,63 @@ func TestChromePathFallsBackToKnownAbsolutePaths(t *testing.T) {
 
 	if chromePath() != fake {
 		t.Fatalf("chromePath() = %q, want the fake path %q (not found on $PATH)", chromePath(), fake)
+	}
+}
+
+func TestChromePathHonorsConfiguredChannel(t *testing.T) {
+	var dir string
+	var fake string
+	var originalChannelCandidates map[string][]string
+
+	var err error
+
+	setupManagerFS(t)
+
+	dir = t.TempDir()
+	fake = filepath.Join(dir, "fake-edge")
+
+	err = os.WriteFile(fake, []byte("#!/bin/sh\n"), 0755)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	originalChannelCandidates = channelCandidates
+	channelCandidates = map[string][]string{ChannelEdge: {"fake-edge"}}
+	t.Cleanup(func() { channelCandidates = originalChannelCandidates })
+
+	err = SaveConfig(Config{Channel: ChannelEdge})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if chromePath() != fake {
+		t.Fatalf("chromePath() = %q, want the configured channel's binary %q", chromePath(), fake)
+	}
+}
+
+func TestChromePathReturnsEmptyWhenConfiguredChannelNotFound(t *testing.T) {
+	var originalChannelCandidates map[string][]string
+
+	var err error
+
+	setupManagerFS(t)
+
+	originalChannelCandidates = channelCandidates
+	channelCandidates = map[string][]string{ChannelBrave: {"no-such-brave-binary-anywhere"}}
+	t.Cleanup(func() { channelCandidates = originalChannelCandidates })
+
+	err = SaveConfig(Config{Channel: ChannelBrave})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if chromePath() != "" {
+		t.Fatalf("chromePath() = %q, want empty since the configured channel has no installed binary", chromePath())
+	}
+	if Available() {
+		t.Fatal("Available() should be false when the configured channel can't be found, regardless of other installed browsers")
 	}
 }
 
@@ -132,6 +205,7 @@ func TestNewSessionDoesNotHangForeverOnAStalledLaunch(t *testing.T) {
 func TestCloseSessionRemovesIt(t *testing.T) {
 	var ok bool
 
+	setupManagerFS(t)
 	sessionContext("test-close")
 	closeSession("test-close")
 

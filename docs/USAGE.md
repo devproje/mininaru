@@ -140,10 +140,14 @@ browser (`browser_navigate`/`browser_click`/`browser_type`/`browser_read`/
 configured agents with `agent_spawn`, and inject a message into one of its
 own already-running sessions with `session_send` — plus whatever MCP
 servers you configure (see [MCP servers](#mcp-servers) below). `browser_*`
-needs a Chrome or Chromium binary reachable via `$PATH` or
-`MININARU_CHROME`. `web_search` needs a backend configured with
-`mininaru webprovider add` (Brave, Tavily, or Ollama Search) and returns an
-error if none is selected; `web_fetch` works with no configuration at all
+needs a Chrome, Chromium, Edge, or Brave binary reachable via `$PATH` or
+`MININARU_CHROME`; when more than one is installed, `mininaru browser set
+<chrome|chromium|edge|brave>` (or `POST /api/browser`) picks which one —
+`mininaru browser show` prints the current choice and resolved binary,
+`mininaru browser clear` goes back to auto-detecting. `web_search` needs a
+backend configured with `mininaru webprovider add` (Brave, Tavily, or
+Ollama Search) and returns an error if none is selected; `web_fetch` works
+with no configuration at all
 — a direct, SSRF-guarded fetch — unless a Tavily backend is selected, in
 which case it uses Tavily's extract endpoint instead. `ask_user_question`
 needs someone actually watching the session to answer it: over `-p

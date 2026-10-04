@@ -14,6 +14,7 @@ func apiRoutes(api *gin.RouterGroup) {
 	var sessions *gin.RouterGroup
 	var messages *gin.RouterGroup
 	var mcpServers *gin.RouterGroup
+	var browserGroup *gin.RouterGroup
 	var skills *gin.RouterGroup
 
 	agents = api.Group("/agents")
@@ -61,6 +62,10 @@ func apiRoutes(api *gin.RouterGroup) {
 	mcpServers.DELETE("/:name", controller.McpDelete)
 	mcpServers.POST("/:name/enable", controller.McpEnable)
 	mcpServers.POST("/:name/disable", controller.McpDisable)
+
+	browserGroup = api.Group("/browser")
+	browserGroup.GET("", controller.BrowserRead)
+	browserGroup.POST("", controller.BrowserUpdate)
 
 	skills = api.Group("/skill")
 	skills.GET("", controller.SkillList)

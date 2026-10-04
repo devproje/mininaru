@@ -44,7 +44,7 @@ core/           Provider, WebProvider, Agent, Session, Message, ToolCall CRUD, t
 modules/          the Tool/Permission/WebBackend types — a pure leaf package, imports only the standard library
 modules/bash/     the bash_exec builtin tool
 modules/file/     the file_read/file_write/file_edit builtin tools
-modules/browser/  the browser_* computer-use tools (chromedp), the one tool package with cross-call state
+modules/browser/  the browser_* computer-use tools (chromedp), the one tool package with cross-call state, browser.json channel config + `cli/browser.go` admin CLI
 modules/web_search/ the web_search tool (Brave/Tavily/Ollama Search backends)
 modules/web_fetch/  the web_fetch tool (SSRF-guarded direct fetch, or Tavily extract)
 modules/mcp/      the MCP client (stdio + streamable-HTTP transports, mcp.json config, `cli/mcp.go` admin CLI)
@@ -77,10 +77,13 @@ remote's `/api` instead, via `cli/remote.go`'s helpers over `client.Api`.
 `add` and `set` are always local. MCP is also reachable over `/api/mcp`
 (`server/controller/mcp.go`) — the same config CRUD the `mcp` CLI does, each
 mutation followed by `mcp.Reload` so a remote server's tool set changes
-without a shell on the box. `/api/skill` (`server/controller/skill.go`,
-read-only) and `/api/agents/:id/memory` (`server/controller/memory.go`,
-read/write/delete, wrapping new `memory.List`/`Read`/`Write`/`Delete`) round
-out the surface — `skill`'s local CLI stays as-is.
+without a shell on the box. `/api/browser` (`server/controller/browser.go`)
+is the same relationship for the browser channel choice, minus the reload
+step (see "Computer use" above). `/api/skill`
+(`server/controller/skill.go`, read-only) and `/api/agents/:id/memory`
+(`server/controller/memory.go`, read/write/delete, wrapping new
+`memory.List`/`Read`/`Write`/`Delete`) round out the surface — `skill`'s
+local CLI stays as-is.
 
 ## Storage
 
@@ -451,14 +454,31 @@ the same tab. A lazily-started reaper goroutine (`sync.Once`-gated, so it
 never runs if browser tools are never called) closes sessions idle for more
 than 5 minutes; `browser_close` lets the model end one early. The Chrome
 binary is found via `MININARU_CHROME` (mirroring `MININARU_SHELL` in
-`modules/bash`) or `$PATH` (checking `headless-shell`/`chromium-headless-shell`
-ahead of the full-browser names — a headless-only build works fine, chromedp
-always launches with `--headless` regardless), falling back to chromedp's own
-default search; `browser.Available()` is the same check used to skip
-`modules/browser`'s integration tests when no Chrome/Chromium is installed.
-Browser sessions are in-memory only — they don't survive a server restart,
-and a resumed mininaru session just opens a fresh tab on its next
-`browser_navigate`.
+`modules/bash`), else a configured channel (below), else `$PATH` (checking
+`headless-shell`/`chromium-headless-shell` ahead of the full-browser names —
+a headless-only build works fine, chromedp always launches with
+`--headless` regardless), falling back to chromedp's own default search;
+`browser.Available()` is the same check used to skip `modules/browser`'s
+integration tests when no Chrome/Chromium is installed. Browser sessions
+are in-memory only — they don't survive a server restart, and a resumed
+mininaru session just opens a fresh tab on its next `browser_navigate`.
+
+When more than one browser is installed, `modules/browser/config.go`'s
+`browser.json` (`{"channel": "chrome"|"chromium"|"edge"|"brave"}`) picks
+which one — `mininaru browser set <channel>` and `/api/browser` both just
+read/write this file directly, the same relationship `cli/mcp.go`/
+`/api/mcp` have with `mcp.json`, and for the same reason there's no reload
+step: unlike an MCP server, nothing about a browser channel choice is a
+live out-of-process connection to re-dial, so `chromePath()` just reads
+`browser.json` fresh the next time a browser session is lazily created.
+A channel that's configured but not found on `$PATH` makes `chromePath()`
+return `""` directly rather than falling back to the generic search — the
+operator asked for a specific browser, so `Available()` reporting false is
+less surprising than silently launching a different one. `browser.json`
+only ever stores one of the four channel names, never an arbitrary path:
+unlike `MININARU_CHROME` (which needs process-level env access), `/api/browser`
+is reachable by any API client, so letting it set a path would let a
+caller point the server at any binary on disk.
 
 `newSession()`'s initial `chromedp.Run(ctx)` call — the one that actually
 launches the browser and binds the target to `ctx` — runs in a goroutine
