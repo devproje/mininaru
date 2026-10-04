@@ -20,12 +20,39 @@ const (
 	RED    string = "\x1b[38;5;203m"
 	GREEN  string = "\x1b[38;5;114m"
 	YELLOW string = "\x1b[38;5;179m"
+	GOLD   string = "\x1b[38;5;178m"
 	BLUE   string = "\x1b[38;5;110m"
 	PURPLE string = "\x1b[38;5;141m"
 	CYAN   string = "\x1b[38;5;80m"
 	GRAY   string = "\x1b[38;5;245m"
 	WHITE  string = "\x1b[38;5;255m"
 )
+
+func ModeColor(mode string) string {
+	switch mode {
+	case core.ModePlan:
+		return GREEN
+	case core.ModeAutoPersist:
+		return GOLD
+	case core.ModeFullAuto:
+		return RED
+	default:
+		return GRAY
+	}
+}
+
+func ModeColorCode(mode string) string {
+	switch mode {
+	case core.ModePlan:
+		return "114"
+	case core.ModeAutoPersist:
+		return "178"
+	case core.ModeFullAuto:
+		return "203"
+	default:
+		return "245"
+	}
+}
 
 const (
 	SpinnerTick  time.Duration = 80 * time.Millisecond

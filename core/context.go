@@ -326,6 +326,7 @@ func SessionContextUsage(agent *Agent, session *Session) (*ContextUsage, error) 
 	var union []openai.ChatCompletionMessageParamUnion
 	var memoryIndex string
 	var skillCatalog string
+	var platformPrompt string
 	var tools []modules.Tool
 	var tokens uint64
 
@@ -363,6 +364,13 @@ func SessionContextUsage(agent *Agent, session *Session) (*ContextUsage, error) 
 	}
 	if agent.Soul != "" {
 		union = append([]openai.ChatCompletionMessageParamUnion{openai.SystemMessage(agent.Soul)}, union...)
+	}
+	platformPrompt, err = PlatformPrompt()
+	if err != nil {
+		return nil, err
+	}
+	if platformPrompt != "" {
+		union = append([]openai.ChatCompletionMessageParamUnion{openai.SystemMessage(platformPrompt)}, union...)
 	}
 
 	tools = buildTools(session.Cwd, session.Id, agent, 0, nil, nil, nil)

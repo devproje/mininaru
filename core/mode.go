@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/devproje/mininaru/util"
@@ -27,12 +28,38 @@ type DirectoryConfig struct {
 const directoryPath = "directory.json"
 
 const (
-	YoloOff     = "off"
-	YoloPersist = "persist"
-	YoloOn      = "on"
+	ModeDefault     = "default"
+	ModePlan        = "plan"
+	ModeAutoPersist = "auto_persist"
+	ModeFullAuto    = "full_auto"
 )
 
-func YoloLoad() (*DirectoryConfig, error) {
+var sessionModeOverrides sync.Map
+
+func SetSessionModeOverride(sessionId, mode string) {
+	sessionModeOverrides.Store(sessionId, mode)
+}
+
+func SessionModeOverride(sessionId string) (string, bool) {
+	var stored any
+	var mode string
+	var ok bool
+
+	stored, ok = sessionModeOverrides.Load(sessionId)
+	if !ok {
+		return "", false
+	}
+
+	mode, ok = stored.(string)
+
+	return mode, ok
+}
+
+func ClearSessionModeOverride(sessionId string) {
+	sessionModeOverrides.Delete(sessionId)
+}
+
+func ModeLoad() (*DirectoryConfig, error) {
 	var path string
 	var buf []byte
 	var config DirectoryConfig
@@ -57,7 +84,7 @@ func YoloLoad() (*DirectoryConfig, error) {
 	return &config, nil
 }
 
-func YoloSave(config *DirectoryConfig) error {
+func ModeSave(config *DirectoryConfig) error {
 	var path string
 	var buf []byte
 
@@ -72,14 +99,14 @@ func YoloSave(config *DirectoryConfig) error {
 	return util.WriteFileAtomic(path, buf, 0600)
 }
 
-func YoloUpsert(root, mode string) error {
+func ModeUpsert(root, mode string) error {
 	var config *DirectoryConfig
 	var index int
 	var found bool
 
 	var err error
 
-	config, err = YoloLoad()
+	config, err = ModeLoad()
 	if err != nil {
 		return err
 	}
@@ -102,7 +129,7 @@ func YoloUpsert(root, mode string) error {
 		})
 	}
 
-	return YoloSave(config)
+	return ModeSave(config)
 }
 
 func coveredBy(root, target string) bool {
@@ -113,7 +140,7 @@ func coveredBy(root, target string) bool {
 	return strings.HasPrefix(target, root+string(filepath.Separator))
 }
 
-func YoloLookup(target string) string {
+func ModeLookup(target string) string {
 	var config *DirectoryConfig
 	var mode string
 	var entry DirectoryEntry
@@ -121,12 +148,12 @@ func YoloLookup(target string) string {
 
 	var err error
 
-	config, err = YoloLoad()
+	config, err = ModeLoad()
 	if err != nil {
-		return YoloOff
+		return ModeDefault
 	}
 
-	mode = YoloOff
+	mode = ModeDefault
 
 	for _, entry = range config.Entries {
 		if !coveredBy(entry.Root, target) {
@@ -141,6 +168,51 @@ func YoloLookup(target string) string {
 	}
 
 	return mode
+}
+
+func modeEscapesPath(anchor, path string) bool {
+	var full string
+
+	if filepath.IsAbs(path) {
+		return true
+	}
+
+	full = filepath.Join(anchor, path)
+
+	return full != anchor && !coveredBy(anchor, full)
+}
+
+func IsIOTool(name string) bool {
+	switch name {
+	case "file_read", "file_write", "file_edit":
+		return true
+	default:
+		return false
+	}
+}
+
+func IsReadOnlyTool(name string) bool {
+	switch name {
+	case "file_read", "browser_read", "browser_screenshot":
+		return true
+	default:
+		return false
+	}
+}
+
+func ModeEscapesAnchor(anchor, arguments string) bool {
+	var payload struct {
+		Path string `json:"path"`
+	}
+
+	var err error
+
+	err = json.Unmarshal([]byte(arguments), &payload)
+	if err != nil {
+		return false
+	}
+
+	return modeEscapesPath(anchor, payload.Path)
 }
 
 func IsLoopbackAddr(remoteAddr string) bool {

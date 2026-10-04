@@ -25,6 +25,7 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var promptMsg tuiPromptMsg
 	var doneMsg tuiDoneMsg
 	var cmdResultMsg tuiCmdResultMsg
+	var modeSyncedMsg tuiModeSyncedMsg
 	var sessionSwitchMsg tuiSessionSwitchMsg
 	var gatewaySwitchMsg tuiGatewaySwitchMsg
 	var clipMsg tuiClipboardResolvedMsg
@@ -152,6 +153,15 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 			}
+		case "shift+tab":
+			if m.base == "" {
+				return m, nil
+			}
+
+			m.mode = nextMode(m.mode)
+			m.layout()
+
+			return m, pushModeCmd(m.base, m.apiKey, m.cwd, m.mode)
 		case "tab":
 			suggestions = tuiCmdSuggestions(m.input.Value())
 			if m.awaiting == "" && len(suggestions) > 0 && !tuiCmdExact(m.input.Value()) {
@@ -220,6 +230,13 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	toolMsg, ok = msg.(tuiToolMsg)
 	if ok {
+		if toolMsg.status == "mode" {
+			m.mode = toolMsg.message
+			m.layout()
+
+			return m, nil
+		}
+
 		if toolMsg.status == "started" {
 			m.newLine()
 			m.appendText(fmt.Sprintf("%s %s%s%s %s", client.StatusDot(toolMsg.status), client.WHITE, toolMsg.name, client.RESET, "running"))
@@ -312,7 +329,7 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.newLine()
 		m.layout()
 
-		return m, m.flushQueued()
+		return m, tea.Batch(m.flushQueued(), refreshModeCmd(m.base, m.apiKey, m.cwd))
 	}
 
 	cmdResultMsg, ok = msg.(tuiCmdResultMsg)
@@ -321,6 +338,19 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.layout()
 
 		return m, m.flushQueued()
+	}
+
+	modeSyncedMsg, ok = msg.(tuiModeSyncedMsg)
+	if ok {
+		if modeSyncedMsg.err != nil {
+			m.lines = append(m.lines, fmt.Sprintf("%s✗ mode change failed: %s%s", client.RED, modeSyncedMsg.err, client.RESET))
+		} else {
+			m.mode = modeSyncedMsg.mode
+		}
+
+		m.layout()
+
+		return m, nil
 	}
 
 	sessionSwitchMsg, ok = msg.(tuiSessionSwitchMsg)

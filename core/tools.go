@@ -32,11 +32,15 @@ func resolveWebBackend() (*modules.WebBackend, error) {
 }
 
 func buildTools(root, sessionId string, caller *Agent, depth int, onTool func(name, status, message string), approve ApproveFunc, ask AskFunc) []modules.Tool {
+	var mode string
+	var unrestricted bool
 	var tools []modules.Tool
 	var askQuestion modules.AskFunc
 
 	if root != "" {
-		tools = append(tools, bash.Exec(root), file.Read(root), file.Write(root), file.Edit(root))
+		mode = ModeLookup(root)
+		unrestricted = mode == ModeFullAuto
+		tools = append(tools, bash.Exec(root), file.Read(root, unrestricted), file.Write(root, unrestricted), file.Edit(root, unrestricted))
 	}
 
 	if ask != nil {
@@ -53,6 +57,10 @@ func buildTools(root, sessionId string, caller *Agent, depth int, onTool func(na
 	tools = append(tools, memory.Tools(caller.Id)...)
 	tools = append(tools, skill.Tool(), skill.CreateTool())
 	tools = append(tools, sessionListTool(caller, sessionId), agentListTool())
+
+	if mode == ModePlan && askQuestion != nil {
+		tools = append(tools, planApprovalTool(sessionId, onTool, askQuestion))
+	}
 
 	if depth < maxSpawnDepth {
 		tools = append(tools, agentSpawnTool(caller, root, depth, onTool, approve, ask))

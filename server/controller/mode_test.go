@@ -14,7 +14,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func TestYoloSetTrustsCwdOnlyWhenLoopback(t *testing.T) {
+func TestModeSetTrustsCwdOnlyWhenLoopback(t *testing.T) {
 	var router *gin.Engine
 	var body []byte
 	var w *httptest.ResponseRecorder
@@ -24,9 +24,9 @@ func TestYoloSetTrustsCwdOnlyWhenLoopback(t *testing.T) {
 	setupTestDB(t)
 	router = newRouter()
 
-	body, _ = json.Marshal(map[string]string{"mode": "persist", "cwd": "/home/user/project"})
+	body, _ = json.Marshal(map[string]string{"mode": "auto_persist", "cwd": "/home/user/project"})
 	w = httptest.NewRecorder()
-	req = httptest.NewRequest(http.MethodPost, "/api/yolo", bytes.NewReader(body))
+	req = httptest.NewRequest(http.MethodPost, "/api/mode", bytes.NewReader(body))
 	req.RemoteAddr = "127.0.0.1:54321"
 	router.ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
@@ -37,12 +37,12 @@ func TestYoloSetTrustsCwdOnlyWhenLoopback(t *testing.T) {
 	if resp["root"] != "/home/user/project" {
 		t.Fatalf("root = %v, want the loopback client's cwd", resp["root"])
 	}
-	if core.YoloLookup("/home/user/project") != core.YoloPersist {
-		t.Fatalf("YoloLookup after set = %q, want %q", core.YoloLookup("/home/user/project"), core.YoloPersist)
+	if core.ModeLookup("/home/user/project") != core.ModeAutoPersist {
+		t.Fatalf("ModeLookup after set = %q, want %q", core.ModeLookup("/home/user/project"), core.ModeAutoPersist)
 	}
 }
 
-func TestYoloSetIgnoresCwdFromANonLoopbackPeer(t *testing.T) {
+func TestModeSetIgnoresCwdFromANonLoopbackPeer(t *testing.T) {
 	var router *gin.Engine
 	var body []byte
 	var w *httptest.ResponseRecorder
@@ -52,9 +52,9 @@ func TestYoloSetIgnoresCwdFromANonLoopbackPeer(t *testing.T) {
 	setupTestDB(t)
 	router = newRouter()
 
-	body, _ = json.Marshal(map[string]string{"mode": "on", "cwd": "/home/user/project"})
+	body, _ = json.Marshal(map[string]string{"mode": "full_auto", "cwd": "/home/user/project"})
 	w = httptest.NewRecorder()
-	req = httptest.NewRequest(http.MethodPost, "/api/yolo", bytes.NewReader(body))
+	req = httptest.NewRequest(http.MethodPost, "/api/mode", bytes.NewReader(body))
 	req.RemoteAddr = "203.0.113.5:54321"
 	router.ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
@@ -67,7 +67,7 @@ func TestYoloSetIgnoresCwdFromANonLoopbackPeer(t *testing.T) {
 	}
 }
 
-func TestYoloGetReturnsTheUpsertedMode(t *testing.T) {
+func TestModeGetReturnsTheUpsertedMode(t *testing.T) {
 	var router *gin.Engine
 	var body []byte
 	var w *httptest.ResponseRecorder
@@ -77,9 +77,9 @@ func TestYoloGetReturnsTheUpsertedMode(t *testing.T) {
 	setupTestDB(t)
 	router = newRouter()
 
-	body, _ = json.Marshal(map[string]string{"mode": "persist", "cwd": "/home/user/project"})
+	body, _ = json.Marshal(map[string]string{"mode": "auto_persist", "cwd": "/home/user/project"})
 	w = httptest.NewRecorder()
-	req = httptest.NewRequest(http.MethodPost, "/api/yolo", bytes.NewReader(body))
+	req = httptest.NewRequest(http.MethodPost, "/api/mode", bytes.NewReader(body))
 	req.RemoteAddr = "127.0.0.1:54321"
 	router.ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
@@ -87,7 +87,7 @@ func TestYoloGetReturnsTheUpsertedMode(t *testing.T) {
 	}
 
 	w = httptest.NewRecorder()
-	req = httptest.NewRequest(http.MethodGet, "/api/yolo?cwd=/home/user/project/sub", nil)
+	req = httptest.NewRequest(http.MethodGet, "/api/mode?cwd=/home/user/project/sub", nil)
 	req.RemoteAddr = "127.0.0.1:54321"
 	router.ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
@@ -95,12 +95,12 @@ func TestYoloGetReturnsTheUpsertedMode(t *testing.T) {
 	}
 
 	json.Unmarshal(w.Body.Bytes(), &resp)
-	if resp["mode"] != "persist" {
-		t.Fatalf("mode = %v, want persist (inherited from the covering entry)", resp["mode"])
+	if resp["mode"] != "auto_persist" {
+		t.Fatalf("mode = %v, want auto_persist (inherited from the covering entry)", resp["mode"])
 	}
 }
 
-func TestYoloGetDefaultsToOff(t *testing.T) {
+func TestModeGetDefaultsToDefault(t *testing.T) {
 	var router *gin.Engine
 	var w *httptest.ResponseRecorder
 	var req *http.Request
@@ -110,7 +110,7 @@ func TestYoloGetDefaultsToOff(t *testing.T) {
 	router = newRouter()
 
 	w = httptest.NewRecorder()
-	req = httptest.NewRequest(http.MethodGet, "/api/yolo?cwd=/nowhere", nil)
+	req = httptest.NewRequest(http.MethodGet, "/api/mode?cwd=/nowhere", nil)
 	req.RemoteAddr = "127.0.0.1:54321"
 	router.ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
@@ -118,12 +118,12 @@ func TestYoloGetDefaultsToOff(t *testing.T) {
 	}
 
 	json.Unmarshal(w.Body.Bytes(), &resp)
-	if resp["mode"] != "off" {
-		t.Fatalf("mode = %v, want off", resp["mode"])
+	if resp["mode"] != "default" {
+		t.Fatalf("mode = %v, want default", resp["mode"])
 	}
 }
 
-func TestYoloSetRejectsUnknownMode(t *testing.T) {
+func TestModeSetRejectsUnknownMode(t *testing.T) {
 	var router *gin.Engine
 	var body []byte
 	var w *httptest.ResponseRecorder
@@ -134,7 +134,7 @@ func TestYoloSetRejectsUnknownMode(t *testing.T) {
 
 	body, _ = json.Marshal(map[string]string{"mode": "yolo"})
 	w = httptest.NewRecorder()
-	req = httptest.NewRequest(http.MethodPost, "/api/yolo", bytes.NewReader(body))
+	req = httptest.NewRequest(http.MethodPost, "/api/mode", bytes.NewReader(body))
 	router.ServeHTTP(w, req)
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400, body = %s", w.Code, w.Body.String())

@@ -216,7 +216,7 @@ func TestSendChatMessageDeniesDangerousToolOnDeny(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(toolCalls) != 1 || toolCalls[0].Status != "failed" || !strings.Contains(toolCalls[0].Error, "denied") {
+	if len(toolCalls) != 1 || toolCalls[0].Status != "failed" || !strings.Contains(toolCalls[0].Error, "not approved") {
 		t.Fatalf("tool call = %+v, want a failed call with a denial error", toolCalls)
 	}
 }

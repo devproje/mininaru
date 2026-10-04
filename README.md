@@ -151,7 +151,7 @@ check off entirely.
 
 Once you have a provider and an agent configured, `mininaru` (TUI) or
 `mininaru -p "<prompt>"` (one-shot) talk to it. Full detail on storage
-layout, provider/agent setup, `serve`, the tool set and `/yolo` gating, MCP
+layout, provider/agent setup, `serve`, the tool set and mode gating, MCP
 servers, the TUI, `-p`, and gateways lives in
 [docs/USAGE.md](docs/USAGE.md); the HTTP/websocket API is in
 [docs/API.md](docs/API.md).

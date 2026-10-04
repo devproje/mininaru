@@ -17,6 +17,8 @@ var mirrorDone func(sessionId, failure string)
 
 var liveSessionIds func() []string
 
+var cancelSession func(sessionId string)
+
 func SetSessionRouter(
 	message func(sessionId, origin, content string),
 	chunk func(sessionId string, chunk openai.ChatCompletionChunk),
@@ -31,4 +33,8 @@ func SetSessionRouter(
 
 func SetLiveSessionsLister(fn func() []string) {
 	liveSessionIds = fn
+}
+
+func SetSessionCanceler(fn func(sessionId string)) {
+	cancelSession = fn
 }

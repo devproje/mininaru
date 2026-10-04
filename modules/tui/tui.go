@@ -12,6 +12,7 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/devproje/mininaru/core"
 	"github.com/devproje/mininaru/modules/client"
 	"github.com/devproje/mininaru/util"
 	"github.com/gorilla/websocket"
@@ -31,6 +32,7 @@ type tuiModel struct {
 	lines          []string
 	conn           *websocket.Conn
 	cwd            string
+	mode           string
 	noCache        bool
 	busy           bool
 	awaiting       string
@@ -64,11 +66,6 @@ var bannerBox = lipgloss.NewStyle().
 	BorderForeground(lipgloss.Color("141")).
 	Padding(0, 1)
 
-var tuiInputBox = lipgloss.NewStyle().
-	Border(lipgloss.RoundedBorder()).
-	BorderForeground(lipgloss.Color("240")).
-	Padding(0, 1)
-
 var tuiHint = lipgloss.NewStyle().
 	Foreground(lipgloss.Color("240"))
 
@@ -76,7 +73,14 @@ var tuiUserPrefix = lipgloss.NewStyle().
 	Foreground(lipgloss.Color("255")).
 	Bold(true)
 
-func tuiHeaderBlock(agent, session string, width int) string {
+func tuiInputBoxStyle(colorCode string) lipgloss.Style {
+	return lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color(colorCode)).
+		Padding(0, 1)
+}
+
+func tuiHeaderBlock(agent, session, modeColor string, width int) string {
 	var icon string
 	var text []string
 	var body string
@@ -87,7 +91,7 @@ func tuiHeaderBlock(agent, session string, width int) string {
 	text = []string{
 		"",
 		fmt.Sprintf("%smininaru%s %s%s (%s)%s", client.BOLD, client.RESET, client.DIM, util.AppVersion, util.AppHash, client.RESET),
-		fmt.Sprintf("%s●%s %s %s%s%s", client.GREEN, client.RESET, agent, client.DIM, session, client.RESET),
+		fmt.Sprintf("%s●%s %s %s%s%s", modeColor, client.RESET, agent, client.DIM, session, client.RESET),
 		fmt.Sprintf("%s/help%s for commands", client.GRAY, client.RESET),
 	}
 
@@ -119,7 +123,8 @@ func newTuiModel(agent, session string) tuiModel {
 		input:          ta,
 		agent:          agent,
 		session:        session,
-		lines:          []string{tuiHeaderBlock(agent, session, 0), ""},
+		mode:           core.ModeDefault,
+		lines:          []string{tuiHeaderBlock(agent, session, client.ModeColor(core.ModeDefault), 0), ""},
 		activeToolLine: -1,
 		historyPos:     -1,
 	}
@@ -131,12 +136,14 @@ func spinTickCmd() tea.Cmd {
 	})
 }
 
-func newTuiSessionModel(agent, agentId, session, cwd, base, apiKey string, noCache bool, conn *websocket.Conn, answers chan string, gateways []client.Gateway, restartPump func(*websocket.Conn)) tuiModel {
+func newTuiSessionModel(agent, agentId, session, cwd, base, apiKey, mode string, noCache bool, conn *websocket.Conn, answers chan string, gateways []client.Gateway, restartPump func(*websocket.Conn)) tuiModel {
 	var m tuiModel
 
 	m = newTuiModel(agent, session)
 	m.conn = conn
 	m.cwd = cwd
+	m.mode = mode
+	m.lines[0] = tuiHeaderBlock(agent, session, client.ModeColor(mode), 0)
 	m.noCache = noCache
 	m.answers = answers
 	m.base = base

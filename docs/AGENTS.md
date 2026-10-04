@@ -102,11 +102,15 @@ any new `core` test, or it will see whatever the previous test left behind.
   and a real `bash_exec`/file-tool blast radius sitting behind whatever you
   just spun up, so keep it scoped to a throwaway directory regardless.
 - **Do not treat 1a-era "no gate" as the current state.** Dangerous tools
-  (`bash_exec`, `file_write`, `file_edit`, `browser_*`) are gated by yolo
-  mode + human-in-the-loop approval (`core/yolo.go`, `server/sock`) — see
-  "Tool calling" in ARCHITECTURE.md. If you're driving the shell yourself,
-  expect an approval prompt for any of them outside a directory you've
-  already trusted with `/yolo`.
+  (`bash_exec`, `file_write`, `file_edit`, `browser_*`) are gated by one of
+  four per-directory modes plus human-in-the-loop approval (`core/mode.go`,
+  `server/sock`) — see "Mode" in ARCHITECTURE.md. If you're driving the
+  shell yourself, expect an approval prompt for `bash_exec`/`browser_*`
+  outside Full Auto, and for `file_write`/`file_edit` outside Auto Persist
+  or Full Auto (cycled with Shift+Tab in the TUI, there is no slash command
+  for it) — except in Plan mode, where mutating calls get no prompt at all
+  (auto-rejected) while `file_read`/`browser_read`/`browser_screenshot`
+  still ask.
 - **Do not read or echo secrets.** Provider API keys live in the `providers`
   table in SQLite (`.mininaru/data.db`), not a separate file, but they are
   still real credentials. `server/controller/provider.go`'s

@@ -242,24 +242,6 @@ func TestRunCommandEffortRejectsBadValue(t *testing.T) {
 	}
 }
 
-func TestRunCommandYoloRejectsBadMode(t *testing.T) {
-	var m tuiModel
-	var model tea.Model
-	var joined string
-
-	m = newTuiModel("a", "s")
-	m.base = "http://example.invalid"
-
-	model, _ = m.runCommand("/yolo maybe")
-	m = model.(tuiModel)
-
-	joined = strings.Join(m.lines, "\n")
-
-	if !strings.Contains(joined, "usage: /yolo") {
-		t.Fatalf("output = %q, want a usage error", joined)
-	}
-}
-
 func TestRunCommandBashRequiresArgs(t *testing.T) {
 	var m tuiModel
 	var model tea.Model

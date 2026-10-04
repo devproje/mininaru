@@ -56,6 +56,32 @@ func TestWriteFileAtomicReplacesContentAndKeepsMode(t *testing.T) {
 	}
 }
 
+func TestSafeJoinRejectsEscapesUnlessUnrestricted(t *testing.T) {
+	var root string
+	var full string
+
+	var err error
+
+	root = t.TempDir()
+
+	_, err = SafeJoin(root, "/etc/passwd", false)
+	if err == nil {
+		t.Fatal("an absolute path was accepted while restricted")
+	}
+	_, err = SafeJoin(root, "../../etc/passwd", false)
+	if err == nil {
+		t.Fatal("a relative escape was accepted while restricted")
+	}
+
+	full, err = SafeJoin(root, "/etc/passwd", true)
+	if err != nil {
+		t.Fatalf("an absolute path was rejected while unrestricted: %v", err)
+	}
+	if full != "/etc/passwd" {
+		t.Fatalf("full = %q, want the absolute path unchanged", full)
+	}
+}
+
 func TestInitFSKeepsDataDirectoryPrivate(t *testing.T) {
 	var dir string
 	var info os.FileInfo

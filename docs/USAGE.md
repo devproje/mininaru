@@ -13,8 +13,9 @@ on Windows). The directory is created at mode `0700`, and an existing
 one is tightened to `0700` on every start. Chat history is SQLite
 (`.mininaru/data.db`, WAL mode); the server's
 API key is `.mininaru/mininaru.key` (mode `0600`, generated the first time
-anything needs it); yolo trust state is `.mininaru/directory.json`, managed
-through `/yolo` rather than hand-edited; MCP servers are configured in
+anything needs it); per-directory mode state is `.mininaru/directory.json`,
+managed by cycling modes with Shift+Tab in the TUI rather than hand-edited;
+MCP servers are configured in
 `.mininaru/mcp.json`, hand-editable or managed with `mininaru mcp` (see
 [MCP servers](#mcp-servers)); each agent's persistent
 memory (see [Tools](#tools)) lives under
@@ -23,7 +24,11 @@ file per saved memory, managed entirely by the agent itself through the
 `memory_*` tools rather than hand-edited; uploaded chat images live under
 `.mininaru/attachments/` with a row per file in the `attachments` table
 (cascades with its session); the daily background update check caches the
-latest known release tag in `.mininaru/update.json`.
+latest known release tag in `.mininaru/update.json`; a built-in platform
+system prompt (what mininaru is, the tool set, the mode-gating rules) is
+injected into every turn, hand-overridable by creating
+`.mininaru/CUSTOM_INSTRUCTION.md` — if that file exists its content replaces
+the built-in prompt outright, otherwise the default is used.
 
 ## Set up a provider and an agent
 
@@ -173,13 +178,27 @@ agent actually needs it. These three tools are always safe to run — no
 approval prompt — since they're confined to that agent's own memory
 directory, never an arbitrary path.
 
-Every dangerous tool above is gated by **yolo mode**, set per directory with
-`/yolo <off|persist|on>` in the TUI:
+Every dangerous tool above is gated by one of four **modes**, set per
+directory and cycled with Shift+Tab in the TUI — the header dot, the footer
+badge, and the input box border all show the active one:
 
-- `off` (default) — always ask before running one.
-- `persist` — auto-run inside the directory you set it in.
-- `on` — auto-run everywhere, no prompts; `/yolo on` asks you to confirm
-  once before switching.
+- **Default** (gray) — always ask before running a dangerous tool.
+- **Plan** (green) — safe tools run normally; read-only dangerous tools
+  (`file_read`, `browser_read`, `browser_screenshot`) still ask for
+  approval, everything else dangerous is rejected automatically with no
+  prompt. Once the agent has a concrete plan it
+  can call `plan_approval` to present it and ask you to pick Allow once,
+  Allow session (Persist), or Deny — the first two apply for the rest of
+  that turn only (never written to disk, back to Plan on the next message)
+  and repaint the header/footer/input border to match immediately, and Deny
+  interrupts the turn on the spot, the same as pressing Ctrl+C.
+- **Auto Persist** (gold) — `file_read`/`file_write`/`file_edit` auto-run
+  inside the directory you set it in, but still ask if the path looks like
+  an escape attempt. Everything else that's dangerous — `bash_exec`,
+  `browser_*`, `agent_spawn`, `session_send` — still asks every time.
+- **Full Auto** (red) — dangerous tools always auto-run, including crossing
+  into another session's directory, and file tools are allowed to touch
+  paths outside the working directory.
 
 When a call needs asking, the TUI shows the tool name and arguments and you
 answer once / for the rest of the session / no.
@@ -228,6 +247,7 @@ pick.
 |---|---|
 | `↑` / `↓` | recall input history, or step through `/command` suggestions, or (while a prompt is open) move the selection — scrolls the chat log instead once `Esc` has taken focus off the compose box |
 | `Tab` | complete the highlighted `/command` suggestion |
+| `Shift+Tab` | cycle the current directory's mode: Default → Plan → Auto Persist → Full Auto |
 | `Enter` | send the message, run the command, or confirm the selected prompt option |
 | `Esc` | toggle focus between the compose box and the chat log |
 | `Ctrl+V` | paste an image from the clipboard |
@@ -249,8 +269,11 @@ pick.
 /gateway    pick a saved gateway and a session on it, then reconnect
 /model      pick a provider:model from a live-fetched numbered list, or set one directly
 /effort     change the connected agent's reasoning effort (off|low|medium|high|max)
-/yolo       set dangerous-tool trust for this directory (off|persist|on)
 ```
+
+There is no `/mode` command — the current directory's mode is shown at a
+glance (header dot, footer badge, input border color) and changed with
+`Shift+Tab`.
 
 Typing `/` pops up a suggestion list capped at 5 visible rows that scrolls
 to follow `↑`/`↓` once there are more matches than that.

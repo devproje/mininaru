@@ -72,7 +72,7 @@ func (m *tuiModel) layout() {
 	}
 
 	if len(m.lines) > 0 {
-		m.lines[0] = tuiHeaderBlock(m.agent, m.session, m.width)
+		m.lines[0] = tuiHeaderBlock(m.agent, m.session, client.ModeColor(m.mode), m.width)
 		header = m.lines[0]
 	}
 
@@ -91,7 +91,7 @@ func (m *tuiModel) layout() {
 
 	m.viewport.Width = m.width
 	m.viewport.Height = m.height - footerH
-	m.input.SetWidth(m.width - tuiInputBox.GetHorizontalFrameSize())
+	m.input.SetWidth(m.width - tuiInputBoxStyle(client.ModeColorCode(m.mode)).GetHorizontalFrameSize())
 	m.viewport.SetContent(content)
 	m.viewport.GotoBottom()
 }
@@ -140,14 +140,17 @@ func (m tuiModel) cmdMenu(indent int, suggestions []tuiCmdInfo) string {
 }
 
 func (m tuiModel) footer() string {
+	var inputStyle lipgloss.Style
 	var indent int
 	var parts []string
 	var suggestions []tuiCmdInfo
 	var box string
+	var badge string
 	var hintText string
 	var hint string
 
-	indent = tuiInputBox.GetBorderLeftSize() + tuiInputBox.GetPaddingLeft()
+	inputStyle = tuiInputBoxStyle(client.ModeColorCode(m.mode))
+	indent = inputStyle.GetBorderLeftSize() + inputStyle.GetPaddingLeft()
 
 	if m.busy && m.awaiting == "" {
 		parts = append(parts, lipgloss.NewStyle().PaddingLeft(indent).Render(
@@ -165,8 +168,10 @@ func (m tuiModel) footer() string {
 		}
 	}
 
-	box = tuiInputBox.Width(m.width - tuiInputBox.GetHorizontalBorderSize()).Render(m.input.View())
+	box = inputStyle.Width(m.width - inputStyle.GetHorizontalBorderSize()).Render(m.input.View())
 	parts = append(parts, box)
+
+	badge = fmt.Sprintf("%s%s%s", client.ModeColor(m.mode), strings.ToUpper(m.mode), client.RESET)
 
 	switch {
 	case m.awaiting != "" && len(m.awaitOptions) > 0:
@@ -178,12 +183,12 @@ func (m tuiModel) footer() string {
 	case !m.input.Focused():
 		hintText = "up/down to scroll  ·  esc to type"
 	case m.busy:
-		hintText = fmt.Sprintf("%s · %s  ·  ctrl+c interrupt", m.agent, m.session)
+		hintText = "ctrl+c interrupt"
 	default:
-		hintText = fmt.Sprintf("%s · %s  ·  ctrl+c to exit", m.agent, m.session)
+		hintText = "shift+tab mode  ·  ctrl+c exit"
 	}
 
-	hint = lipgloss.NewStyle().PaddingLeft(indent).Render(tuiHint.Render(hintText))
+	hint = lipgloss.NewStyle().PaddingLeft(indent).Render(badge + "  ·  " + tuiHint.Render(hintText))
 	parts = append(parts, hint)
 
 	return lipgloss.JoinVertical(lipgloss.Left, parts...)

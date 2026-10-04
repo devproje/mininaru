@@ -362,7 +362,7 @@ func failedToolResult(result string, err error) string {
 	return text
 }
 
-func prependSystemContext(union []openai.ChatCompletionMessageParamUnion, summary *Summary, memoryIndex string, skillCatalog string, soul string) []openai.ChatCompletionMessageParamUnion {
+func prependSystemContext(union []openai.ChatCompletionMessageParamUnion, summary *Summary, memoryIndex string, skillCatalog string, soul string, platformPrompt string) []openai.ChatCompletionMessageParamUnion {
 	if summary != nil {
 		union = append([]openai.ChatCompletionMessageParamUnion{openai.SystemMessage(summary.Content)}, union...)
 	}
@@ -374,6 +374,9 @@ func prependSystemContext(union []openai.ChatCompletionMessageParamUnion, summar
 	}
 	if soul != "" {
 		union = append([]openai.ChatCompletionMessageParamUnion{openai.SystemMessage(soul)}, union...)
+	}
+	if platformPrompt != "" {
+		union = append([]openai.ChatCompletionMessageParamUnion{openai.SystemMessage(platformPrompt)}, union...)
 	}
 
 	return union
@@ -387,6 +390,7 @@ func SendChatMessage(ctx context.Context, agent *Agent, session *Session, anchor
 	var pending *Message
 	var memoryIndex string
 	var skillCatalog string
+	var platformPrompt string
 	var prov *Provider
 	var modelName string
 	var tools []modules.Tool
@@ -406,6 +410,8 @@ func SendChatMessage(ctx context.Context, agent *Agent, session *Session, anchor
 	var finishedMessage string
 
 	var err error
+
+	ClearSessionModeOverride(session.Id)
 
 	history, err = MessageList(session.Id)
 	if err != nil {
@@ -429,7 +435,11 @@ func SendChatMessage(ctx context.Context, agent *Agent, session *Session, anchor
 
 	memoryIndex = memory.LoadIndex(agent.Id)
 	skillCatalog = skill.Catalog()
-	union = prependSystemContext(union, summary, memoryIndex, skillCatalog, agent.Soul)
+	platformPrompt, err = PlatformPrompt()
+	if err != nil {
+		return err
+	}
+	union = prependSystemContext(union, summary, memoryIndex, skillCatalog, agent.Soul, platformPrompt)
 
 	prov, modelName, err = resolveProviderModel(agent.Model)
 	if err != nil {
@@ -465,7 +475,7 @@ func SendChatMessage(ctx context.Context, agent *Agent, session *Session, anchor
 		if err != nil {
 			return err
 		}
-		union = prependSystemContext(union, summary, memoryIndex, skillCatalog, agent.Soul)
+		union = prependSystemContext(union, summary, memoryIndex, skillCatalog, agent.Soul, platformPrompt)
 
 		contextErr = contextLimit(agent, union, tools)
 		if contextErr != nil {

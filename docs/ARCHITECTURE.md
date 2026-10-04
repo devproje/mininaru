@@ -20,8 +20,9 @@ An admin CLI (`mininaru provider`/`agent`/`session`/`mcp`/`skill`) manages
 the SQLite-backed config directly, and `mininaru daemon` runs `serve` as a
 per-user background service (`cli/daemon.go`).
 
-Dangerous tools are gated by a directory-scoped trust model ("yolo mode")
-with a human-in-the-loop approval round-trip over `/ws`. Delegation is the
+Dangerous tools are gated by a directory-scoped, four-value mode (Default,
+Plan, Auto Persist, Full Auto) with a human-in-the-loop approval round-trip
+over `/ws`. Delegation is the
 `agent_spawn` and `session_send` tools. Memory (`modules/memory`) is a
 per-agent markdown store; skills (`modules/skill`) are instruction bundles
 the model loads on demand and can also author itself. See "Tool calling"
@@ -39,7 +40,7 @@ design, not the old one; the rest don't exist here.
 cli/            cobra root, `serve`, `daemon`, and the provider/webprovider/agent/session/mcp/skill admin subcommands
 modules/client/ shared wire protocol (Frame/Reply, HTTP + websocket helpers), the classic `-p` streamed-reply renderer and markdown formatter
 modules/tui/    the `mininaru` full-screen TUI (bubbletea) — chat viewport, async slash commands, clipboard/drag-drop image paste
-core/           Provider, WebProvider, Agent, Session, Message, ToolCall CRUD, the tool-calling chat loop, and yolo trust state
+core/           Provider, WebProvider, Agent, Session, Message, ToolCall CRUD, the tool-calling chat loop, and per-directory mode state
 modules/          the Tool/Permission/WebBackend types — a pure leaf package, imports only the standard library
 modules/bash/     the bash_exec builtin tool
 modules/file/     the file_read/file_write/file_edit builtin tools
@@ -140,12 +141,13 @@ session_summaries(session_id REFERENCES sessions ON DELETE CASCADE, content,
 Deleting an agent or a session cascades through the foreign keys; nothing in
 Go application code has to clean up sessions or messages by hand.
 
-Yolo trust state is the one exception to "everything is SQLite": it lives in
-`NARU_PATH/directory.json` — a plain JSON array of `{root, mode, updated_at}`
-entries, rewritten whole via `util.WriteFileAtomic` on every change
-(`core/yolo.go`), the same pattern `modules/mcp/config.go` uses for
-`mcp.json`. It is a flat trust list, not relational data that needs joins or
-cascades, so a JSON file is simpler than a table.
+Per-directory mode state is the one exception to "everything is SQLite": it
+lives in `NARU_PATH/directory.json` — a plain JSON array of
+`{root, mode, updated_at}` entries, rewritten whole via
+`util.WriteFileAtomic` on every change (`core/mode.go`), the same pattern
+`modules/mcp/config.go` uses for `mcp.json`. It is a flat list, not
+relational data that needs joins or cascades, so a JSON file is simpler than
+a table.
 
 ## `core/` — plain CRUD, no ORM
 
@@ -258,21 +260,26 @@ completion round can start.
 
 `buildTools(root, sessionId, caller, depth, onTool, approve, ask)` (`core/tools.go`)
 assembles the tool list every round: `bash_exec` and the three file tools
-from `modules/bash`/`modules/file` rooted at `root`, the six
-`modules/browser` tools scoped to `sessionId` (see below), `web_search`
-(`modules/web_search`) and `web_fetch` (`modules/web_fetch`),
-`ask_user_question` (`modules/ask_question`, bound to `sessionId` and
-`ask` — see "`ask_user_question`" below), whatever `modules/mcp.Tools()`
-currently exposes from `mcp.json`-configured MCP servers, the three
-`modules/memory` tools scoped to `caller.Id`, the two `modules/skill`
-tools, the `session_list`/`agent_list` discovery pair, and — only while
-`depth` hasn't hit its cap — `agent_spawn` and `session_send` (see
-"Delegation" below). Every `modules.Tool` carries a `Permission`
-(`Safe`/`Dangerous`): `bash_exec`, the file tools, the `browser_*` tools,
-`agent_spawn`, and `session_send` are `Dangerous`; `memory_*`,
-`skill`/`skill_create`, `session_list`/`agent_list`, `web_search`,
-`web_fetch`, and `ask_user_question` are `Safe` (pure reads, or writes
-confined to a validated slug under a managed directory).
+from `modules/bash`/`modules/file` rooted at `root` — the file tools built
+with `unrestricted: true` only when `core.ModeLookup(root) == core.ModeFullAuto`
+(see "Mode" above) — the six `modules/browser` tools scoped to `sessionId`
+(see below), `web_search` (`modules/web_search`) and `web_fetch`
+(`modules/web_fetch`), `ask_user_question` (`modules/ask_question`, bound to
+`sessionId` and `ask` — see "`ask_user_question`" below), whatever
+`modules/mcp.Tools()` currently exposes from `mcp.json`-configured MCP
+servers, the three `modules/memory` tools scoped to `caller.Id`, the two
+`modules/skill` tools, the `session_list`/`agent_list` discovery pair,
+`plan_approval` (`core/plan_approval.go`, see "Escaping Plan mode mid-turn"
+above) only while the current mode is `plan`, and — only while `depth`
+hasn't hit its cap — `agent_spawn` and `session_send` (see "Delegation"
+below). Every `modules.Tool` carries a `Permission` (`Safe`/`Dangerous`):
+`bash_exec`, the file tools, the `browser_*` tools, `agent_spawn`, and
+`session_send` are `Dangerous`; `memory_*`, `skill`/`skill_create`,
+`session_list`/`agent_list`, `web_search`, `web_fetch`,
+`ask_user_question`, and `plan_approval` are `Safe` (pure reads, or writes
+confined to a validated slug under a managed directory, or — for
+`plan_approval` — a session-scoped in-memory override rather than a
+filesystem write).
 `web_search`/`web_fetch` read outbound-only —
 `web_fetch` additionally resolves the target host itself and refuses any
 address `net.IP` classifies as loopback, private, link-local, multicast, or
@@ -340,14 +347,14 @@ Claude Code scopes its own auto-memory to a repository — the only durable
 identity in the system is `Agent` (`core/agent.go`), a named persona
 already injected into every turn via `agent.Soul`. Memory is scoped to
 `agent.Id` for that reason: `root`/`anchor` (`core.ResolveAnchor`,
-`core/yolo.go`) was considered and rejected, since it's recomputed from
+`core/mode.go`) was considered and rejected, since it's recomputed from
 the client-reported cwd on every inbound message rather than persisted on
 `Session`, so keying storage on it would drift if a client's cwd changed
 mid-session.
 
 Storage lives under the existing global `.mininaru/` data dir
 (`util.RootDir`/`util.Path`, `util/narufs.go`), same tree `directory.json`
-(yolo) and `mcp.json` already use:
+(mode state) and `mcp.json` already use:
 
 ```
 .mininaru/memory/<agent_id>/
@@ -415,6 +422,21 @@ Every `skill` tool call is recorded in the `skill_uses` table
 (`core/skill_use.go`, hooked into `core/chat.go`'s tool-call loop) —
 `skill, scope, path, rel, session_id, call_id, created_at` — queryable via
 `SkillUseStats` / `mininaru skill uses`.
+
+### Platform prompt — `core/platform_prompt.go`
+
+The one system-content source that isn't per-agent and isn't file-backed
+under a per-agent directory: a fixed description of what mininaru itself is
+(the harness, the mode-gated tool set, the things an agent should keep in
+mind), built in as `defaultPlatformPrompt` and overridable by dropping a
+`NARU_PATH/CUSTOM_INSTRUCTION.md` — `PlatformPrompt()` reads it with
+`os.ReadFile(util.Path("CUSTOM_INSTRUCTION.md"))` and falls back to the
+built-in constant on `os.IsNotExist`, the same shape `core.ModeLoad` uses for
+`directory.json`. Nothing writes the file; it's hand-authored, read fresh
+every turn like `skill.Catalog()`. `SendChatMessage` and
+`SessionContextUsage` both prepend it last, so it ends up first in the
+message array — before `agent.Soul` — since it's the one layer that's fixed
+regardless of which agent or operator customization is in play.
 
 ### Computer use — `modules/browser`
 
@@ -507,7 +529,7 @@ pulling them from a `modules` subpackage. Calling it creates a real
 `Session` (named `"spawn: <prompt preview>"`) with the caller's anchor stored
 as its `Cwd`, and a `Message` for the target agent, then recurses into
 `SendChatMessage` for that session. A dangerous tool call inside the delegate
-prompts over the same `/ws` connection, but approval and yolo lookup use the
+prompts over the same `/ws` connection, but approval and mode lookup use the
 spawned session id and its inherited working directory rather than the parent
 session id. The delegate starts with no memory of the calling conversation;
 the prompt has to carry everything it needs. The tool's result is the
@@ -630,35 +652,100 @@ are `modules.PermissionSafe` — pure reads with no side effects, unlike
 `bash_exec`/`file_*`/`browser_*`, which are `PermissionDangerous` because
 they touch the filesystem or network.
 
-### Yolo mode — the trust policy behind `approve`
+### Mode — the trust policy behind `approve`
 
 `root` is the **anchor**: for a loopback `/ws` connection it's the client's
 reported cwd (the `cwd` field on the chat frame — `modules/client` sends the
 process's working directory, captured once at startup); for a non-loopback
 connection it's the server process's own `$HOME`, since a remote peer's
 claimed cwd can't be trusted. `core.ResolveAnchor` /
-`core.IsLoopbackAddr` (`core/yolo.go`) make that call from the raw
+`core.IsLoopbackAddr` (`core/mode.go`) make that call from the raw
 `RemoteAddr` the request came in on.
 
 Each dangerous tool passes its current session id and root to `approve`, so a
-nested `agent_spawn` or `session_send` round cannot inherit a caller's yolo or
-session approval merely because the caller initiated it. `core.YoloLookup`
-(`core/yolo.go`) reads `directory.json` and returns
+nested `agent_spawn` or `session_send` round cannot inherit a caller's mode or
+session approval merely because the caller initiated it. `core.ModeLookup`
+(`core/mode.go`) reads `directory.json` and returns
 the most specific (deepest) `{root, mode}` entry covering `anchor` by path
 segment — not string prefix, so `/home/user/proj` doesn't match
-`/home/user/project2` — defaulting to `"off"` when nothing matches. Three
-modes: `off` (always ask), `persist` (auto-run — since tools are rooted at
-the anchor, every call is "inside" it by construction), `on` (auto-run
-everywhere, no directory check). `core.YoloUpsert(root, mode)` rewrites the
-file; `"off"` is stored as an explicit entry rather than a deletion, so a
-subdirectory can be locked back down under a more permissive ancestor.
-`POST /api/yolo` (`server/controller/yolo.go`) is how a client sets this —
-plain REST, not a `/ws` frame, since it's a one-off directory declaration,
-not part of a live turn. The TUI's `/yolo [off|persist|on]` command calls
-it, and with no argument reads it back with `GET /api/yolo?cwd=` (see
-"`modules/tui/` — the full-screen TUI" below for how the command itself
-runs). There is no always-visible trust indicator — checking means running
-`/yolo` with no argument.
+`/home/user/project2` — defaulting to `"default"` when nothing matches. Four
+modes: `default` (always ask), `plan` (safe tools run; read-only dangerous
+tools — `file_read`, `browser_read`, `browser_screenshot`, via
+`core.IsReadOnlyTool` — still ask, everything else dangerous is
+auto-rejected without a prompt), `auto_persist` (only `file_read`/
+`file_write`/`file_edit` auto-run, via `core.IsIOTool`, and only inside the
+anchor — a path that resolves outside it still falls through to asking, via
+`core.ModeEscapesAnchor`; `bash_exec`, `browser_*`, `agent_spawn`, and
+`session_send` always ask in this mode), `full_auto`
+(auto-run everywhere, no anchor check, and `file_read`/`file_write`/
+`file_edit` are built with `unrestricted: true` so `util.SafeJoin` lets an
+absolute path through instead of rejecting it). `core.ModeUpsert(root, mode)`
+rewrites the file; `"default"` is stored as an explicit entry rather than a
+deletion, so a subdirectory can be locked back down under a more permissive
+ancestor. `POST /api/mode` (`server/controller/mode.go`) is how a client sets
+this — plain REST, not a `/ws` frame, since it's a one-off directory
+declaration, not part of a live turn. The TUI has no slash command for this —
+`Shift+Tab` cycles the four modes (`modules/tui/tui_update.go`), pushing each
+change with the same endpoint and seeding the initial value from
+`GET /api/mode?cwd=` when a session connects (see "`modules/tui/` — the
+full-screen TUI" below). The active mode is always visible: the header dot,
+the footer badge, and the input box border color all track it
+(`client.ModeColor`/`client.ModeColorCode`, `modules/client/style.go`).
+
+### Escaping Plan mode mid-turn — `core/plan_approval.go`
+
+`buildTools` (`core/tools.go`) adds one more `modules.PermissionSafe` tool,
+`plan_approval`, only when `core.ModeLookup(root) == core.ModePlan` — it's
+the model's way out of Plan's auto-reject for mutating tools, without the
+operator having to Shift+Tab mid-conversation. The model calls it with a `plan`
+string once it has something concrete to do; it rides the same `AskFunc`
+round-trip `ask_user_question` uses, fixed to three options: `Allow once`,
+`Allow session (Persist)`, `Deny`. The match on the answer is a
+case-insensitive substring check (`strings.Contains` on the lowercased,
+trimmed text) rather than an exact match, so a human typing "persist" or
+"allow session" instead of picking the listed option still lands correctly.
+Picking `Allow once` sets the session's override to `core.ModeDefault`
+(every further dangerous call this turn still gets its own prompt — "once"
+each); `Allow session (Persist)` sets it to `core.ModeAutoPersist`. Either
+way it's `core.SetSessionModeOverride(sessionId, mode)` — a package-level
+`sync.Map` in `core/mode.go`, **not** `core.ModeUpsert`, so nothing is
+written to `directory.json`: the change is scoped to the rest of this one
+`SendChatMessage` call. `approveFunc` (`server/sock/sock.go`) checks
+`core.SessionModeOverride(sessionId)` before `core.ModeLookup(root)`, and
+`SendChatMessage` calls `core.ClearSessionModeOverride(session.Id)` at its
+own entry, so the override can never leak into the next turn — the
+directory is back to Plan (or whatever `directory.json` says) as soon as
+the next message starts.
+
+The TUI's mode indicator updates live, in the same turn, rather than only on
+the next reconnect: `planApprovalTool` takes the same `onTool
+func(name, status, message string)` callback `agent_spawn`/`session_send`
+already thread through, and calls `onTool(PlanApprovalToolName, "mode",
+mode)` right after setting the override. That rides the existing `{type:
+"tool", ...}` frame (no new frame type), with `status: "mode"` as a sentinel
+the TUI special-cases in `tui_update.go` before the generic
+started/finished handling: it just sets `m.mode` and repaints, skipping the
+normal tool-result rendering. Since the override is turn-scoped,
+`tui_update.go`'s `doneMsg` handler also fires `refreshModeCmd` (a
+`GET /api/mode` re-fetch, reusing `fetchMode`/`tuiModeSyncedMsg`) once the
+turn ends, so the badge falls back to the real persisted mode (Plan, unless
+the operator also hit Shift+Tab) instead of staying on the stale override
+color into the next turn.
+
+Anything that doesn't match "once" or "persist"/"session" is treated as
+`Deny`, and `Deny` is a real interrupt, not a soft denial: the tool calls
+the same cancellation path a `{type:
+"interrupt"}` frame does. `core.SetSessionCanceler` (`core/session_router.go`,
+the same func-var-hook pattern `SetSessionRouter`/`SetLiveSessionsLister`
+use for other things only `server/sock` owns) is registered in
+`server/sock/session.go`'s `init()` to a closure over `interruptSession`,
+which looks up the session's `context.CancelFunc` in a package-level
+`runningTurns sync.Map` (hoisted out of `SockHandler` so it's reachable by
+session id regardless of which connection's goroutine is driving the turn)
+and calls it. The tool calls that hook, then returns an error; the
+`ctx.Err()` check immediately after every tool call in `SendChatMessage`
+(`core/chat.go`) catches the now-canceled context and unwinds exactly like a
+user-initiated Ctrl+C — no separate "hard abort" path was added anywhere.
 
 `GET /api/sessions/:id/usage` (`SessionContextUsage`, `core/context.go`)
 returns `session.last_prompt_tokens` (a session column set from the
@@ -677,7 +764,7 @@ label is `ctx:used/limit (percent)`, plus a `cache:percent` segment when
 
 ### The HIL round-trip
 
-When yolo mode says "ask," `server/sock`'s `approveFunc` closure
+When the current mode says "ask," `server/sock`'s `approveFunc` closure
 (`server/sock/sock.go`) registers a per-session response channel before it
 sends `{type: "approval_request", session_id, cwd, name, arguments}` over the
 same `/ws` connection, then blocks on that channel
@@ -779,9 +866,9 @@ question still accepts a free-typed answer instead of one of the options.
   (`server/controller/*.go`), each doing bind → validate → `core` call → JSON.
   `ProviderList`/`ProviderRead`/etc. never return the raw API key; every
   response goes through `toProviderResponse`, which masks it to
-  `sk-t...efgh` before it leaves the process. `POST /api/yolo` is the one
-  extra route here that isn't resource CRUD — it upserts a yolo trust entry
-  (see "Tool calling" below).
+  `sk-t...efgh` before it leaves the process. `POST /api/mode` is the one
+  extra route here that isn't resource CRUD — it upserts a per-directory mode
+  entry (see "Tool calling" below).
 - **`/api/v1`** (`server/openai.go`) — the OpenAI-compatible surface:
   `POST /chat/completions` (streaming SSE or a single JSON body) and
   `GET /models`. The `model` field of a chat request names a **mininaru
@@ -790,7 +877,7 @@ question still accepts a free-typed answer instead of one of the options.
 - **`/ws`** (`server/sock/sock.go`) — one generic websocket that multiplexes
   every session over a single connection type. Inbound frames are dispatched
   by their `type`: a chat frame carries no type at all and is
-  `{session_id, content, cwd}` (`cwd` feeds the yolo anchor), `{type:
+  `{session_id, content, cwd}` (`cwd` feeds the mode anchor), `{type:
   "approval", session_id, decision}` answers a pending prompt, `{type:
   "interrupt", session_id}` cancels that session's in-flight round, and
   `{type: "attach", session_id}` registers the connection as that session's
@@ -993,10 +1080,14 @@ protocol and adds nothing to the dependency graph below it — nothing outside
   constructors for session/gateway switching.
 - `tui_clipboard.go` — clipboard and pasted/dropped-path image detection.
 
-### One mode, and who owns the socket
+### One input mode, and who owns the socket
 
 Every submitted line either dispatches a `/command` or is sent to the agent
-as a turn — there is no shell mode, no mode toggle, same as before.
+as a turn — there is no shell mode, no toggle between the two, same as
+before. (This is a different "mode" from the four-value approval mode —
+Default/Plan/Auto Persist/Full Auto, cycled with Shift+Tab — described
+under "Mode" above; the TUI has exactly one way of routing what you type,
+regardless of which approval mode the current directory is in.)
 `RunTuiSession` resolves the agent (`GET /api/agents`) and session
 (`GET /api/sessions/:id` for `--session`, else `POST /api/sessions`), dials
 `/ws`, sends an `attach` frame, builds the `tuiModel`, and hands it to
@@ -1042,7 +1133,7 @@ unmodified. `Ctrl+C` interrupts the agent's turn if one is running
 ### Async commands and queued messages
 
 Every network-touching slash command (`/usage`, `/compact`, `/session`,
-`/gateway`, `/model`, `/effort`, `/yolo`, `/bash`, `/!bash`) runs through
+`/gateway`, `/model`, `/effort`, `/bash`, `/!bash`) runs through
 `beginAsync(label)`/`landAsyncResult(label, lines)`: a dim "running
 /label..." line is inserted and the work runs in its own `tea.Cmd` goroutine
 (never inside `Update()`, which must not block), with the footer's
@@ -1095,10 +1186,11 @@ saved gateways; a name: reconnects to it via `switchGatewayCmd`, starting a
 new session there), `/model [provider:model]` (no args: `GET
 /api/providers/models` live-fetches every provider's own `/v1/models`
 catalog server-side and lists it; an explicit `provider:model` arg sets it
-directly via `patchAgent`), `/effort <off|low|medium|high|max>` (same
-`patchAgent` path against `/api/agents/:id`), and `/yolo [off|persist|on]`
-(see "Yolo mode" above). There is no `/agent` (agent switching happens with
-`mininaru agent primary`, outside the TUI) and no `/reset`.
+directly via `patchAgent`), and `/effort <off|low|medium|high|max>` (same
+`patchAgent` path against `/api/agents/:id`). There is no `/mode` command —
+`Shift+Tab` cycles the four modes instead (see "Mode" above). There is no
+`/agent` (agent switching happens with `mininaru agent primary`, outside the
+TUI) and no `/reset`.
 
 ## Development
 

@@ -123,6 +123,45 @@ func TestSockHandlerApprovesOnceThenRunsTheTool(t *testing.T) {
 	}
 }
 
+func TestSockHandlerAutoPersistStillAsksForBash(t *testing.T) {
+	var conn *websocket.Conn
+	var sessionId string
+	var anchor string
+	var frame testFrame
+	var gotChunk bool
+
+	var err error
+
+	setupTestDB(t)
+	sessionId, anchor = setupToolFixture(t)
+	conn = newTestConn(t)
+
+	err = core.ModeUpsert(anchor, core.ModeAutoPersist)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = conn.WriteJSON(map[string]string{"session_id": sessionId, "content": "run echo hi", "cwd": anchor})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	frame = readUntilApproval(t, conn)
+	if frame.Type != "approval_request" || frame.Name != "bash_exec" {
+		t.Fatalf("frame = %+v, want auto_persist to still ask for bash_exec", frame)
+	}
+
+	err = conn.WriteJSON(map[string]string{"type": "approval", "session_id": sessionId, "decision": "once"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	gotChunk, frame = readUntilTerminal(t, conn)
+	if !gotChunk || frame.Type != "done" {
+		t.Fatalf("turn did not complete after approval: gotChunk=%v frame=%+v", gotChunk, frame)
+	}
+}
+
 func TestSockHandlerDeniedToolStillCompletesTheTurn(t *testing.T) {
 	var conn *websocket.Conn
 	var sessionId string
@@ -157,7 +196,7 @@ func TestSockHandlerDeniedToolStillCompletesTheTurn(t *testing.T) {
 	if frame.Type != "tool" || frame.Status != "failed" {
 		t.Fatalf("frame = %+v, want a failed tool frame", frame)
 	}
-	if !strings.Contains(frame.Message, "denied") {
+	if !strings.Contains(frame.Message, "not approved") {
 		t.Fatalf("failed tool frame has no error message: %+v", frame)
 	}
 

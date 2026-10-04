@@ -69,6 +69,6 @@ func apiRoutes(api *gin.RouterGroup) {
 
 	api.GET("/attachments/:id", controller.AttachmentDownload)
 
-	api.POST("/yolo", controller.YoloSet)
-	api.GET("/yolo", controller.YoloGet)
+	api.POST("/mode", controller.ModeSet)
+	api.GET("/mode", controller.ModeGet)
 }

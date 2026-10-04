@@ -74,6 +74,8 @@ var upgrader websocket.Upgrader = websocket.Upgrader{
 	},
 }
 
+var runningTurns sync.Map
+
 func (c *safeConn) writeFrame(frame outboundFrame) {
 	var err error
 
@@ -122,10 +124,20 @@ func writeErrorFrame(conn *safeConn, sessionId string, message string) {
 func approveFunc(conn *safeConn, router *approvalRouter) core.ApproveFunc {
 	return func(ctx context.Context, sessionId, root, name, arguments string) (string, error) {
 		var mode string
+		var overridden bool
 		var decision string
 
-		mode = core.YoloLookup(root)
-		if mode == core.YoloOn || mode == core.YoloPersist {
+		mode, overridden = core.SessionModeOverride(sessionId)
+		if !overridden {
+			mode = core.ModeLookup(root)
+		}
+		if mode == core.ModePlan && !core.IsReadOnlyTool(name) {
+			return "deny", nil
+		}
+		if mode == core.ModeFullAuto {
+			return "once", nil
+		}
+		if mode == core.ModeAutoPersist && core.IsIOTool(name) && !core.ModeEscapesAnchor(root, arguments) {
 			return "once", nil
 		}
 		if sessionApproved(sessionId) {
@@ -162,12 +174,12 @@ func askFunc(conn *safeConn, router *approvalRouter) core.AskFunc {
 	}
 }
 
-func interruptSession(running *sync.Map, sessionId string) {
+func interruptSession(sessionId string) {
 	var stored any
 	var cancel context.CancelFunc
 	var ok bool
 
-	stored, ok = running.Load(sessionId)
+	stored, ok = runningTurns.Load(sessionId)
 	if !ok {
 		return
 	}
@@ -203,7 +215,7 @@ func handleAttach(conn *safeConn, sessionId string, seen *sync.Map) {
 	seen.Store(sessionId, struct{}{})
 }
 
-func handleFrame(ctx context.Context, remoteAddr string, conn *safeConn, frame inboundFrame, router *approvalRouter, seen *sync.Map, running *sync.Map) {
+func handleFrame(ctx context.Context, remoteAddr string, conn *safeConn, frame inboundFrame, router *approvalRouter, seen *sync.Map) {
 	var session *core.Session
 	var agent *core.Agent
 	var msg core.Message
@@ -260,8 +272,8 @@ func handleFrame(ctx context.Context, remoteAddr string, conn *safeConn, frame i
 		ctx = core.WithNoCache(ctx)
 	}
 
-	running.Store(session.Id, cancel)
-	defer running.Delete(session.Id)
+	runningTurns.Store(session.Id, cancel)
+	defer runningTurns.Delete(session.Id)
 
 	msg = core.Message{Id: uuid.NewString(), SessionId: session.Id, Role: "user", Content: frame.Content}
 
@@ -320,7 +332,6 @@ func SockHandler(ctx *gin.Context) {
 	var cancel context.CancelFunc
 	var wg sync.WaitGroup
 	var seen sync.Map
-	var running sync.Map
 
 	var err error
 
@@ -392,7 +403,7 @@ func SockHandler(ctx *gin.Context) {
 		}
 
 		if frame.Type == "interrupt" {
-			interruptSession(&running, frame.SessionId)
+			interruptSession(frame.SessionId)
 			continue
 		}
 
@@ -414,7 +425,7 @@ func SockHandler(ctx *gin.Context) {
 		wg.Add(1)
 		go func(f inboundFrame) {
 			defer wg.Done()
-			handleFrame(handlerCtx, remoteAddr, conn, f, router, &seen, &running)
+			handleFrame(handlerCtx, remoteAddr, conn, f, router, &seen)
 		}(frame)
 	}
 }

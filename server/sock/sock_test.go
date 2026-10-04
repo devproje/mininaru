@@ -43,6 +43,7 @@ func setupTestDB(t *testing.T) {
 	t.Helper()
 
 	gin.SetMode(gin.TestMode)
+	sessionAutoApprove.Clear()
 
 	err = util.InitFS(t.TempDir())
 	if err != nil {
