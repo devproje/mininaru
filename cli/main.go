@@ -136,6 +136,7 @@ func main() {
 	root.AddCommand(webProviderCmd)
 	root.AddCommand(agentCmd)
 	root.AddCommand(mcpCmd)
+	root.AddCommand(browserCmd)
 	root.AddCommand(skillCmd)
 	root.AddCommand(sessionCmd)
 	root.AddCommand(updateCmd)

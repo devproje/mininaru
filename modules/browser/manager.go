@@ -35,13 +35,37 @@ var chromeAbsolutePaths = []string{
 	"/usr/lib/chromium/headless_shell",
 }
 
+var channelCandidates = map[string][]string{
+	ChannelChrome:   {"google-chrome", "google-chrome-stable", "chrome"},
+	ChannelChromium: {"chromium", "chromium-browser", "headless-shell", "headless_shell", "chromium-headless-shell"},
+	ChannelEdge:     {"microsoft-edge", "microsoft-edge-stable", "msedge"},
+	ChannelBrave:    {"brave-browser", "brave"},
+}
+
 var mu sync.Mutex
 var sessions = make(map[string]*session)
 var reaperOnce sync.Once
 var createSession = newSession
 
+func lookupChannel(channel string) string {
+	var candidate string
+	var resolved string
+
+	var err error
+
+	for _, candidate = range channelCandidates[channel] {
+		resolved, err = exec.LookPath(candidate)
+		if err == nil {
+			return resolved
+		}
+	}
+
+	return ""
+}
+
 func chromePath() string {
 	var path string
+	var config Config
 	var candidate string
 	var resolved string
 	var info os.FileInfo
@@ -51,6 +75,11 @@ func chromePath() string {
 	path = os.Getenv("MININARU_CHROME")
 	if path != "" {
 		return path
+	}
+
+	config, err = LoadConfig()
+	if err == nil && config.Channel != "" {
+		return lookupChannel(config.Channel)
 	}
 
 	for _, candidate = range chromeCandidates {
@@ -72,6 +101,10 @@ func chromePath() string {
 
 func Available() bool {
 	return chromePath() != ""
+}
+
+func ResolvedPath() string {
+	return chromePath()
 }
 
 func allocatorOptions() []chromedp.ExecAllocatorOption {

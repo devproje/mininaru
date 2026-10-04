@@ -42,6 +42,7 @@ func newRouter() *gin.Engine {
 	var sessions *gin.RouterGroup
 	var messages *gin.RouterGroup
 	var mcpServers *gin.RouterGroup
+	var browserGroup *gin.RouterGroup
 	var skills *gin.RouterGroup
 
 	router = gin.New()
@@ -93,6 +94,10 @@ func newRouter() *gin.Engine {
 	mcpServers.DELETE("/:name", McpDelete)
 	mcpServers.POST("/:name/enable", McpEnable)
 	mcpServers.POST("/:name/disable", McpDisable)
+
+	browserGroup = api.Group("/browser")
+	browserGroup.GET("", BrowserRead)
+	browserGroup.POST("", BrowserUpdate)
 
 	skills = api.Group("/skill")
 	skills.GET("", SkillList)
