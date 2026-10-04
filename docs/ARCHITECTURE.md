@@ -47,7 +47,7 @@ modules/file/     the file_read/file_write/file_edit builtin tools
 modules/browser/  the browser_* computer-use tools (chromedp), the one tool package with cross-call state, browser.json channel config + `cli/browser.go` admin CLI
 modules/web_search/ the web_search tool (Brave/Tavily/Ollama Search backends)
 modules/web_fetch/  the web_fetch tool (SSRF-guarded direct fetch, or Tavily extract)
-modules/mcp/      the MCP client (stdio + streamable-HTTP transports, mcp.json config, `cli/mcp.go` admin CLI)
+modules/mcp/      the MCP client (stdio + streamable-HTTP transports, mcp.json config, oauth login for http servers with no manual bearer header, `cli/mcp.go` admin CLI)
 modules/memory/   the memory_save/memory_read/memory_forget tools over a per-agent markdown store
 modules/skill/    skill discovery plus the skill/skill_create tools
 server/           gin HTTP API — OpenAI-compatible /api/v1, REST admin routes under /api, and /ws
@@ -150,7 +150,12 @@ lives in `NARU_PATH/directory.json` — a plain JSON array of
 `util.WriteFileAtomic` on every change (`core/mode.go`), the same pattern
 `modules/mcp/config.go` uses for `mcp.json`. It is a flat list, not
 relational data that needs joins or cascades, so a JSON file is simpler than
-a table.
+a table. `modules/mcp/oauth.go` keeps the same pattern for `mcp_oauth.json`:
+one entry per server of the client id/secret and token an http server's
+OAuth login (`mininaru mcp login <name>`) produced, so a daemon reconnect or
+process restart reuses or refreshes it instead of reprompting. Both files'
+secret-bearing fields are encrypted at rest the same way `mcp.json`'s
+`Headers` are (`util.Encrypt`/`util.Decrypt`).
 
 ## `core/` — plain CRUD, no ORM
 
