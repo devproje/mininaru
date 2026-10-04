@@ -18,6 +18,7 @@ require (
 	github.com/spf13/cobra v1.10.2
 	github.com/tidwall/gjson v1.19.0
 	golang.org/x/net v0.59.0
+	golang.org/x/oauth2 v0.35.0
 	golang.org/x/term v0.46.0
 	modernc.org/sqlite v1.59.0
 )
@@ -84,7 +85,6 @@ require (
 	go.mongodb.org/mongo-driver/v2 v2.8.1 // indirect
 	golang.org/x/arch v0.30.0 // indirect
 	golang.org/x/crypto v0.57.0 // indirect
-	golang.org/x/oauth2 v0.35.0 // indirect
 	golang.org/x/sync v0.23.0 // indirect
 	golang.org/x/sys v0.48.0 // indirect
 	golang.org/x/text v0.42.0 // indirect

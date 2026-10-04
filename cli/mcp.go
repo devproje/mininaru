@@ -69,6 +69,26 @@ var mcpDisableCmd *cobra.Command = &cobra.Command{
 	RunE:  mcpDisableExecute,
 }
 
+var mcpLoginCmd *cobra.Command = &cobra.Command{
+	Use:   "login <name>",
+	Short: "log in to an http mcp server with oauth in the browser",
+	Long: `Log in to an http mcp server that requires authorization but was added
+without a manual --header Authorization=... value.
+
+Opens the server's login page in your browser, completes the OAuth flow, and
+stores the resulting token so future connections (including a running daemon's
+reconnects) reuse or refresh it silently.`,
+	Args: cobra.ExactArgs(1),
+	RunE: mcpLoginExecute,
+}
+
+var mcpLogoutCmd *cobra.Command = &cobra.Command{
+	Use:   "logout <name>",
+	Short: "forget a logged-in mcp server's stored oauth token",
+	Args:  cobra.ExactArgs(1),
+	RunE:  mcpLogoutExecute,
+}
+
 var (
 	mcpAddStdioRef          string
 	mcpAddArgsRef           []string
@@ -92,7 +112,7 @@ func init() {
 	mcpAddCmd.Flags().IntVar(&mcpAddTimeoutRef, "timeout", 0, "seconds to wait while connecting, defaults to 10")
 	mcpAddCmd.Flags().StringToStringVar(&mcpAddToolPermissionRef, "tool-permission", nil, "force safe or dangerous for one tool by name (tool=safe|dangerous), repeatable")
 
-	mcpCmd.AddCommand(mcpListCmd, mcpShowCmd, mcpAddCmd, mcpRemoveCmd, mcpEnableCmd, mcpDisableCmd)
+	mcpCmd.AddCommand(mcpListCmd, mcpShowCmd, mcpAddCmd, mcpRemoveCmd, mcpEnableCmd, mcpDisableCmd, mcpLoginCmd, mcpLogoutCmd)
 }
 
 func mcpFind(name string) int {
@@ -364,4 +384,32 @@ func mcpEnableExecute(cmd *cobra.Command, args []string) error {
 
 func mcpDisableExecute(cmd *cobra.Command, args []string) error {
 	return mcpToggle(args[0], false)
+}
+
+func mcpLoginExecute(cmd *cobra.Command, args []string) error {
+	var err error
+
+	fmt.Println("waiting for oauth login in the browser...")
+
+	err = mcp.Login(cmd.Context(), args[0])
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("logged in to mcp server %s\n", args[0])
+
+	return nil
+}
+
+func mcpLogoutExecute(cmd *cobra.Command, args []string) error {
+	var err error
+
+	err = mcp.Logout(args[0])
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("logged out of mcp server %s\n", args[0])
+
+	return nil
 }

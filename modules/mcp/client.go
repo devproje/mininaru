@@ -10,11 +10,13 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/devproje/mininaru/modules"
 	"github.com/devproje/mininaru/util"
+	"github.com/modelcontextprotocol/go-sdk/auth"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -72,10 +74,25 @@ func headerRoundTripper(headers map[string]string) http.RoundTripper {
 	return &headerTransport{headers: headers, base: http.DefaultTransport}
 }
 
+func hasAuthorizationHeader(headers map[string]string) bool {
+	var key string
+
+	for key = range headers {
+		if strings.EqualFold(key, "Authorization") {
+			return true
+		}
+	}
+
+	return false
+}
+
 func newTransport(entry *Server) (mcpsdk.Transport, error) {
 	var command *exec.Cmd
 	var key string
 	var value string
+	var handler auth.OAuthHandler
+
+	var err error
 
 	switch entry.Transport {
 	case TransportStdio:
@@ -90,9 +107,22 @@ func newTransport(entry *Server) (mcpsdk.Transport, error) {
 
 		return &mcpsdk.CommandTransport{Command: command}, nil
 	case TransportHTTP:
+		if hasAuthorizationHeader(entry.Headers) {
+			return &mcpsdk.StreamableClientTransport{
+				Endpoint:   entry.URL,
+				HTTPClient: &http.Client{Transport: headerRoundTripper(entry.Headers)},
+			}, nil
+		}
+
+		handler, err = newOAuthHandler(entry)
+		if err != nil {
+			return nil, err
+		}
+
 		return &mcpsdk.StreamableClientTransport{
-			Endpoint:   entry.URL,
-			HTTPClient: &http.Client{Transport: headerRoundTripper(entry.Headers)},
+			Endpoint:     entry.URL,
+			HTTPClient:   &http.Client{Transport: headerRoundTripper(entry.Headers)},
+			OAuthHandler: handler,
 		}, nil
 	}
 
