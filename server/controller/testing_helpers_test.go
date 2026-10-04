@@ -101,8 +101,8 @@ func newRouter() *gin.Engine {
 
 	api.GET("/attachments/:id", AttachmentDownload)
 
-	api.POST("/yolo", YoloSet)
-	api.GET("/yolo", YoloGet)
+	api.POST("/mode", ModeSet)
+	api.GET("/mode", ModeGet)
 
 	v1.POST("/chat/completions", ChatCompletions)
 	v1.GET("/models", Models)

@@ -140,7 +140,7 @@ func executeTool(ctx context.Context, tools []modules.Tool, sessionId, root, nam
 			return "", err
 		}
 		if decision == "deny" {
-			return "", fmt.Errorf("user denied dangerous tool %q", name)
+			return "", fmt.Errorf("dangerous tool %q was not approved", name)
 		}
 	}
 

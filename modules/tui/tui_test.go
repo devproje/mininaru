@@ -751,3 +751,31 @@ func TestInputHistorySkipsConsecutiveDuplicates(t *testing.T) {
 		t.Fatalf("history = %v, want consecutive duplicates collapsed", m.history)
 	}
 }
+
+func TestNextModeCyclesThroughAllFourModes(t *testing.T) {
+	var mode string
+	var i int
+
+	mode = "default"
+	for i = 0; i < 4; i++ {
+		mode = nextMode(mode)
+	}
+
+	if mode != "default" {
+		t.Fatalf("mode after a full cycle = %q, want default", mode)
+	}
+}
+
+func TestShiftTabIsANoopWithoutASession(t *testing.T) {
+	var m tuiModel
+	var model tea.Model
+
+	m = newTuiModel("a", "s")
+
+	model, _ = m.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
+	m = model.(tuiModel)
+
+	if m.mode != "default" {
+		t.Fatalf("mode = %q, want unchanged default with no base url", m.mode)
+	}
+}

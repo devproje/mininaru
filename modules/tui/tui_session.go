@@ -5,12 +5,24 @@ package tui
 
 import (
 	"fmt"
+	"net/http"
+	"net/url"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/devproje/mininaru/core"
 	"github.com/devproje/mininaru/modules/client"
 	"github.com/gorilla/websocket"
 )
+
+type modeReply struct {
+	Root string `json:"root"`
+	Mode string `json:"mode"`
+}
+
+type tuiModeSyncedMsg struct {
+	mode string
+	err  error
+}
 
 type tuiChunkMsg struct {
 	reasoning string
@@ -69,6 +81,62 @@ type tuiImgUploadedMsg struct {
 	path string
 	id   string
 	err  error
+}
+
+func fetchMode(base, apiKey, cwd string) string {
+	var reply modeReply
+	var err error
+
+	err = client.Api(http.MethodGet, fmt.Sprintf("%s/mode?cwd=%s", base, url.QueryEscape(cwd)), apiKey, nil, &reply)
+	if err != nil {
+		return core.ModeDefault
+	}
+
+	return reply.Mode
+}
+
+func pushMode(base, apiKey, cwd, mode string) (string, error) {
+	var reply modeReply
+
+	var err error
+
+	err = client.Api(http.MethodPost, base+"/mode", apiKey, map[string]string{"mode": mode, "cwd": cwd}, &reply)
+	if err != nil {
+		return "", err
+	}
+
+	return reply.Mode, nil
+}
+
+func pushModeCmd(base, apiKey, cwd, mode string) tea.Cmd {
+	return func() tea.Msg {
+		var confirmed string
+
+		var err error
+
+		confirmed, err = pushMode(base, apiKey, cwd, mode)
+
+		return tuiModeSyncedMsg{mode: confirmed, err: err}
+	}
+}
+
+func refreshModeCmd(base, apiKey, cwd string) tea.Cmd {
+	return func() tea.Msg {
+		return tuiModeSyncedMsg{mode: fetchMode(base, apiKey, cwd)}
+	}
+}
+
+func nextMode(mode string) string {
+	switch mode {
+	case core.ModeDefault:
+		return core.ModePlan
+	case core.ModePlan:
+		return core.ModeAutoPersist
+	case core.ModeAutoPersist:
+		return core.ModeFullAuto
+	default:
+		return core.ModeDefault
+	}
 }
 
 func asyncCmd(label string, fn func() []string) tea.Cmd {
@@ -251,7 +319,7 @@ func RunTuiSession(opts client.Options) error {
 	}
 
 	p = tea.NewProgram(
-		newTuiSessionModel(agent.Name, agent.Id, session.Id, cwd, base, apiKey, opts.NoCache, conn, answers, opts.Gateways, restartPump),
+		newTuiSessionModel(agent.Name, agent.Id, session.Id, cwd, base, apiKey, fetchMode(base, apiKey, cwd), opts.NoCache, conn, answers, opts.Gateways, restartPump),
 		tea.WithAltScreen())
 
 	go pumpTuiReplies(p, client.Pump(conn), conn, answers)

@@ -159,7 +159,7 @@ func sliceLines(text string, offset, limit int) string {
 	return strings.Join(lines, "\n")
 }
 
-func Read(root string) modules.Tool {
+func Read(root string, unrestricted bool) modules.Tool {
 	return modules.Tool{
 		Name: "file_read",
 		Description: "Read a UTF-8 text file relative to the working directory. " +
@@ -207,7 +207,7 @@ func Read(root string) modules.Tool {
 				return "", fmt.Errorf("max_chars cannot exceed %d", maxReadChars)
 			}
 
-			target, err = util.SafeJoin(root, payload.Path)
+			target, err = util.SafeJoin(root, payload.Path, unrestricted)
 			if err != nil {
 				return "", err
 			}
@@ -227,7 +227,7 @@ func Read(root string) modules.Tool {
 	}
 }
 
-func Write(root string) modules.Tool {
+func Write(root string, unrestricted bool) modules.Tool {
 	return modules.Tool{
 		Name: "file_write",
 		Description: "Create or replace a UTF-8 text file relative to the working directory. " +
@@ -270,7 +270,7 @@ func Write(root string) modules.Tool {
 			if !utf8.ValidString(payload.Content) || strings.IndexByte(payload.Content, 0) >= 0 {
 				return "", fmt.Errorf("content must be UTF-8 text")
 			}
-			target, err = util.SafeJoin(root, payload.Path)
+			target, err = util.SafeJoin(root, payload.Path, unrestricted)
 			if err != nil {
 				return "", err
 			}
@@ -313,7 +313,7 @@ func Write(root string) modules.Tool {
 	}
 }
 
-func Edit(root string) modules.Tool {
+func Edit(root string, unrestricted bool) modules.Tool {
 	return modules.Tool{
 		Name: "file_edit",
 		Description: "Replace an exact string in a text file relative to the working directory. " +
@@ -363,7 +363,7 @@ func Edit(root string) modules.Tool {
 				return "", fmt.Errorf("old_string and new_string are identical")
 			}
 
-			target, err = util.SafeJoin(root, payload.Path)
+			target, err = util.SafeJoin(root, payload.Path, unrestricted)
 			if err != nil {
 				return "", err
 			}

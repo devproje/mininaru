@@ -17,7 +17,7 @@ func readBeforeModify(t *testing.T, root, path string) {
 
 	t.Helper()
 
-	_, err = Read(root).Execute(context.Background(), `{"path":"`+path+`"}`)
+	_, err = Read(root, false).Execute(context.Background(), `{"path":"`+path+`"}`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -31,7 +31,7 @@ func TestFileReadAndWriteRoundtrip(t *testing.T) {
 
 	root = t.TempDir()
 
-	result, err = Write(root).Execute(context.Background(), `{"path":"note.txt","content":"hello"}`)
+	result, err = Write(root, false).Execute(context.Background(), `{"path":"note.txt","content":"hello"}`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -39,7 +39,7 @@ func TestFileReadAndWriteRoundtrip(t *testing.T) {
 		t.Fatalf("write result = %q", result)
 	}
 
-	result, err = Read(root).Execute(context.Background(), `{"path":"note.txt"}`)
+	result, err = Read(root, false).Execute(context.Background(), `{"path":"note.txt"}`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,13 +55,37 @@ func TestFileReadRejectsPathEscape(t *testing.T) {
 
 	root = t.TempDir()
 
-	_, err = Read(root).Execute(context.Background(), `{"path":"../secret.txt"}`)
+	_, err = Read(root, false).Execute(context.Background(), `{"path":"../secret.txt"}`)
 	if err == nil {
 		t.Fatal("file_read accepted a path escaping the root")
 	}
-	_, err = Write(root).Execute(context.Background(), `{"path":"../secret.txt","content":"bad"}`)
+	_, err = Write(root, false).Execute(context.Background(), `{"path":"../secret.txt","content":"bad"}`)
 	if err == nil {
 		t.Fatal("file_write accepted a path escaping the root")
+	}
+}
+
+func TestFileWriteUnrestrictedAllowsAbsolutePath(t *testing.T) {
+	var root string
+	var target string
+	var buf []byte
+
+	var err error
+
+	root = t.TempDir()
+	target = filepath.Join(t.TempDir(), "outside.txt")
+
+	_, err = Write(root, true).Execute(context.Background(), `{"path":"`+target+`","content":"full auto"}`)
+	if err != nil {
+		t.Fatalf("file_write rejected an absolute path while unrestricted: %v", err)
+	}
+
+	buf, err = os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(buf) != "full auto" {
+		t.Fatalf("content = %q, want the written content", buf)
 	}
 }
 
@@ -76,7 +100,7 @@ func TestFileReadTruncatesOutput(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err = Read(root).Execute(context.Background(), `{"path":"large.txt","max_chars":4}`)
+	result, err = Read(root, false).Execute(context.Background(), `{"path":"large.txt","max_chars":4}`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,7 +120,7 @@ func TestFileReadTruncatesMultiByteOutputSafely(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err = Read(root).Execute(context.Background(), `{"path":"korean.txt","max_chars":3}`)
+	result, err = Read(root, false).Execute(context.Background(), `{"path":"korean.txt","max_chars":3}`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -120,7 +144,7 @@ func TestFileReadSelectsLineRange(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result, err = Read(root).Execute(context.Background(), `{"path":"lines.txt","offset":2,"limit":2}`)
+	result, err = Read(root, false).Execute(context.Background(), `{"path":"lines.txt","offset":2,"limit":2}`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -143,7 +167,7 @@ func TestFileEditReplacesOneOccurrence(t *testing.T) {
 	}
 	readBeforeModify(t, root, "note.txt")
 
-	result, err = Edit(root).Execute(context.Background(), `{"path":"note.txt","old_string":"beta","new_string":"delta"}`)
+	result, err = Edit(root, false).Execute(context.Background(), `{"path":"note.txt","old_string":"beta","new_string":"delta"}`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -172,7 +196,7 @@ func TestFileEditRejectsAmbiguousMatch(t *testing.T) {
 	}
 	readBeforeModify(t, root, "dup.txt")
 
-	_, err = Edit(root).Execute(context.Background(), `{"path":"dup.txt","old_string":"x","new_string":"y"}`)
+	_, err = Edit(root, false).Execute(context.Background(), `{"path":"dup.txt","old_string":"x","new_string":"y"}`)
 	if err == nil || !strings.Contains(err.Error(), "matches 2 times") {
 		t.Fatalf("ambiguous error = %v", err)
 	}
@@ -191,7 +215,7 @@ func TestFileEditReplacesAll(t *testing.T) {
 	}
 	readBeforeModify(t, root, "dup.txt")
 
-	_, err = Edit(root).Execute(context.Background(), `{"path":"dup.txt","old_string":"x","new_string":"y","replace_all":true}`)
+	_, err = Edit(root, false).Execute(context.Background(), `{"path":"dup.txt","old_string":"x","new_string":"y","replace_all":true}`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -219,7 +243,7 @@ func TestFileModifyRequiresFreshRead(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err = Edit(root).Execute(context.Background(), `{"path":"note.txt","old_string":"one","new_string":"two"}`)
+	_, err = Edit(root, false).Execute(context.Background(), `{"path":"note.txt","old_string":"one","new_string":"two"}`)
 	if err == nil || !strings.Contains(err.Error(), "file_read") {
 		t.Fatalf("edit without read error = %v", err)
 	}
@@ -229,7 +253,7 @@ func TestFileModifyRequiresFreshRead(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = Write(root).Execute(context.Background(), `{"path":"note.txt","content":"overwrite"}`)
+	_, err = Write(root, false).Execute(context.Background(), `{"path":"note.txt","content":"overwrite"}`)
 	if err == nil || !strings.Contains(err.Error(), "changed since file_read") {
 		t.Fatalf("stale write error = %v", err)
 	}
@@ -253,7 +277,7 @@ func TestFileReadRejectsBinaryContent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = Read(root).Execute(context.Background(), `{"path":"binary.dat"}`)
+	_, err = Read(root, false).Execute(context.Background(), `{"path":"binary.dat"}`)
 	if err == nil || !strings.Contains(err.Error(), "binary") {
 		t.Fatalf("binary read error = %v", err)
 	}

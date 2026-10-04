@@ -61,7 +61,7 @@ func agentSpawnTool(caller *Agent, anchor string, depth int, onTool func(name, s
 		Name: AgentSpawnToolName,
 		Description: "Delegate one self-contained task to another configured agent and return its final answer. " +
 			"The target agent starts with no memory of this conversation, so the prompt must carry everything it " +
-			"needs. It runs its own tool-calling turn, subject to the same yolo/HIL approval, but cannot itself " +
+			"needs. It runs its own tool-calling turn, subject to the same mode-gated HIL approval, but cannot itself " +
 			"spawn further agents.",
 		Parameters: map[string]any{
 			"type": "object",

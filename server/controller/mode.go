@@ -10,13 +10,13 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-type yoloRequest struct {
+type modeRequest struct {
 	Mode string `json:"mode" binding:"required"`
 	Cwd  string `json:"cwd"`
 }
 
-func YoloSet(ctx *gin.Context) {
-	var req yoloRequest
+func ModeSet(ctx *gin.Context) {
+	var req modeRequest
 	var anchor string
 
 	var err error
@@ -27,14 +27,14 @@ func YoloSet(ctx *gin.Context) {
 		return
 	}
 
-	if req.Mode != core.YoloOff && req.Mode != core.YoloPersist && req.Mode != core.YoloOn {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "mode must be one of off, persist, on"})
+	if req.Mode != core.ModeDefault && req.Mode != core.ModePlan && req.Mode != core.ModeAutoPersist && req.Mode != core.ModeFullAuto {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "mode must be one of default, plan, auto_persist, full_auto"})
 		return
 	}
 
 	anchor = core.ResolveAnchor(ctx.Request.RemoteAddr, req.Cwd)
 
-	err = core.YoloUpsert(anchor, req.Mode)
+	err = core.ModeUpsert(anchor, req.Mode)
 	if err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -43,14 +43,14 @@ func YoloSet(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, gin.H{"root": anchor, "mode": req.Mode})
 }
 
-func YoloGet(ctx *gin.Context) {
+func ModeGet(ctx *gin.Context) {
 	var cwd string
 	var anchor string
 	var mode string
 
 	cwd = ctx.Query("cwd")
 	anchor = core.ResolveAnchor(ctx.Request.RemoteAddr, cwd)
-	mode = core.YoloLookup(anchor)
+	mode = core.ModeLookup(anchor)
 
 	ctx.JSON(http.StatusOK, gin.H{"root": anchor, "mode": mode})
 }

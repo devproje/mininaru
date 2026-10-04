@@ -6,7 +6,6 @@ package tui
 import (
 	"fmt"
 	"net/http"
-	"net/url"
 	"os"
 	"os/exec"
 	"strings"
@@ -26,11 +25,6 @@ type providerModelsEntry struct {
 	Model    string `json:"model"`
 }
 
-type yoloReply struct {
-	Root string `json:"root"`
-	Mode string `json:"mode"`
-}
-
 const bashShareLimit int = 8000
 
 var tuiCmdList = []tuiCmdInfo{
@@ -42,7 +36,6 @@ var tuiCmdList = []tuiCmdInfo{
 	{"gateway", "list or switch remote endpoints"},
 	{"model", "show available models or set the agent's model"},
 	{"effort", "change the thinking level"},
-	{"yolo", "show or set approval mode for this directory"},
 	{"bash", "run one shell command, share output with the agent"},
 	{"!bash", "run one shell command, don't share it with the agent"},
 	{"exit", "leave the client"},
@@ -169,7 +162,7 @@ func (m tuiModel) runCommand(line string) (tea.Model, tea.Cmd) {
 	case "help":
 		m.lines = append(m.lines, tuiHelpLines()...)
 	case "clear":
-		m.lines = []string{tuiHeaderBlock(m.agent, m.session, m.width)}
+		m.lines = []string{tuiHeaderBlock(m.agent, m.session, client.ModeColor(m.mode), m.width)}
 	case "exit", "quit":
 		return m, tea.Quit
 	case "usage":
@@ -355,37 +348,6 @@ func (m tuiModel) runCommand(line string) (tea.Model, tea.Cmd) {
 			}
 
 			return []string{fmt.Sprintf("%seffort%s %s", client.GRAY, client.RESET, agent.ThinkingLevel)}
-		}))
-	case "yolo":
-		if m.base == "" {
-			m.lines = append(m.lines, fmt.Sprintf("%s✗ no session connected%s", client.RED, client.RESET))
-			break
-		}
-
-		if args != "" && args != "off" && args != "persist" && args != "on" {
-			m.lines = append(m.lines, fmt.Sprintf("%s✗ usage: /yolo off|persist|on%s", client.RED, client.RESET))
-			break
-		}
-
-		base, apiKey, cwd = m.base, m.apiKey, m.cwd
-		cmd = m.beginAsync("yolo")
-		m.layout()
-
-		return m, tea.Batch(cmd, asyncCmd("yolo", func() []string {
-			var yolo yoloReply
-			var err error
-
-			if args == "" {
-				err = client.Api(http.MethodGet, fmt.Sprintf("%s/yolo?cwd=%s", base, url.QueryEscape(cwd)), apiKey, nil, &yolo)
-			} else {
-				err = client.Api(http.MethodPost, base+"/yolo", apiKey, map[string]string{"mode": args, "cwd": cwd}, &yolo)
-			}
-
-			if err != nil {
-				return []string{fmt.Sprintf("%s✗ %s%s", client.RED, err, client.RESET)}
-			}
-
-			return []string{fmt.Sprintf("%syolo%s %s %s(%s)%s", client.GRAY, client.RESET, yolo.Mode, client.DIM, yolo.Root, client.RESET)}
 		}))
 	case "bash", "!bash":
 		if args == "" {

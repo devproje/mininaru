@@ -26,11 +26,15 @@ func SafeSegment(name string) error {
 	return nil
 }
 
-func SafeJoin(root, rel string) (string, error) {
+func SafeJoin(root, rel string, unrestricted bool) (string, error) {
 	var absRoot string
 	var full string
 
 	var err error
+
+	if unrestricted && filepath.IsAbs(rel) {
+		return filepath.Clean(rel), nil
+	}
 
 	if filepath.IsAbs(rel) {
 		return "", fmt.Errorf("path must be relative: %q", rel)
@@ -42,7 +46,7 @@ func SafeJoin(root, rel string) (string, error) {
 	}
 
 	full = filepath.Join(absRoot, rel)
-	if full != absRoot && !strings.HasPrefix(full, absRoot+string(filepath.Separator)) {
+	if !unrestricted && full != absRoot && !strings.HasPrefix(full, absRoot+string(filepath.Separator)) {
 		return "", fmt.Errorf("path escapes working directory: %q", rel)
 	}
 	return full, nil

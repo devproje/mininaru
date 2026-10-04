@@ -61,6 +61,7 @@ func liveSessionIds() []string {
 
 func init() {
 	core.SetLiveSessionsLister(liveSessionIds)
+	core.SetSessionCanceler(interruptSession)
 
 	core.SetSessionRouter(func(sessionId, origin, content string) {
 		var conn *safeConn
