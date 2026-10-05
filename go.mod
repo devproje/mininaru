@@ -18,7 +18,7 @@ require (
 	github.com/spf13/cobra v1.10.2
 	github.com/tidwall/gjson v1.19.0
 	golang.org/x/net v0.59.0
-	golang.org/x/oauth2 v0.35.0
+	golang.org/x/oauth2 v0.37.0
 	golang.org/x/term v0.46.0
 	modernc.org/sqlite v1.59.0
 )
