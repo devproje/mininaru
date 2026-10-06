@@ -5,6 +5,7 @@ package core
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -19,7 +20,6 @@ import (
 	"github.com/openai/openai-go/packages/pagination"
 	"github.com/openai/openai-go/packages/ssestream"
 	"github.com/openai/openai-go/shared"
-	"github.com/tidwall/gjson"
 )
 
 type ChatMessage struct {
@@ -286,6 +286,9 @@ func ChatCompletionStream(ctx context.Context, agent *Agent, messages []ChatMess
 }
 
 func cachedTokensFromUsage(usage openai.CompletionUsage) uint64 {
+	var raw struct {
+		CacheRead int64 `json:"cache_read_input_tokens"`
+	}
 	var cached int64
 
 	cached = usage.PromptTokensDetails.CachedTokens
@@ -293,9 +296,9 @@ func cachedTokensFromUsage(usage openai.CompletionUsage) uint64 {
 		return uint64(cached)
 	}
 
-	cached = gjson.Get(usage.RawJSON(), "cache_read_input_tokens").Int()
+	json.Unmarshal([]byte(usage.RawJSON()), &raw)
 
-	return uint64(cached)
+	return uint64(raw.CacheRead)
 }
 
 func chatStreamRound(ctx context.Context, prov *Provider, params openai.ChatCompletionNewParams, onChunk func(openai.ChatCompletionChunk)) (*openai.ChatCompletionAccumulator, uint64, error) {

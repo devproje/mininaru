@@ -47,17 +47,6 @@ func RuntimeIdentity() string {
 		AppVersion, AppHash, AppBranch, runtime.GOOS, runtime.GOARCH)
 }
 
-func NaruLogo() string {
-	var i int
-	var lines [6]string
-
-	for i = range 6 {
-		lines[i] = fmt.Sprintf("%s%s%s%s%s", ansiReset, MiniArt[i], ansiRed, NaruArt[i], ansiReset)
-	}
-
-	return strings.Join(lines[:], "\n")
-}
-
 func NaruLogoWithPad(pad string) string {
 	var i int
 	var lines [6]string

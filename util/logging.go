@@ -4,26 +4,17 @@
 package util
 
 import (
-	"bytes"
 	"fmt"
 	"io"
 	"log/slog"
 	"os"
 	"strings"
-	"sync"
 )
 
 type LogOptions struct {
 	Level  string
 	Format string
 	Output io.Writer
-}
-
-type logWriter struct {
-	mu      sync.Mutex
-	target  io.Writer
-	held    *bytes.Buffer
-	dropped int
 }
 
 const (
@@ -37,73 +28,7 @@ const (
 	LogFormatJSON = "json"
 )
 
-const maxHeldLogBytes = 1 << 20
-
 var Log *slog.Logger = slog.New(slog.NewTextHandler(io.Discard, nil))
-
-var logSink *logWriter
-
-func LogLevels() []string {
-	return []string{"debug", "info", "warn", "error"}
-}
-
-func LogFormats() []string {
-	return []string{LogFormatAuto, LogFormatText, LogFormatJSON}
-}
-
-func (w *logWriter) Write(buf []byte) (int, error) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-
-	if w.held == nil {
-		return w.target.Write(buf)
-	}
-
-	if w.held.Len()+len(buf) > maxHeldLogBytes {
-		w.dropped++
-		return len(buf), nil
-	}
-
-	return w.held.Write(buf)
-}
-
-func (w *logWriter) suspend() {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-
-	if w.held != nil {
-		return
-	}
-
-	w.held = &bytes.Buffer{}
-	w.dropped = 0
-}
-
-func (w *logWriter) resume() {
-	var held *bytes.Buffer
-	var dropped int
-
-	w.mu.Lock()
-	held = w.held
-	dropped = w.dropped
-	w.held = nil
-	w.dropped = 0
-	w.mu.Unlock()
-
-	if held == nil {
-		return
-	}
-
-	if held.Len() > 0 {
-		w.mu.Lock()
-		w.target.Write(held.Bytes())
-		w.mu.Unlock()
-	}
-
-	if dropped > 0 {
-		Log.Warn("dropped log records while the interactive client held the terminal", "records", dropped)
-	}
-}
 
 func logLevel(name string) (slog.Level, error) {
 	switch strings.ToLower(strings.TrimSpace(name)) {
@@ -117,7 +42,7 @@ func logLevel(name string) (slog.Level, error) {
 		return slog.LevelError, nil
 	}
 
-	return slog.LevelInfo, fmt.Errorf("unknown log level %q, expected one of %s", name, strings.Join(LogLevels(), ", "))
+	return slog.LevelInfo, fmt.Errorf("unknown log level %q, expected one of %s", name, "debug, info, warn, error")
 }
 
 func logTerminal(out io.Writer) bool {
@@ -148,7 +73,7 @@ func logFormat(name string, out io.Writer) (string, error) {
 		return LogFormatJSON, nil
 	case "", LogFormatAuto:
 	default:
-		return "", fmt.Errorf("unknown log format %q, expected one of %s", name, strings.Join(LogFormats(), ", "))
+		return "", fmt.Errorf("unknown log format %q, expected one of %s", name, "auto, text, json")
 	}
 
 	if logTerminal(out) {
@@ -219,27 +144,16 @@ func NewLog(opts LogOptions) error {
 		return err
 	}
 
-	logSink = &logWriter{target: opts.Output}
 	handlerOpts = slog.HandlerOptions{Level: level, ReplaceAttr: unreserve}
 
 	if format == LogFormatJSON {
-		handler = slog.NewJSONHandler(logSink, &handlerOpts)
+		handler = slog.NewJSONHandler(opts.Output, &handlerOpts)
 	} else {
-		handler = slog.NewTextHandler(logSink, &handlerOpts)
+		handler = slog.NewTextHandler(opts.Output, &handlerOpts)
 	}
 
 	Log = slog.New(handler)
 	slog.SetDefault(Log)
 
 	return nil
-}
-
-func LogHold() func() {
-	if logSink == nil {
-		return func() {}
-	}
-
-	logSink.suspend()
-
-	return logSink.resume
 }

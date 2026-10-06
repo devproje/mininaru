@@ -9,8 +9,6 @@ type WebBackend struct {
 	BaseUrl string
 }
 
-type WebBackendLookup func() (*WebBackend, error)
-
 const (
 	WebBackendBrave  = "brave"
 	WebBackendTavily = "tavily"

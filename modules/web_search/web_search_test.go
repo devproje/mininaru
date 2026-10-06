@@ -40,7 +40,7 @@ func TestFormatResultsIncludesEachHit(t *testing.T) {
 }
 
 func TestSearchRequiresQuery(t *testing.T) {
-	var lookup modules.WebBackendLookup
+	var lookup func() (*modules.WebBackend, error)
 	var err error
 
 	lookup = func() (*modules.WebBackend, error) {
@@ -55,7 +55,7 @@ func TestSearchRequiresQuery(t *testing.T) {
 
 func TestSearchSurfacesLookupError(t *testing.T) {
 	var wantErr error
-	var lookup modules.WebBackendLookup
+	var lookup func() (*modules.WebBackend, error)
 	var err error
 
 	wantErr = fmt.Errorf("no web provider is selected")
@@ -74,7 +74,7 @@ func TestSearchSurfacesLookupError(t *testing.T) {
 }
 
 func TestSearchRejectsUnsupportedBackendKind(t *testing.T) {
-	var lookup modules.WebBackendLookup
+	var lookup func() (*modules.WebBackend, error)
 	var err error
 
 	lookup = func() (*modules.WebBackend, error) {

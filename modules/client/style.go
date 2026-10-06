@@ -110,61 +110,8 @@ func spinner(label string) func() {
 	}
 }
 
-func stripAnsi(text string) string {
-	var out string
-	var runes []rune
-	var i int
-
-	runes = []rune(text)
-
-	for i < len(runes) {
-		if runes[i] == 0x1b && i+1 < len(runes) && runes[i+1] == '[' {
-			i = i + 2
-
-			for i < len(runes) && !(runes[i] >= '@' && runes[i] <= '~') {
-				i++
-			}
-
-			i++
-			continue
-		}
-
-		out = fmt.Sprintf("%s%c", out, runes[i])
-		i++
-	}
-
-	return out
-}
-
 func write(format string, args ...any) {
 	fmt.Print(strings.ReplaceAll(fmt.Sprintf(format, args...), "\n", "\r\n"))
-}
-
-func displayWidth(text string) int {
-	var letter rune
-	var width int
-
-	for _, letter = range text {
-		switch {
-		case letter == 0:
-		case letter < 0x20:
-		case letter >= 0x1100 && (letter <= 0x115f ||
-			letter == 0x2329 || letter == 0x232a ||
-			(letter >= 0x2e80 && letter <= 0xa4cf && letter != 0x303f) ||
-			(letter >= 0xac00 && letter <= 0xd7a3) ||
-			(letter >= 0xf900 && letter <= 0xfaff) ||
-			(letter >= 0xfe30 && letter <= 0xfe6f) ||
-			(letter >= 0xff00 && letter <= 0xff60) ||
-			(letter >= 0xffe0 && letter <= 0xffe6) ||
-			(letter >= 0x1f300 && letter <= 0x1f64f) ||
-			(letter >= 0x20000 && letter <= 0x3fffd)):
-			width = width + 2
-		default:
-			width = width + 1
-		}
-	}
-
-	return width
 }
 
 func ContextLabel(usage *core.ContextUsage) string {

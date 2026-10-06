@@ -292,13 +292,43 @@ func updateDownloadArchive(ctx context.Context, url, want, dir string) (string, 
 	return archive.Name(), nil
 }
 
+func updateStageBinary(source io.Reader, dir string) (string, error) {
+	var staged *os.File
+	var written int64
+
+	var err error
+
+	staged, err = os.CreateTemp(dir, updateBinaryName+".new")
+	if err != nil {
+		return "", fmt.Errorf("cannot stage the executable in %s: %w", dir, err)
+	}
+
+	written, err = io.Copy(staged, io.LimitReader(source, maxUpdateBinary+1))
+	staged.Close()
+	if err != nil {
+		os.Remove(staged.Name())
+
+		return "", err
+	}
+	if written > maxUpdateBinary {
+		os.Remove(staged.Name())
+
+		return "", fmt.Errorf("the executable in the archive exceeds %d bytes", maxUpdateBinary)
+	}
+	if written == 0 {
+		os.Remove(staged.Name())
+
+		return "", fmt.Errorf("the executable in the archive is empty")
+	}
+
+	return staged.Name(), nil
+}
+
 func updateExtractTarGz(archivePath, dir, binaryName string) (string, error) {
 	var archive *os.File
 	var reader *gzip.Reader
 	var entries *tar.Reader
 	var header *tar.Header
-	var staged *os.File
-	var written int64
 
 	var err error
 
@@ -329,30 +359,7 @@ func updateExtractTarGz(archivePath, dir, binaryName string) (string, error) {
 			continue
 		}
 
-		staged, err = os.CreateTemp(dir, updateBinaryName+".new")
-		if err != nil {
-			return "", fmt.Errorf("cannot stage the executable in %s: %w", dir, err)
-		}
-
-		written, err = io.Copy(staged, io.LimitReader(entries, maxUpdateBinary+1))
-		staged.Close()
-		if err != nil {
-			os.Remove(staged.Name())
-
-			return "", err
-		}
-		if written > maxUpdateBinary {
-			os.Remove(staged.Name())
-
-			return "", fmt.Errorf("the executable in the archive exceeds %d bytes", maxUpdateBinary)
-		}
-		if written == 0 {
-			os.Remove(staged.Name())
-
-			return "", fmt.Errorf("the executable in the archive is empty")
-		}
-
-		return staged.Name(), nil
+		return updateStageBinary(entries, dir)
 	}
 
 	return "", fmt.Errorf("the archive has no %s executable", binaryName)
@@ -362,8 +369,6 @@ func updateExtractZip(archivePath, dir, binaryName string) (string, error) {
 	var reader *zip.ReadCloser
 	var entry *zip.File
 	var source io.ReadCloser
-	var staged *os.File
-	var written int64
 
 	var err error
 
@@ -383,33 +388,9 @@ func updateExtractZip(archivePath, dir, binaryName string) (string, error) {
 			return "", err
 		}
 
-		staged, err = os.CreateTemp(dir, updateBinaryName+".new")
-		if err != nil {
-			source.Close()
+		defer source.Close()
 
-			return "", fmt.Errorf("cannot stage the executable in %s: %w", dir, err)
-		}
-
-		written, err = io.Copy(staged, io.LimitReader(source, maxUpdateBinary+1))
-		source.Close()
-		staged.Close()
-		if err != nil {
-			os.Remove(staged.Name())
-
-			return "", err
-		}
-		if written > maxUpdateBinary {
-			os.Remove(staged.Name())
-
-			return "", fmt.Errorf("the executable in the archive exceeds %d bytes", maxUpdateBinary)
-		}
-		if written == 0 {
-			os.Remove(staged.Name())
-
-			return "", fmt.Errorf("the executable in the archive is empty")
-		}
-
-		return staged.Name(), nil
+		return updateStageBinary(source, dir)
 	}
 
 	return "", fmt.Errorf("the archive has no %s executable", binaryName)

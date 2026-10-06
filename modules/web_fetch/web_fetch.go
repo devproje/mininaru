@@ -189,7 +189,7 @@ func tavilyFetch(ctx context.Context, backend *modules.WebBackend, target string
 	return payload.Results[0].RawContent, nil
 }
 
-func Fetch(lookup modules.WebBackendLookup) modules.Tool {
+func Fetch(lookup func() (*modules.WebBackend, error)) modules.Tool {
 	return modules.Tool{
 		Name:        "web_fetch",
 		Description: "Fetch a single URL and return its content as plain text. Refuses to fetch private, loopback, and link-local addresses.",
@@ -228,6 +228,6 @@ func Fetch(lookup modules.WebBackendLookup) modules.Tool {
 	}
 }
 
-func Tools(lookup modules.WebBackendLookup) []modules.Tool {
+func Tools(lookup func() (*modules.WebBackend, error)) []modules.Tool {
 	return []modules.Tool{Fetch(lookup)}
 }
