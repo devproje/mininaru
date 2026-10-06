@@ -16,7 +16,7 @@ skills, and one-level delegation — reachable two ways.
 
 This is a from-scratch rewrite, currently in the `1.0.0-alpha` series. An
 earlier version had a Discord front end and a paired gRPC client; both are
-gone. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how the pieces
+gone. See [docs/architecture.md](docs/architecture.md) for how the pieces
 fit together.
 
 ## Install
@@ -168,7 +168,7 @@ make test-cover # race + coverage, writes out/coverage.out
 ```
 
 `make test-race` is what CI runs on every push and pull request. See
-[docs/ARCHITECTURE.md](docs/architecture.md) for the package layout and how
+[docs/architecture.md](docs/architecture.md) for the package layout and how
 the pieces fit together, and [docs/convention.md](docs/convention.md) for the
 code style `make fmt`/`make test` enforce.
 [docs/AGENTS.md](docs/AGENTS.md) is what to hand an AI coding agent before it
