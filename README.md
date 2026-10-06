@@ -59,7 +59,7 @@ install` — the background service described next — unless one is already
 registered. That is also what pins `export NARU_PATH` in your shell rc (a
 `User` environment variable on Windows), so `mininaru` uses one data
 directory no matter which working directory you start it from — see
-[Storage](docs/USAGE.md#storage).
+[Storage](docs/usage.md#storage).
 
 To keep a server up, `mininaru daemon install` registers a per-user service
 that runs `mininaru serve` (with `NARU_PATH` pinned to the current data
@@ -153,8 +153,8 @@ Once you have a provider and an agent configured, `mininaru` (TUI) or
 `mininaru -p "<prompt>"` (one-shot) talk to it. Full detail on storage
 layout, provider/agent setup, `serve`, the tool set and mode gating, MCP
 servers, the TUI, `-p`, and gateways lives in
-[docs/USAGE.md](docs/USAGE.md); the HTTP/websocket API is in
-[docs/API.md](docs/API.md).
+[docs/usage.md](docs/usage.md); the HTTP/websocket API is in
+[docs/api.md](docs/api.md).
 
 ## Development
 
@@ -168,8 +168,8 @@ make test-cover # race + coverage, writes out/coverage.out
 ```
 
 `make test-race` is what CI runs on every push and pull request. See
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the package layout and how
-the pieces fit together, and [docs/CONVENTION.md](docs/CONVENTION.md) for the
+[docs/ARCHITECTURE.md](docs/architecture.md) for the package layout and how
+the pieces fit together, and [docs/convention.md](docs/convention.md) for the
 code style `make fmt`/`make test` enforce.
 [docs/AGENTS.md](docs/AGENTS.md) is what to hand an AI coding agent before it
 touches this repository.
