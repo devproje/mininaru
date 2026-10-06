@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"hash"
 	"hash/fnv"
+	"regexp"
 	"strings"
 
 	"github.com/devproje/mininaru/modules"
@@ -18,6 +19,8 @@ import (
 const maxToolNameLength = 64
 
 const toolNameSeparator = "__"
+
+var toolNameInvalid = regexp.MustCompile(`[^A-Za-z0-9_-]`)
 
 func schemaObject(schema any) map[string]any {
 	var object map[string]any
@@ -46,20 +49,6 @@ func schemaObject(schema any) map[string]any {
 	return object
 }
 
-func nameAllowed(char byte) bool {
-	if char >= 'a' && char <= 'z' {
-		return true
-	}
-	if char >= 'A' && char <= 'Z' {
-		return true
-	}
-	if char >= '0' && char <= '9' {
-		return true
-	}
-
-	return char == '_' || char == '-'
-}
-
 func fnv32a(value string) uint32 {
 	var digest hash.Hash32
 
@@ -71,28 +60,19 @@ func fnv32a(value string) uint32 {
 
 func qualifiedName(server, tool string) string {
 	var raw string
-	var index int
-	var sanitized strings.Builder
+	var sanitized string
 	var digest string
 
 	raw = server + toolNameSeparator + tool
+	sanitized = toolNameInvalid.ReplaceAllString(raw, "_")
 
-	for index = 0; index < len(raw); index++ {
-		if nameAllowed(raw[index]) {
-			sanitized.WriteByte(raw[index])
-			continue
-		}
-
-		sanitized.WriteByte('_')
-	}
-
-	if sanitized.Len() <= maxToolNameLength {
-		return sanitized.String()
+	if len(sanitized) <= maxToolNameLength {
+		return sanitized
 	}
 
 	digest = fmt.Sprintf("%06x", fnv32a(raw))
 
-	return sanitized.String()[:maxToolNameLength-len(digest)-1] + "_" + digest
+	return sanitized[:maxToolNameLength-len(digest)-1] + "_" + digest
 }
 
 func annotationPermission(annotations *mcpsdk.ToolAnnotations) modules.Permission {

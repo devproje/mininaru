@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/alecthomas/chroma/v2/quick"
+	"github.com/charmbracelet/lipgloss"
 )
 
 type MdRenderer struct {
@@ -256,7 +257,7 @@ func cellAligns(sep string) []int {
 func padCell(text string, width int, align int) string {
 	var gap int
 
-	gap = width - displayWidth(stripAnsi(text))
+	gap = width - lipgloss.Width(text)
 	if gap <= 0 {
 		return text
 	}
@@ -305,7 +306,7 @@ func renderTable(rows []string) string {
 		for c = 0; c < cols && c < len(grid[r]); c++ {
 			grid[r][c] = inlineMarkdown(grid[r][c])
 
-			span = displayWidth(stripAnsi(grid[r][c]))
+			span = lipgloss.Width(grid[r][c])
 			if span > widths[c] {
 				widths[c] = span
 			}

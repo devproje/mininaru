@@ -17,7 +17,7 @@ project had: skills, memory, subagent delegation, a Discord front end, a
 paired gRPC client, a full-screen TUI. (Tool calling, MCP, delegation — the
 `agent_spawn` and `session_send` tools — persistent memory, skills, and the
 full-screen TUI (now `modules/tui`, bubbletea-based) all came back; see "Tool
-calling" in ARCHITECTURE.md. All of them are a different, lighter design than
+calling" in [arch/tools.md](arch/tools.md). All of them are a different, lighter design than
 the old one, so don't assume the old shape.)
 If you find a stale reference to any of the rest — in a comment, a doc, an
 old branch — it describes something that used to exist, not something you
@@ -31,9 +31,9 @@ documentation lags the code here more often than the reverse.
 | You are touching | Read first |
 | --- | --- |
 | anything | [CONVENTION.md](CONVENTION.md) |
-| `core/` or `server/` | the matching section of [ARCHITECTURE.md](ARCHITECTURE.md) |
-| `modules/client/` or `modules/tui/` | the matching package section of [ARCHITECTURE.md](ARCHITECTURE.md) |
-| the HTTP API | "`server/` — three route groups, one gin engine" in ARCHITECTURE.md |
+| `core/` or `server/` | the matching file under [arch/](arch/) (index in [ARCHITECTURE.md](ARCHITECTURE.md)) |
+| `modules/client/` or `modules/tui/` | [arch/client.md](arch/client.md) or [arch/tui.md](arch/tui.md) |
+| the HTTP API | [arch/server.md](arch/server.md) |
 
 `core/chat.go` is the one place completion happens; both the `/api/v1`
 controller and the `/ws` handler call into it. A change there affects both,
@@ -104,7 +104,7 @@ any new `core` test, or it will see whatever the previous test left behind.
 - **Do not treat 1a-era "no gate" as the current state.** Dangerous tools
   (`bash_exec`, `file_write`, `file_edit`, `browser_*`) are gated by one of
   four per-directory modes plus human-in-the-loop approval (`core/mode.go`,
-  `server/sock`) — see "Mode" in ARCHITECTURE.md. If you're driving the
+  `server/sock`) — see "Mode" in [arch/approval.md](arch/approval.md). If you're driving the
   shell yourself, expect an approval prompt for `bash_exec`/`browser_*`
   outside Full Auto, and for `file_write`/`file_edit` outside Auto Persist
   or Full Auto (cycled with Shift+Tab in the TUI, there is no slash command

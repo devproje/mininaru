@@ -6,6 +6,8 @@ package client
 import (
 	"strings"
 	"testing"
+
+	"github.com/charmbracelet/x/ansi"
 )
 
 const mdSample = "# Title\n\nsome **bold** and `code` and *em*.\n\n- one\n- two\n1. first\n\n> quoted\n\n```go\nfmt.Println(\"x\")\n```\n\ntail without newline"
@@ -55,7 +57,7 @@ func TestMarkdownRendersElements(t *testing.T) {
 	if !strings.Contains(out, "• "+RESET+"first") {
 		t.Error("ordered list marker not normalised")
 	}
-	if !strings.Contains(stripAnsi(out), "│ fmt.Println(\"x\")") {
+	if !strings.Contains(ansi.Strip(out), "│ fmt.Println(\"x\")") {
 		t.Error("fenced code line missing gutter or syntax highlighting broke content")
 	}
 	if !strings.Contains(out, RED+"code"+RESET) {

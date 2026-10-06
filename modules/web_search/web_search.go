@@ -257,7 +257,7 @@ func formatResults(results []searchResult) string {
 	return strings.TrimRight(body.String(), "\n")
 }
 
-func Search(lookup modules.WebBackendLookup) modules.Tool {
+func Search(lookup func() (*modules.WebBackend, error)) modules.Tool {
 	return modules.Tool{
 		Name:        "web_search",
 		Description: "Search the web using the configured provider (Brave, Tavily, or Ollama Search) and return matching results.",
@@ -323,6 +323,6 @@ func Search(lookup modules.WebBackendLookup) modules.Tool {
 	}
 }
 
-func Tools(lookup modules.WebBackendLookup) []modules.Tool {
+func Tools(lookup func() (*modules.WebBackend, error)) []modules.Tool {
 	return []modules.Tool{Search(lookup)}
 }

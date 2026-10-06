@@ -68,32 +68,6 @@ func TestNewLogDefaultsToJSONOffTerminal(t *testing.T) {
 	}
 }
 
-func TestLogHoldDefersOutputUntilRelease(t *testing.T) {
-	var out bytes.Buffer
-	var release func()
-
-	var err error
-
-	err = NewLog(LogOptions{Format: LogFormatText, Output: &out})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	release = LogHold()
-
-	Log.Info("during the tui")
-
-	if out.Len() != 0 {
-		t.Fatalf("log leaked into the terminal while held: %s", out.String())
-	}
-
-	release()
-
-	if !strings.Contains(out.String(), "during the tui") {
-		t.Fatalf("held record was lost: %s", out.String())
-	}
-}
-
 func TestLogRejectsReservedAttributeKeys(t *testing.T) {
 	var out bytes.Buffer
 	var decoder *json.Decoder
@@ -130,7 +104,6 @@ func TestLogWritesAreConcurrencySafe(t *testing.T) {
 	var out bytes.Buffer
 	var group sync.WaitGroup
 	var writer int
-	var release func()
 
 	var err error
 
@@ -154,13 +127,6 @@ func TestLogWritesAreConcurrencySafe(t *testing.T) {
 				Log.Info("concurrent record", "index", index)
 			}
 		}()
-	}
-
-	for writer = range 20 {
-		_ = writer
-
-		release = LogHold()
-		release()
 	}
 
 	group.Wait()
