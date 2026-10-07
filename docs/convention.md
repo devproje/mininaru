@@ -28,8 +28,8 @@ result, err = client.Call(ctx)
 
 ### Declaration placement and order
 
-- As a rule, declare local variables at the very top of the function body in a
-  single `var` block.
+- Declare local variables together at the very top of the function body. Use
+  separate `var` lines or a grouped `var` declaration to match the file.
 - Order variables by **first use in the function**, top to bottom. A variable
   used earlier belongs higher in the block.
 - Always put `err` last in the declaration block.
@@ -57,12 +57,18 @@ func ServiceCreate(ctx context.Context, input CreateInput) (*Item, error) {
 
 ## 2. File and Function Layout
 
-Top-level elements in a file **must** appear in this order:
+By default, top-level elements in a file appear in this order:
 
 1. Type declarations such as `struct`
 2. `const` declarations
 3. Package-level `var` declarations
 4. Function declarations
+
+An initialized package variable that registers a function from the same file,
+such as a Cobra command or HTTP route, may appear immediately after that
+function. Keep the registration next to its handler and before the first
+function that uses the variable. This exception does not apply to unrelated
+package variables.
 
 Arrange functions in **dependency order** — not alphabetically and not grouped
 by role. Put a helper or callee immediately before the first function that calls
@@ -106,8 +112,27 @@ func main() {
 }
 ```
 
-- Do not place type, constant, or package-level variable declarations after
-  function declarations.
+For a function-backed registration, this order is also valid:
+
+```go
+func execute(cmd *cobra.Command, args []string) error {
+    return nil
+}
+
+var root = &cobra.Command{RunE: execute}
+
+func main() {
+    var err error
+
+    err = root.Execute()
+    if err != nil {
+        os.Exit(1)
+    }
+}
+```
+
+- Do not place types, constants, or unrelated package variables after function
+  declarations.
 - Do not sort functions by name.
 - When one caller invokes several independent helpers, keep those helpers in the
   same order in which the caller invokes them.
@@ -153,8 +178,8 @@ response format and behavior as closely as possible, but every endpoint path
 
 ## 5. Logging
 
-Diagnostics go through `util.Log`, the shared `log/slog` logger. Do not use
-`log.Printf`, and do not write diagnostics to `os.Stderr` with `fmt.Fprintf`.
+Runtime diagnostics go through `util.Log`, the shared `log/slog` logger. Do not
+use `log.Printf` or write routine diagnostics to `os.Stderr` with `fmt.Fprintf`.
 
 ```go
 // Bad
@@ -179,6 +204,8 @@ util.Log.Error("mcp server unavailable", "server", name, "error", err)
 Output written for the user — a command's results, the `-p` answer, tool progress
 in `-p` mode — is not logging. It keeps using `fmt` and goes to stdout, except
 `-p` tool progress and reasoning, which the README documents as stderr.
+CLI command errors may be printed to stderr. A failure to initialize `util.Log`
+may also be printed to stderr because the logger is not yet available.
 
 ## 6. Early Return
 

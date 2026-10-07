@@ -6,8 +6,8 @@ covers what to read first, how to verify a change, and which actions need a
 human.
 
 The rules that decide whether a change is acceptable live elsewhere:
-[CONVENTION.md](CONVENTION.md) is the code style, and
-[ARCHITECTURE.md](ARCHITECTURE.md) is the package layout. Read both before
+[convention.md](convention.md) is the code style, and
+[architecture.md](architecture.md) is the package layout. Read both before
 the first edit. This document does not repeat them.
 
 ## This is a from-scratch rewrite
@@ -22,7 +22,7 @@ the old one, so don't assume the old shape.)
 If you find a stale reference to any of the rest — in a comment, a doc, an
 old branch — it describes something that used to exist, not something you
 are missing. Check
-[ARCHITECTURE.md](ARCHITECTURE.md) against the actual package layout before
+[architecture.md](architecture.md) against the actual package layout before
 trusting any other description of "what mininaru does," this file included:
 documentation lags the code here more often than the reverse.
 
@@ -30,8 +30,8 @@ documentation lags the code here more often than the reverse.
 
 | You are touching | Read first |
 | --- | --- |
-| anything | [CONVENTION.md](CONVENTION.md) |
-| `core/` or `server/` | the matching file under [arch/](arch/) (index in [ARCHITECTURE.md](ARCHITECTURE.md)) |
+| anything | [convention.md](convention.md) |
+| `core/` or `server/` | the matching file under [arch/](arch/) (index in [architecture.md](architecture.md)) |
 | `modules/client/` or `modules/tui/` | [arch/client.md](arch/client.md) or [arch/tui.md](arch/tui.md) |
 | the HTTP API | [arch/server.md](arch/server.md) |
 
@@ -49,14 +49,16 @@ any of the rules below. They are the ones that come back in review:
   SPDX license header at the top of a file or a compiler directive. There
   are no explanatory comments anywhere; do not add the first one. A new
   `.go` file starts with the SPDX header — copy it from a neighbouring file.
-- **No `:=`.** One `var` block at the top of the function, in first-use
-  order, `err` last, assigned with `=` where the value is needed. This
-  includes the init statements of `for`, `if`, and `switch`.
+- **No `:=`.** Keep local `var` declarations together at the top of the
+  function, in first-use order with `err` last, and assign with `=` where the
+  value is needed. Separate `var` lines and grouped declarations are both
+  allowed. This includes the init statements of `for`, `if`, and `switch`.
 - **Dependency order.** A helper or callee appears immediately before its
   first caller. Independent helpers follow the order in which that caller
   invokes them. `main` is unconditionally the final function and final
-  top-level declaration in its file; nothing may appear below it. Do not
-  sort functions alphabetically or group them by role.
+  top-level declaration in its file; nothing may appear below it. A command or
+  route variable initialized with a handler may appear immediately after that
+  handler. Do not sort functions alphabetically or group them by role.
 - **`util.Log` for diagnostics.** A constant lowercase message with
   everything variable in key/value attributes. Output meant for the user is
   not logging and keeps using `fmt`.

@@ -6,6 +6,13 @@ Everything lives under `.mininaru/`, or `NARU_PATH` if set. `util.InitFS`
 creates that directory at mode `0700` and tightens an existing one to `0700`
 on every start, since it holds API keys.
 
+Provider API keys are encrypted in `state.db`. Their master key lives in the
+separate `credentials.db` file at mode `0600`; both databases are needed to
+restore encrypted credentials. On first use, an existing `secret.key` is copied
+into `credentials.db` so existing ciphertext remains readable. The old file is
+removed after its key is verified against the database copy. A mismatched key
+stops the operation without deleting the file.
+
 SQLite (`modernc.org/sqlite`, no cgo) is opened with WAL, `foreign_keys`, and
 a five-second busy timeout (`util.databaseDSN`). Migrations are `.sql` files
 embedded into the binary (`util/migrations/*.sql`), tracked one row per
