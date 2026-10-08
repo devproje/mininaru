@@ -15,6 +15,7 @@ import (
 
 	"github.com/devproje/mininaru/core"
 	"github.com/devproje/mininaru/util"
+	"github.com/gin-gonic/gin"
 	"github.com/spf13/cobra"
 )
 
@@ -56,6 +57,10 @@ func execServe(cmd *cobra.Command, args []string) error {
 	var stop context.CancelFunc
 
 	var err error
+
+	if !util.AppDebug {
+		gin.SetMode(gin.ReleaseMode)
+	}
 
 	app = core.NewNaruCore()
 	webapp = &http.Server{

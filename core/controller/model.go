@@ -8,6 +8,7 @@ import (
 	"fmt"
 
 	"github.com/devproje/mininaru/modules/store"
+	"github.com/devproje/mininaru/util"
 	"github.com/gin-gonic/gin"
 )
 
@@ -18,10 +19,8 @@ func listModel(ctx *gin.Context) {
 
 	models, err = store.ListModel(context.Background())
 	if err != nil {
-		ctx.JSON(500, gin.H{
-			"ok":    0,
-			"error": "failed fetch model",
-		})
+		util.Log.Error(fmt.Sprintf("sent error message from model: %v", err))
+		ctx.JSON(500, errModelList)
 
 		return
 	}
@@ -36,32 +35,25 @@ func validateModel(ctx *gin.Context) {
 	var err error
 
 	model = ctx.Param("model")
-
 	ok, err = store.ValidateModel(context.Background(), model)
 	if err != nil {
-		ctx.JSON(500, gin.H{
-			"ok":    0,
-			"error": "failed fetch model",
-		})
+		util.Log.Error(fmt.Sprintf("sent error message from model validation: %v", err))
+		ctx.JSON(500, errModelValidation)
 
 		return
 	}
-
 	if !ok {
-		ctx.JSON(400, gin.H{
-			"ok":    0,
-			"error": fmt.Sprintf("model '%s' not exists", model),
-		})
-
+		ctx.JSON(404, errorTemplate(fmt.Sprintf("model %q is not listed by configured providers", model)))
 		return
 	}
 
 	ctx.JSON(200, gin.H{
-		"ok": 1,
+		"ok":     1,
+		"action": "VALIDATE_MODEL",
 	})
 }
 
 func RouteModels(v1, api *gin.RouterGroup) {
 	v1.GET("/models", listModel)
-	api.GET("/model/validate/:model", validateModel)
+	api.GET("/models/validate/:model", validateModel)
 }

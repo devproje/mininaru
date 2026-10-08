@@ -25,6 +25,7 @@ func NewNaruCore() *NaruCore {
 
 	controller.RouteProviders(api)
 	controller.RouteModels(v1, api)
+	controller.RouteProfile(api)
 
 	app.GET("/ws", sock.Handler)
 

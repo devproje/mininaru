@@ -33,28 +33,22 @@ func addProvider(ctx *gin.Context) {
 
 	err = ctx.ShouldBindBodyWithJSON(&body)
 	if err != nil {
-		ctx.JSON(400, gin.H{
-			"ok":    0,
-			"error": "invalid payload",
-		})
-
+		ctx.JSON(400, errInvalidPayload)
 		return
 	}
 
 	id, err = store.AddProvider(context.Background(), body.Name, body.ApiKey, body.BaseUrl)
 	if err != nil {
 		util.Log.Error(fmt.Sprintf("sent error message from provider: %v", err))
-		ctx.JSON(500, gin.H{
-			"ok":    0,
-			"error": "transaction failed",
-		})
+		ctx.JSON(500, errProviderCreate)
 
 		return
 	}
 
 	ctx.JSON(200, gin.H{
-		"ok": 1,
-		"id": id,
+		"ok":     1,
+		"id":     id,
+		"action": "CREATE_PROVIDER",
 	})
 }
 
@@ -64,26 +58,22 @@ func getProviders(ctx *gin.Context) {
 	var err error
 
 	objs, err = store.GetProviders()
-	if err != nil {
-		if !errors.Is(err, sql.ErrNoRows) {
-			ctx.JSON(500, gin.H{
-				"ok":    0,
-				"error": "database error",
-			})
-
-			return
-		}
-
+	if errors.Is(err, sql.ErrNoRows) {
 		ctx.JSON(200, gin.H{
 			"ok":   1,
 			"data": objs,
 		})
+
+		return
+	}
+	if err != nil {
+		util.Log.Error(fmt.Sprintf("sent error message from provider: %v", err))
+		ctx.JSON(500, errProviderList)
+
+		return
 	}
 
-	ctx.JSON(200, gin.H{
-		"ok":   1,
-		"data": objs,
-	})
+	ctx.JSON(200, objs)
 }
 
 func getProvider(ctx *gin.Context) {
@@ -93,30 +83,19 @@ func getProvider(ctx *gin.Context) {
 	var err error
 
 	id = ctx.Param("id")
-
 	obj, err = store.GetProvider(id)
+	if errors.Is(err, sql.ErrNoRows) {
+		ctx.JSON(404, errProviderNotFound)
+		return
+	}
 	if err != nil {
-		if !errors.Is(err, sql.ErrNoRows) {
-			ctx.JSON(500, gin.H{
-				"ok":    0,
-				"error": "database error",
-			})
-
-			return
-		}
-
-		ctx.JSON(204, gin.H{
-			"ok":   0,
-			"data": nil,
-		})
+		ctx.JSON(500, errProviderRead)
+		util.Log.Error(fmt.Sprintf("sent error message from provider: %v", err))
 
 		return
 	}
 
-	ctx.JSON(200, gin.H{
-		"ok":   1,
-		"data": obj,
-	})
+	ctx.JSON(200, obj)
 }
 
 func setProvider(ctx *gin.Context) {
@@ -129,11 +108,7 @@ func setProvider(ctx *gin.Context) {
 	id = ctx.Param("id")
 	err = ctx.ShouldBindBodyWithJSON(&body)
 	if err != nil {
-		ctx.JSON(400, gin.H{
-			"ok":    0,
-			"error": "invalid payload",
-		})
-
+		ctx.JSON(400, errInvalidPayload)
 		return
 	}
 
@@ -143,36 +118,64 @@ func setProvider(ctx *gin.Context) {
 	}
 
 	err = store.SetProvider(context.Background(), id, &obj)
+	if errors.Is(err, store.ErrNoFieldsToUpdate) {
+		ctx.JSON(400, errorTemplate(err.Error()))
+		return
+	}
 	if err != nil {
-		if !errors.Is(err, store.ErrNoFieldsToUpdate) {
-			ctx.JSON(500, gin.H{
-				"ok":    0,
-				"error": "transaction error",
-			})
-
-			return
-		}
-
-		ctx.JSON(400, gin.H{
-			"ok":    0,
-			"error": err.Error(),
-		})
+		util.Log.Error(fmt.Sprintf("sent error message from provider: %v", err))
+		ctx.JSON(500, errProviderUpdate)
 
 		return
 	}
 
 	ctx.JSON(200, gin.H{
-		"ok": 1,
-		"id": id,
+		"ok":     1,
+		"id":     id,
+		"action": "UPDATE_PROVIDER",
 	})
 }
 
 func emptyApiKey(ctx *gin.Context) {
-	// TODO
+	var id string
+
+	var err error
+
+	id = ctx.Param("id")
+	err = store.SetEmptyApiKey(context.Background(), id)
+	if err != nil {
+		util.Log.Error(fmt.Sprintf("sent error message from provider: %v", err))
+		ctx.JSON(500, errProviderUpdate)
+
+		return
+	}
+
+	ctx.JSON(200, gin.H{
+		"ok":     1,
+		"id":     id,
+		"action": "EMPTY_API_KEY",
+	})
 }
 
 func emptyBaseUrl(ctx *gin.Context) {
-	// TODO
+	var id string
+
+	var err error
+
+	id = ctx.Param("id")
+	err = store.SetEmptyBaseUrl(context.Background(), id)
+	if err != nil {
+		util.Log.Error(fmt.Sprintf("sent error message from provider: %v", err))
+		ctx.JSON(500, errProviderUpdate)
+
+		return
+	}
+
+	ctx.JSON(200, gin.H{
+		"ok":     1,
+		"id":     id,
+		"action": "EMPTY_BASE_URL",
+	})
 }
 
 func removeProvider(ctx *gin.Context) {
@@ -183,17 +186,16 @@ func removeProvider(ctx *gin.Context) {
 	id = ctx.Param("id")
 	err = store.RemoveProvider(context.Background(), id)
 	if err != nil {
-		ctx.JSON(500, gin.H{
-			"ok":    0,
-			"error": "transaction error",
-		})
+		util.Log.Error(fmt.Sprintf("sent error message from provider: %v", err))
+		ctx.JSON(500, errProviderDelete)
 
 		return
 	}
 
 	ctx.JSON(200, gin.H{
-		"ok": 1,
-		"id": id,
+		"ok":     1,
+		"id":     id,
+		"action": "DELETE_PROVIDER",
 	})
 }
 

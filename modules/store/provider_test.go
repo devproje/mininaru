@@ -7,6 +7,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -104,5 +105,50 @@ func TestProviderAPIKeyEncryptedAtRest(t *testing.T) {
 	}
 	if provider.ApiKey != "updated-provider-key" {
 		t.Fatal("updated provider API key did not decrypt")
+	}
+}
+
+func TestGetProviderByModel(t *testing.T) {
+	var oldDB *sql.DB
+	var db *sql.DB
+	var provider Provider
+	var model string
+
+	var err error
+
+	oldDB = util.DB
+	db, err = util.NewDatabase(filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	util.DB = db
+	defer func() {
+		util.DB = oldDB
+		db.Close()
+	}()
+
+	_, err = db.Exec("INSERT INTO providers (id, name) VALUES (?, ?)", "provider-1", "local")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	provider, err = GetProviderByModel("local:family:model")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if provider.Id != "provider-1" || provider.Name != "local" {
+		t.Fatalf("unexpected provider: %+v", provider)
+	}
+
+	for _, model = range []string{"", "local", ":model", "local:", " local:model", "local: model"} {
+		_, err = GetProviderByModel(model)
+		if !errors.Is(err, ErrModelNotFound) {
+			t.Errorf("model %q: expected ErrModelNotFound, got %v", model, err)
+		}
+	}
+
+	_, err = GetProviderByModel("missing:model")
+	if !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("expected sql.ErrNoRows for unknown provider, got %v", err)
 	}
 }

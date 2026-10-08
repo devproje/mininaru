@@ -5,4 +5,7 @@ package store
 
 import "fmt"
 
-var ErrNoFieldsToUpdate = fmt.Errorf("at least one field must be provided")
+var (
+	ErrNoFieldsToUpdate = fmt.Errorf("at least one field must be provided")
+	ErrModelNotFound    = fmt.Errorf("invalid models")
+)
