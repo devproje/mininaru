@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Wonhyeok Kim (Project_IO)
 // SPDX-License-Identifier: GPL-3.0-only
 
-package controller
+package store
 
 import (
 	"context"
@@ -39,7 +39,7 @@ func cachedModels() ([]string, bool) {
 	return slices.Clone(cacheModels.Models), true
 }
 
-func invalidateModels() {
+func InvalidateModels() {
 	cacheModels.Lock()
 	cacheModels.Models = nil
 	cacheModels.ExpiresAt = time.Time{}

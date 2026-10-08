@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Wonhyeok Kim (Project_IO)
 // SPDX-License-Identifier: GPL-3.0-only
 
-package controller
+package store
 
 import (
 	"context"
@@ -31,7 +31,7 @@ func TestProviderAPIKeyEncryptedAtRest(t *testing.T) {
 	dir = t.TempDir()
 	oldDB = util.DB
 	defer func() {
-		invalidateModels()
+		InvalidateModels()
 		util.DB = oldDB
 		util.RootDir = oldRoot
 	}()

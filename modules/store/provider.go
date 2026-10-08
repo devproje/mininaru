@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Wonhyeok Kim (Project_IO)
 // SPDX-License-Identifier: GPL-3.0-only
 
-package controller
+package store
 
 import (
 	"context"
@@ -52,7 +52,7 @@ func AddProvider(ctx context.Context, name, apiKey, baseUrl string) (string, err
 		return "", err
 	}
 
-	invalidateModels()
+	InvalidateModels()
 
 	return id, nil
 }
@@ -172,7 +172,7 @@ func SetProvider(ctx context.Context, id string, prov *Provider) error {
 		return err
 	}
 
-	invalidateModels()
+	InvalidateModels()
 	return nil
 }
 
@@ -183,7 +183,7 @@ func SetEmptyApiKey(ctx context.Context, id string) error {
 		return err
 	}
 
-	invalidateModels()
+	InvalidateModels()
 
 	return nil
 }
@@ -195,7 +195,7 @@ func SetEmptyBaseUrl(ctx context.Context, id string) error {
 		return err
 	}
 
-	invalidateModels()
+	InvalidateModels()
 
 	return nil
 }
@@ -222,7 +222,7 @@ func RemoveProvider(ctx context.Context, id string) error {
 		return err
 	}
 
-	invalidateModels()
+	InvalidateModels()
 
 	return nil
 }

@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/devproje/mininaru/modules/store"
 	"github.com/gin-gonic/gin"
 )
 
@@ -15,7 +16,7 @@ func listModel(ctx *gin.Context) {
 
 	var err error
 
-	models, err = ListModel(context.Background())
+	models, err = store.ListModel(context.Background())
 	if err != nil {
 		ctx.JSON(500, gin.H{
 			"ok":    0,
@@ -36,7 +37,7 @@ func validateModel(ctx *gin.Context) {
 
 	model = ctx.Param("model")
 
-	ok, err = ValidateModel(context.Background(), model)
+	ok, err = store.ValidateModel(context.Background(), model)
 	if err != nil {
 		ctx.JSON(500, gin.H{
 			"ok":    0,

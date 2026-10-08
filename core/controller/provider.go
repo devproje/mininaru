@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/devproje/mininaru/modules/store"
 	"github.com/devproje/mininaru/util"
 	"github.com/gin-gonic/gin"
 )
@@ -40,7 +41,7 @@ func addProvider(ctx *gin.Context) {
 		return
 	}
 
-	id, err = AddProvider(context.Background(), body.Name, body.ApiKey, body.BaseUrl)
+	id, err = store.AddProvider(context.Background(), body.Name, body.ApiKey, body.BaseUrl)
 	if err != nil {
 		util.Log.Error(fmt.Sprintf("sent error message from provider: %v", err))
 		ctx.JSON(500, gin.H{
@@ -58,11 +59,11 @@ func addProvider(ctx *gin.Context) {
 }
 
 func getProviders(ctx *gin.Context) {
-	var objs []Provider
+	var objs []store.Provider
 
 	var err error
 
-	objs, err = GetProviders()
+	objs, err = store.GetProviders()
 	if err != nil {
 		if !errors.Is(err, sql.ErrNoRows) {
 			ctx.JSON(500, gin.H{
@@ -87,13 +88,13 @@ func getProviders(ctx *gin.Context) {
 
 func getProvider(ctx *gin.Context) {
 	var id string
-	var obj Provider
+	var obj store.Provider
 
 	var err error
 
 	id = ctx.Param("id")
 
-	obj, err = GetProvider(id)
+	obj, err = store.GetProvider(id)
 	if err != nil {
 		if !errors.Is(err, sql.ErrNoRows) {
 			ctx.JSON(500, gin.H{
@@ -121,7 +122,7 @@ func getProvider(ctx *gin.Context) {
 func setProvider(ctx *gin.Context) {
 	var id string
 	var body providerUpdateBody
-	var obj Provider
+	var obj store.Provider
 
 	var err error
 
@@ -136,14 +137,14 @@ func setProvider(ctx *gin.Context) {
 		return
 	}
 
-	obj = Provider{
+	obj = store.Provider{
 		ApiKey:  body.ApiKey,
 		BaseUrl: body.BaseUrl,
 	}
 
-	err = SetProvider(context.Background(), id, &obj)
+	err = store.SetProvider(context.Background(), id, &obj)
 	if err != nil {
-		if !errors.Is(err, ErrNoFieldsToUpdate) {
+		if !errors.Is(err, store.ErrNoFieldsToUpdate) {
 			ctx.JSON(500, gin.H{
 				"ok":    0,
 				"error": "transaction error",
@@ -180,7 +181,7 @@ func removeProvider(ctx *gin.Context) {
 	var err error
 
 	id = ctx.Param("id")
-	err = RemoveProvider(context.Background(), id)
+	err = store.RemoveProvider(context.Background(), id)
 	if err != nil {
 		ctx.JSON(500, gin.H{
 			"ok":    0,
